@@ -1,17 +1,24 @@
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef } from "react";
 import {
   Map as MapLibreMap,
   Marker,
   NavigationControl,
   Popup,
+  setWorkerUrl,
   type StyleSpecification
 } from "maplibre-gl";
 import type { Coordinate } from "@bussin/shared";
+
+setWorkerUrl(workerUrl);
 
 type Stop = Coordinate & { label: string };
 
 type Props = {
   stops: Stop[];
+  focus: Coordinate | null;
+  onFocusMove: (coordinate: Coordinate) => void;
   onPick: (coordinate: Coordinate) => void;
   onMove: (index: number, coordinate: Coordinate) => void;
 };
@@ -29,12 +36,12 @@ const localStyle: StyleSpecification = {
   layers: [{ id: "osm", type: "raster", source: "osm" }]
 };
 
-export function StopPickerMap({ stops, onPick, onMove }: Props) {
+export function StopPickerMap({ stops, focus, onFocusMove, onPick, onMove }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
-  const handlers = useRef({ onPick, onMove });
-  handlers.current = { onPick, onMove };
+  const handlers = useRef({ onFocusMove, onPick, onMove });
+  handlers.current = { onFocusMove, onPick, onMove };
 
   const style = import.meta.env.VITE_MAP_STYLE_URL ||
     (import.meta.env.DEV ? localStyle : null);
@@ -96,6 +103,27 @@ export function StopPickerMap({ stops, onPick, onMove }: Props) {
       markers.current = [];
     };
   }, [stops]);
+
+  useEffect(() => {
+    if (!focus || !map.current) return;
+
+    const position: [number, number] = [focus.longitude, focus.latitude];
+    const marker = new Marker({ color: "#a85c36", draggable: true })
+      .setLngLat(position)
+      .addTo(map.current);
+
+    marker.on("dragend", () => {
+      const moved = marker.getLngLat();
+      handlers.current.onFocusMove({
+        latitude: moved.lat,
+        longitude: moved.lng
+      });
+    });
+
+    map.current.flyTo({ center: position, zoom: 16 });
+
+    return () => { marker.remove(); };
+  }, [focus]);
 
   if (!style) {
     return <p role="alert">Map service is not configured.</p>;

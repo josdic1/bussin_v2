@@ -62,6 +62,15 @@ export const createRouteSchema = z.strictObject({
   ).min(1).max(100)
 });
 
+export const updateRouteSchema = z.strictObject({
+  name: createRouteSchema.shape.name,
+  stops: z.array(
+    createRouteSchema.shape.stops.element.extend({
+      id: z.string().uuid().optional()
+    })
+  ).min(1).max(100)
+});
+
 export const routeSchema = z.strictObject({
   id: z.string().uuid(),
   name: z.string(),
@@ -82,3 +91,15 @@ export const routesResponseSchema = z.strictObject({
 });
 
 export type Route = z.infer<typeof routeSchema>;
+
+export const addressSearchResponseSchema = z.strictObject({
+  results: z.array(z.strictObject({
+    label: z.string(),
+    latitude: coordinateSchema.shape.latitude,
+    longitude: coordinateSchema.shape.longitude,
+    locationType: z.enum(["address", "place"])
+  }))
+});
+
+export type AddressSearchResult =
+  z.infer<typeof addressSearchResponseSchema>["results"][number];

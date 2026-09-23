@@ -1,8 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { lazy, Suspense, useState, type FormEvent } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 import { useAuth } from "./auth/AuthProvider";
 import { FleetPage } from "./fleet/FleetPage";
-import { RoutesPage } from "./routes/RoutesPage";
+const RoutesPage = lazy(async () => {
+  const module = await import("./routes/RoutesPage");
+  return { default: module.RoutesPage };
+});
 
 const pages = [
   { path: "/", label: "Dispatch", mark: "D" },
@@ -281,7 +284,7 @@ export function App() {
         <Route element={<AppShell />}>
           <Route index element={<Page title="Dispatch" description="Monitor every active bus in one place." />} />
           <Route path="fleet" element={<FleetPage />} />
-          <Route path="routes" element={<RoutesPage />} />
+          <Route path="routes" element={<Suspense fallback={<p>Loading routes…</p>}><RoutesPage /></Suspense>} />
           <Route path="members" element={<Page title="Members" description="Manage staff and family access." />} />
           <Route path="transit" element={<Page title="Transit" description="See each trip and every recorded event." />} />
         </Route>
