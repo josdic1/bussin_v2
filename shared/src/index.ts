@@ -6,3 +6,30 @@ export const coordinateSchema = z.strictObject({
 });
 
 export type Coordinate = z.infer<typeof coordinateSchema>;
+
+export const loginSchema = z.strictObject({
+  identity: z.string().trim().toLowerCase().min(3).max(254),
+  password: z.string().min(1).max(1024)
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
+
+export const changePasswordSchema = z.strictObject({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(12).max(1024)
+});
+
+export const signedInMemberSchema = z.strictObject({
+  id: z.string().uuid(),
+  email: z.string().email().nullable(),
+  username: z.string().nullable(),
+  display_name: z.string(),
+  passwordChangeRequired: z.boolean(),
+  roles: z.array(z.enum(["admin", "dispatch", "staff", "family"]))
+});
+
+export const authResponseSchema = z.strictObject({
+  member: signedInMemberSchema
+});
+
+export type SignedInMember = z.infer<typeof signedInMemberSchema>;

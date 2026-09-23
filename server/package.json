@@ -6,10 +6,15 @@
   "scripts": {
     "check": "tsc --noEmit",
     "build": "tsc",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
+    "dev": "node --env-file-if-exists=.env --watch --import tsx src/index.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "db:check": "node --env-file-if-exists=.env --import tsx src/db/check.ts",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate.ts",
+    "db:bootstrap": "node --env-file-if-exists=.env --import tsx src/auth/bootstrap.ts"
   },
   "dependencies": {
+    "@bussin/shared": "^0.1.0",
+    "argon2": "^0.45.1",
     "express": "^5.2.1",
     "pg": "^8.23.0"
   },
