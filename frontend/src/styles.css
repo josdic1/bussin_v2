@@ -1,0 +1,105 @@
+:root {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #202722;
+  background: #f7f7f2;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; }
+
+.app { display: flex; min-height: 100vh; }
+
+.rail {
+  width: 76px;
+  flex: none;
+  padding: 20px 12px;
+  background: #17382c;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 50px;
+}
+
+.brand {
+  width: 42px;
+  height: 42px;
+  border: 1px solid #bed7c7;
+  border-radius: 12px;
+  color: #f7f7f2;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.rail nav { display: grid; gap: 12px; }
+
+.rail-link {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: #c8d8cf;
+  text-decoration: none;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.rail-link:hover,
+.rail-link:focus-visible,
+.rail-link-active {
+  color: #17382c;
+  background: #e4eadb;
+  outline: none;
+}
+
+.workspace { flex: 1; min-width: 0; }
+
+.topbar {
+  height: 70px;
+  padding: 0 36px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #dce2d9;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .16em;
+}
+
+.content { max-width: 1200px; padding: 64px 36px; margin: auto; }
+
+.eyebrow {
+  color: #627767;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .18em;
+}
+
+h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em; }
+.description { color: #647168; font-size: 17px; }
+
+.empty-state {
+  margin-top: 48px;
+  min-height: 320px;
+  border: 1px solid #dce2d9;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 32px;
+}
+
+.empty-mark { color: #819988; font-size: 54px; }
+.empty-state h2 { margin: 10px 0 0; font-size: 22px; }
+.empty-state p { color: #647168; }
+
+@media (max-width: 600px) {
+  .rail { width: 60px; padding-inline: 8px; }
+  .topbar { padding-inline: 20px; }
+  .content { padding: 40px 20px; }
+}
