@@ -1,0 +1,17 @@
+{
+  "name": "bussin-v2",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "frontend"
+  ],
+  "scripts": {
+    "check": "npm run check -w @bussin/shared && npm run check -w @bussin/server && npm run check -w @bussin/frontend",
+    "build": "npm run build -w @bussin/shared && npm run build -w @bussin/server && npm run build -w @bussin/frontend"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
