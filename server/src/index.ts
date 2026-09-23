@@ -1,10 +1,12 @@
 import express from "express";
 import { authRoutes } from "./auth/routes.js";
+import { fleetRoutes } from "./fleet/routes.js";
 
 const app = express();
 
 app.use(express.json({ limit: "32kb" }));
 app.use("/api/auth", authRoutes);
+app.use("/api/fleet", fleetRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });

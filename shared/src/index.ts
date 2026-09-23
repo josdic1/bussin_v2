@@ -33,3 +33,20 @@ export const authResponseSchema = z.strictObject({
 });
 
 export type SignedInMember = z.infer<typeof signedInMemberSchema>;
+
+export const busSchema = z.strictObject({
+  id: z.string().uuid(),
+  label: z.string(),
+  active: z.boolean(),
+  createdAt: z.string()
+});
+
+export const busesResponseSchema = z.strictObject({
+  buses: z.array(busSchema)
+});
+
+export const createBusSchema = z.strictObject({
+  label: z.string().trim().min(1).max(80)
+});
+
+export type Bus = z.infer<typeof busSchema>;

@@ -197,3 +197,37 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
 @media (max-width: 500px) {
   .auth-card { padding: 28px; }
 }
+
+.fleet-form, .fleet-section {
+  margin-top: 40px;
+  padding: 28px;
+  border: 1px solid #dce2d9;
+  background: #fff;
+}
+
+.fleet-form label { display: block; margin-bottom: 12px; font-weight: 700; }
+.fleet-form-row { display: flex; gap: 12px; }
+.fleet-form-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #bfcac0;
+  border-radius: 4px;
+  font: inherit;
+}
+.fleet-form-row .auth-button { margin: 0; }
+.fleet-section h2 { margin: 0 0 20px; }
+.fleet-section > p { color: #647168; }
+.fleet-list { margin: 0; padding: 0; list-style: none; }
+.fleet-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid #dce2d9;
+}
+.fleet-item span { color: #647168; }
+
+@media (max-width: 600px) {
+  .fleet-form-row { flex-direction: column; }
+}

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 import { useAuth } from "./auth/AuthProvider";
+import { FleetPage } from "./fleet/FleetPage";
 
 const pages = [
   { path: "/", label: "Dispatch", mark: "D" },
@@ -278,7 +279,7 @@ export function App() {
       <Route element={<AuthGate />}>
         <Route element={<AppShell />}>
           <Route index element={<Page title="Dispatch" description="Monitor every active bus in one place." />} />
-          <Route path="fleet" element={<Page title="Fleet" description="Manage buses and their assignments." />} />
+          <Route path="fleet" element={<FleetPage />} />
           <Route path="members" element={<Page title="Members" description="Manage staff and family access." />} />
           <Route path="transit" element={<Page title="Transit" description="See each trip and every recorded event." />} />
         </Route>
