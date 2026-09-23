@@ -50,3 +50,35 @@ export const createBusSchema = z.strictObject({
 });
 
 export type Bus = z.infer<typeof busSchema>;
+
+export const createRouteSchema = z.strictObject({
+  name: z.string().trim().min(1).max(120),
+  stops: z.array(
+    z.strictObject({
+      label: z.string().trim().min(1).max(120),
+      latitude: coordinateSchema.shape.latitude,
+      longitude: coordinateSchema.shape.longitude
+    })
+  ).min(1).max(100)
+});
+
+export const routeSchema = z.strictObject({
+  id: z.string().uuid(),
+  name: z.string(),
+  active: z.boolean(),
+  stops: z.array(
+    z.strictObject({
+      id: z.string().uuid(),
+      position: z.number().int().positive(),
+      label: z.string(),
+      latitude: z.number(),
+      longitude: z.number()
+    })
+  )
+});
+
+export const routesResponseSchema = z.strictObject({
+  routes: z.array(routeSchema)
+});
+
+export type Route = z.infer<typeof routeSchema>;

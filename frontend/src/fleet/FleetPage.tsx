@@ -6,6 +6,7 @@ import {
   type Bus
 } from "@bussin/shared";
 import { useAuth } from "../auth/AuthProvider";
+import { Link } from "react-router";
 
 export function FleetPage() {
   const { member } = useAuth();
@@ -89,6 +90,7 @@ export function FleetPage() {
       <p className="eyebrow">OPERATIONS</p>
       <h1>Fleet</h1>
       <p className="description">The buses available for JCC trips.</p>
+      <p><Link to="/routes">Set up routes →</Link></p>
 
       {canManage && (
         <form className="fleet-form" onSubmit={(event) => void addBus(event)}>
