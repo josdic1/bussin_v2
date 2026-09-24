@@ -5,7 +5,7 @@ import { requireRole } from "../auth/guard.js";
 
 export const geocodeRoutes = Router();
 
-const querySchema = z.string().trim().min(5).max(254);
+const querySchema = z.string().trim().min(3).max(254);
 
 const providerResponseSchema = z.object({
   results: z.array(z.object({
@@ -16,6 +16,12 @@ const providerResponseSchema = z.object({
     street: z.string().optional()
   }).passthrough())
 });
+
+// Short-lived, bounded cache for repeated address queries. Failed lookups are never cached.
+const suggestionsCache = new Map<string, {
+  expiresAt: number;
+  value: z.infer<typeof addressSearchResponseSchema>;
+}>();
 
 geocodeRoutes.get("/search", requireRole("admin"), async (request, response) => {
   const query = querySchema.safeParse(request.query.q);
@@ -30,7 +36,15 @@ geocodeRoutes.get("/search", requireRole("admin"), async (request, response) => 
     return;
   }
 
-  const url = new URL("https://api.geoapify.com/v1/geocode/search");
+  const cacheKey = query.data.toLowerCase().replace(/\s+/g, " ");
+  const cached = suggestionsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    response.set("X-Geocode-Cache", "HIT").json(cached.value);
+    return;
+  }
+  if (cached) suggestionsCache.delete(cacheKey);
+
+  const url = new URL("https://api.geoapify.com/v1/geocode/autocomplete");
   url.search = new URLSearchParams({
     text: query.data,
     format: "json",
@@ -58,7 +72,14 @@ geocodeRoutes.get("/search", requireRole("admin"), async (request, response) => 
       return parsed.success ? [parsed.data] : [];
     });
 
-    response.json(addressSearchResponseSchema.parse({ results }));
+    const output = addressSearchResponseSchema.parse({ results });
+    suggestionsCache.delete(cacheKey);
+    suggestionsCache.set(cacheKey, { expiresAt: Date.now() + 120_000, value: output });
+    if (suggestionsCache.size > 100) {
+      const oldest = suggestionsCache.keys().next().value;
+      if (oldest) suggestionsCache.delete(oldest);
+    }
+    response.set("X-Geocode-Cache", "MISS").json(output);
   } catch (error) {
     console.error("Geoapify search failed; type:",
       error instanceof Error ? error.name : "unknown");

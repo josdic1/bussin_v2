@@ -319,3 +319,4 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
   .route-saved-list li { flex-wrap: wrap; }
   .route-saved-actions { width: 100%; }
 }
+.route-searching { align-self: center; white-space: nowrap; color: #647168; }

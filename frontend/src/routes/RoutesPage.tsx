@@ -65,12 +65,19 @@ export function RoutesPage() {
 
   useEffect(() => () => searchController.current?.abort(), []);
 
-  async function searchAddress() {
+  useEffect(() => {
     const query = address.trim();
-    if (query.length < 5) {
-      setSearchError("Enter a full address or place name.");
+    if (query.length < 3) {
+      setSearching(false);
+      setMatches([]);
+      setSearchError("");
       return;
     }
+    const timer = window.setTimeout(() => void searchAddress(query), 250);
+    return () => window.clearTimeout(timer);
+  }, [address]);
+
+  async function searchAddress(query: string) {
 
     searchController.current?.abort();
     const controller = new AbortController();
@@ -340,7 +347,11 @@ export function RoutesPage() {
               id="route-address"
               type="search"
               value={address}
-              placeholder="Street address, town, state"
+              placeholder="Start typing a street address"
+              autoComplete="street-address"
+              aria-label="Address or place"
+              aria-controls="route-address-suggestions"
+              aria-expanded={matches.length > 0}
               onChange={(event) => {
                 setAddress(event.target.value);
                 searchController.current?.abort();
@@ -350,24 +361,31 @@ export function RoutesPage() {
                 setSearchError("");
               }}
               onKeyDown={(event) => {
+                if (event.key === "Escape") setMatches([]);
+                if (event.key === "ArrowDown" && matches.length > 0) {
+                  event.preventDefault();
+                  document.querySelector<HTMLButtonElement>(
+                    "#route-address-suggestions button"
+                  )?.focus();
+                }
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  void searchAddress();
+                  if (matches.length > 0) {
+                    setCandidate(matches[0]);
+                    setMatches([]);
+                    setSearchError("");
+                  } else if (address.trim().length >= 3) {
+                    void searchAddress(address.trim());
+                  }
                 }
               }}
             />
-            <button
-              className="auth-button"
-              type="button"
-              disabled={searching}
-              onClick={() => void searchAddress()}
-            >
-              {searching ? "Finding…" : "Find address"}
-            </button>
+            {searching && <span className="route-searching" role="status">Finding…</span>}
           </div>
           {searchError && <p className="auth-error" role="alert">{searchError}</p>}
           {matches.length > 0 && (
-            <ul className="route-address-results" aria-label="Address matches">
+            <ul id="route-address-suggestions" className="route-address-results"
+              aria-label="Address suggestions">
               {matches.map((match, index) => (
                 <li key={`${match.label}-${index}`}>
                   <button type="button" onClick={() => {
@@ -394,7 +412,8 @@ export function RoutesPage() {
             </div>
           )}
           <p className="route-hint">
-            You can also click the map to place a stop. Drag a saved marker to correct it.
+            Choose an address suggestion, then check the pin. You can also click the map
+            to place a stop or drag a saved marker to correct it.
             {" "}Address search by <a href="https://www.geoapify.com/"
               target="_blank" rel="noreferrer">Geoapify</a>.
           </p>
