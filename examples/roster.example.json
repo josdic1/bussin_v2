@@ -1,0 +1,26 @@
+{
+  "dataset": "local-test",
+  "riders": [
+    {
+      "key": "demo-rider-001",
+      "givenName": "Demo",
+      "familyName": "Rider",
+      "guardians": [
+        {
+          "key": "demo-guardian-001",
+          "name": "Demo Guardian",
+          "email": null,
+          "phone": null
+        }
+      ],
+      "am": {
+        "route": "Alpha_1-stop_AM",
+        "stop": "PU1 - 256 Highland Road"
+      },
+      "pm": {
+        "route": "Alpha_1-stop_PM",
+        "stop": "DO1 - 256 Highland Road"
+      }
+    }
+  ]
+}

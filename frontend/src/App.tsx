@@ -2,6 +2,8 @@ import { lazy, Suspense, useState, type FormEvent } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 import { useAuth } from "./auth/AuthProvider";
 import { FleetPage } from "./fleet/FleetPage";
+import { FamiliesPage } from "./families/FamiliesPage";
+import { DispatchPage } from "./dispatch/DispatchPage";
 const RoutesPage = lazy(async () => {
   const module = await import("./routes/RoutesPage");
   return { default: module.RoutesPage };
@@ -11,6 +13,7 @@ const pages = [
   { path: "/", label: "Dispatch", mark: "D" },
   { path: "/fleet", label: "Fleet", mark: "F" },
   { path: "/members", label: "Members", mark: "M" },
+  { path: "/families", label: "Riders and guardians", mark: "R", adminOnly: true },
   { path: "/transit", label: "Transit", mark: "T" }
 ];
 
@@ -27,7 +30,7 @@ function AuthScreen({
     <main className="auth-screen">
       <section className="auth-card">
         <div className="auth-brand">B</div>
-        <p className="eyebrow">BUSSIN / JCC</p>
+        <p className="eyebrow">BUSSIN</p>
         <h1>{title}</h1>
         <p className="description">{description}</p>
         {children}
@@ -224,12 +227,13 @@ function SignOut() {
 }
 
 function AppShell() {
+  const { member, tenant } = useAuth();
   return (
     <div className="app">
       <aside className="rail">
         <div className="brand" aria-label="Bussin">B</div>
         <nav aria-label="Main navigation">
-          {pages.map((page) => (
+          {pages.filter((page) => !page.adminOnly || member?.roles.includes("admin")).map((page) => (
             <NavLink
               key={page.path}
               to={page.path}
@@ -250,7 +254,7 @@ function AppShell() {
         <header className="topbar">
           <span>BUSSIN / OPERATIONS</span>
           <div className="topbar-actions">
-            <span>JCC</span>
+            <span>{tenant?.name ?? "Bussin"}</span>
             <SignOut />
           </div>
         </header>
@@ -260,6 +264,11 @@ function AppShell() {
       </div>
     </div>
   );
+}
+
+function AdminOnly({ children }: { children: React.ReactNode }) {
+  const { member } = useAuth();
+  return member?.roles.includes("admin") ? <>{children}</> : <Navigate to="/" replace />;
 }
 
 function Page({ title, description }: { title: string; description: string }) {
@@ -282,10 +291,11 @@ export function App() {
     <Routes>
       <Route element={<AuthGate />}>
         <Route element={<AppShell />}>
-          <Route index element={<Page title="Dispatch" description="Monitor every active bus in one place." />} />
+          <Route index element={<DispatchPage />} />
           <Route path="fleet" element={<FleetPage />} />
           <Route path="routes" element={<Suspense fallback={<p>Loading routes…</p>}><RoutesPage /></Suspense>} />
           <Route path="members" element={<Page title="Members" description="Manage staff and family access." />} />
+          <Route path="families" element={<AdminOnly><FamiliesPage /></AdminOnly>} />
           <Route path="transit" element={<Page title="Transit" description="See each trip and every recorded event." />} />
         </Route>
       </Route>

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { changePasswordSchema, loginSchema } from "@bussin/shared";
 import { pool } from "../db/pool.js";
+import { readTenant } from "../db/tenant.js";
 import {
   createSession,
   hashPassword,
@@ -91,7 +92,7 @@ authRoutes.post("/login", async (request, response) => {
     ...cookieOptions,
     maxAge: 7 * 24 * 60 * 60 * 1000
   });
-  response.json({ member: currentMember });
+  response.json({ member: currentMember, tenant: await readTenant() });
 });
 
 authRoutes.get("/me", async (request, response) => {
@@ -102,7 +103,7 @@ authRoutes.get("/me", async (request, response) => {
     return;
   }
 
-  response.json({ member });
+  response.json({ member, tenant: await readTenant() });
 });
 
 authRoutes.post("/logout", async (request, response) => {

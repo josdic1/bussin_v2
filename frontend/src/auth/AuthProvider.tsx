@@ -14,6 +14,7 @@ import {
 
 type AuthValue = {
   member: SignedInMember | null | undefined;
+  tenant: { key: string; name: string } | null;
   loadError: string | null;
   login: (identity: string, password: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -38,6 +39,7 @@ async function responseError(response: Response): Promise<Error> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   // undefined means we have not checked the existing session yet.
   const [member, setMember] = useState<SignedInMember | null | undefined>();
+  const [tenant, setTenant] = useState<{ key: string; name: string } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,9 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (response.status === 401) {
           setMember(null);
+          setTenant(null);
         } else if (response.ok) {
           const data = authResponseSchema.parse(await response.json());
           setMember(data.member);
+          setTenant(data.tenant);
         } else {
           throw await responseError(response);
         }
@@ -79,7 +83,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (!response.ok) throw await responseError(response);
-    setMember(authResponseSchema.parse(await response.json()).member);
+    const data = authResponseSchema.parse(await response.json());
+    setMember(data.member);
+    setTenant(data.tenant);
     setLoadError(null);
   }
 
@@ -101,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!response.ok) throw await responseError(response);
     setMember(null); // The server revoked all sessions. Sign in again.
+    setTenant(null);
   }
 
   async function logout() {
@@ -111,11 +118,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!response.ok) throw await responseError(response);
     setMember(null);
+    setTenant(null);
   }
 
   return (
     <AuthContext.Provider
-      value={{ member, loadError, login, changePassword, logout }}
+      value={{ member, tenant, loadError, login, changePassword, logout }}
     >
       {children}
     </AuthContext.Provider>

@@ -10,7 +10,9 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "db:check": "node --env-file-if-exists=.env --import tsx src/db/check.ts",
     "db:migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate.ts",
-    "db:bootstrap": "node --env-file-if-exists=.env --import tsx src/auth/bootstrap.ts"
+    "db:bootstrap": "node --env-file-if-exists=.env --import tsx src/auth/bootstrap.ts",
+    "roster:import": "node --env-file-if-exists=.env --import tsx src/families/import.ts",
+    "tenant:init": "node --env-file-if-exists=.env --import tsx src/db/claim-tenant.ts"
   },
   "dependencies": {
     "@bussin/shared": "^0.1.0",
