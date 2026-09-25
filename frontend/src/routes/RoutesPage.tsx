@@ -24,6 +24,8 @@ export function RoutesPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
+  const [familyName, setFamilyName] = useState("");
+  const [servicePeriod, setServicePeriod] = useState<"AM" | "PM">("AM");
   const [stopLabel, setStopLabel] = useState("");
   const [stops, setStops] = useState<DraftStop[]>([]);
   const [address, setAddress] = useState("");
@@ -166,6 +168,8 @@ export function RoutesPage() {
   function cancelEdit() {
     setEditingRouteId(null);
     setName("");
+    setFamilyName("");
+    setServicePeriod("AM");
     setStops([]);
     setStopLabel("");
     setCandidate(null);
@@ -176,6 +180,8 @@ export function RoutesPage() {
   function editRoute(route: Route) {
     setEditingRouteId(route.id);
     setName(route.name);
+    setFamilyName(route.routeFamilyName);
+    setServicePeriod(route.servicePeriod);
     setStops(route.stops.map(({ id, label, latitude, longitude }) =>
       ({ id, label, latitude, longitude })));
     setStopLabel("");
@@ -242,10 +248,10 @@ export function RoutesPage() {
     setNotice("");
 
     const parsed = editingRouteId
-      ? updateRouteSchema.safeParse({ name, stops })
-      : createRouteSchema.safeParse({ name, stops });
+      ? updateRouteSchema.safeParse({ name, familyName, servicePeriod, stops })
+      : createRouteSchema.safeParse({ name, familyName, servicePeriod, stops });
     if (!parsed.success) {
-      setError("Give the route a name and place at least one named stop.");
+      setError("Give the route a family, name, and at least one named stop.");
       return;
     }
 
@@ -272,8 +278,9 @@ export function RoutesPage() {
 
       const route = routeSchema.parse(await response.json());
       setRoutes((current) =>
-        [...current.filter((item) => item.id !== route.id), route]
-          .sort((a, b) => a.name.localeCompare(b.name))
+        [...current.filter((item) => item.id !== route.id && item.id !== editingRouteId), route]
+          .sort((a, b) => a.routeFamilyName.localeCompare(b.routeFamilyName) ||
+            a.servicePeriod.localeCompare(b.servicePeriod))
       );
       cancelEdit();
       setNotice(`${route.name} saved with ${route.stops.length} stops.`);
@@ -301,8 +308,8 @@ export function RoutesPage() {
             {routes.map((route) => (
               <li key={route.id}>
                 <div className="route-saved-details">
-                  <strong>{route.name}</strong>
-                  <span>{route.stops.length} stops · {route.active ? "Active" : "Inactive"}</span>
+                  <strong>{route.routeFamilyName} · {route.servicePeriod}</strong>
+                  <span>{route.name} · {route.stops.length} stops · {route.active ? "Active" : "Inactive"}</span>
                 </div>
                 {canManage && <div className="route-saved-actions">
                   <button type="button" disabled={!!busyRouteId || saving}
@@ -323,12 +330,30 @@ export function RoutesPage() {
       {canManage && (
         <form className="route-form" onSubmit={(event) => void saveRoute(event)}>
           <h2>{editingRouteId ? "Edit route" : "Add a route"}</h2>
+          <label htmlFor="route-family">Route family</label>
+          <input
+            id="route-family"
+            value={familyName}
+            onChange={(event) => setFamilyName(event.target.value)}
+            placeholder="For example, Alpha"
+            maxLength={80}
+            required
+          />
+
+          <label htmlFor="route-service-period">Service period</label>
+          <select id="route-service-period" value={servicePeriod}
+            onChange={(event) => setServicePeriod(event.target.value as "AM" | "PM")}
+            disabled={saving}>
+            <option value="AM">AM</option>
+            <option value="PM">PM</option>
+          </select>
+
           <label htmlFor="route-name">Route name</label>
           <input
             id="route-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="For example, Afternoon route"
+            placeholder="For example, Alpha 1-stop"
             maxLength={120}
             required
           />

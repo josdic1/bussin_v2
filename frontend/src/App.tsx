@@ -4,6 +4,8 @@ import { useAuth } from "./auth/AuthProvider";
 import { FleetPage } from "./fleet/FleetPage";
 import { FamiliesPage } from "./families/FamiliesPage";
 import { DispatchPage } from "./dispatch/DispatchPage";
+import { MembersPage } from "./members/MembersPage";
+import { StaffTripPage } from "./staff/StaffTripPage";
 const RoutesPage = lazy(async () => {
   const module = await import("./routes/RoutesPage");
   return { default: module.RoutesPage };
@@ -12,7 +14,7 @@ const RoutesPage = lazy(async () => {
 const pages = [
   { path: "/", label: "Dispatch", mark: "D" },
   { path: "/fleet", label: "Fleet", mark: "F" },
-  { path: "/members", label: "Members", mark: "M" },
+  { path: "/members", label: "Members", mark: "M", adminOnly: true },
   { path: "/families", label: "Riders and guardians", mark: "R", adminOnly: true },
   { path: "/transit", label: "Transit", mark: "T" }
 ];
@@ -190,18 +192,22 @@ function AuthGate() {
   if (member === null) return <Login />;
   if (member.passwordChangeRequired) return <ChangePassword />;
 
-  if (!member.roles.some((role) => role === "admin" || role === "dispatch")) {
-    return (
-      <AuthScreen
-        title="Portal coming soon"
-        description="Your account is active. Your portal is being built."
-      >
-        <SignOut />
-      </AuthScreen>
-    );
+  if (member.roles.some((role) => role === "admin" || role === "dispatch")) {
+    return <Outlet />;
   }
 
-  return <Outlet />;
+  if (member.roles.includes("staff")) {
+    return <StaffTripPage />;
+  }
+
+  return (
+    <AuthScreen
+      title="Portal coming soon"
+      description="Your account is active. Your portal is being built."
+    >
+      <SignOut />
+    </AuthScreen>
+  );
 }
 
 function SignOut() {
@@ -294,7 +300,7 @@ export function App() {
           <Route index element={<DispatchPage />} />
           <Route path="fleet" element={<FleetPage />} />
           <Route path="routes" element={<Suspense fallback={<p>Loading routes…</p>}><RoutesPage /></Suspense>} />
-          <Route path="members" element={<Page title="Members" description="Manage staff and family access." />} />
+          <Route path="members" element={<AdminOnly><MembersPage /></AdminOnly>} />
           <Route path="families" element={<AdminOnly><FamiliesPage /></AdminOnly>} />
           <Route path="transit" element={<Page title="Transit" description="See each trip and every recorded event." />} />
         </Route>

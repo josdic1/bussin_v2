@@ -11,7 +11,8 @@
     "check": "npm run check -w @bussin/shared && npm run check -w @bussin/server && npm run check -w @bussin/frontend",
     "build": "npm run build -w @bussin/shared && npm run build -w @bussin/server && npm run build -w @bussin/frontend",
     "dev": "node scripts/dev.mjs",
-    "doctor": "node scripts/doctor.mjs"
+    "doctor": "node scripts/doctor.mjs",
+    "test": "npm run build -w @bussin/shared && npm run test -w @bussin/server"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

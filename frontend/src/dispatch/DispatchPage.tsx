@@ -1,14 +1,20 @@
 import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
+  assignTripStaffSchema,
   boardResponseSchema,
   busesResponseSchema,
   createPlannedTripSchema,
+  dispatchStaffResponseSchema,
+  dispatchLocationUpdateSchema,
   plannedTripSchema,
   routesResponseSchema,
+  tripActionSchema,
+  tripStaffAssignmentResponseSchema,
   type BoardTrip,
   type Bus,
-  type Route
+  type Route,
+  type TripStaff
 } from "@bussin/shared";
 
 const DispatchMap = lazy(async () => {
@@ -37,12 +43,7 @@ function time(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function period(name: string) {
-  const match = /(?:^|[_\s-])(AM|PM)$/i.exec(name);
-  return match?.[1].toUpperCase() ?? null;
-}
-
-function trackingText(trip: BoardTrip, now: number) {
+ function trackingText(trip: BoardTrip, now: number) {
   if (trip.status !== "active") {
     if (trip.status === "planned") {
       return Date.parse(trip.departureAt) < now
@@ -57,6 +58,34 @@ function trackingText(trip: BoardTrip, now: number) {
     return `Location stale · last update ${time(trip.location.observedAt)}`;
   }
   return `Live location · updated ${time(trip.location.observedAt)}`;
+}
+
+function presenceAge(value: string, now: number) {
+  const ageMs = Math.max(0, now - Date.parse(value));
+  if (ageMs < 10_000) return "just now";
+  if (ageMs < 60_000) return `${Math.floor(ageMs / 1_000)} sec ago`;
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function staffPresenceText(trip: BoardTrip, now: number) {
+  if (!trip.assignedStaff || !["planned", "active"].includes(trip.status)) return null;
+  if (!trip.staffLastSeenAt) return "Phone: NOT REPORTING · staff app not seen";
+  const age = now - Date.parse(trip.staffLastSeenAt);
+  if (age >= -5_000 && age <= 30_000) {
+    return `Phone: ONLINE · seen ${presenceAge(trip.staffLastSeenAt, now)}`;
+  }
+  return `Phone: NOT REPORTING · last seen ${presenceAge(trip.staffLastSeenAt, now)}`;
+}
+
+function staffPresenceClass(trip: BoardTrip, now: number) {
+  if (!trip.staffLastSeenAt) return "board-staff-presence-missing";
+  const age = now - Date.parse(trip.staffLastSeenAt);
+  return age >= -5_000 && age <= 30_000
+    ? "board-staff-presence-online"
+    : "board-staff-presence-missing";
 }
 
 function chooseTrip(trips: BoardTrip[], now: number) {
@@ -78,7 +107,9 @@ async function readError(response: Response, fallback: string) {
 
 function StopLine({ trip, color }: { trip: BoardTrip; color: string }) {
   return <ol className="board-stop-line" style={{ "--bus-color": color } as CSSProperties}>
-    {trip.stops.map((stop) => <li key={stop.id} className={stop.departedAt ? "board-stop-done" : ""}>
+    {trip.stops.map((stop, index) => <li key={stop.id}
+      className={stop.departedAt || (index === trip.stops.length - 1 && stop.arrivedAt)
+        ? "board-stop-done" : ""}>
       <span className="board-stop-dot" />
       <span className="board-stop-label">{stop.label}</span>
     </li>)}
@@ -89,6 +120,7 @@ export function DispatchPage() {
   const [buses, setBuses] = useState<Bus[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [trips, setTrips] = useState<BoardTrip[]>([]);
+  const [staff, setStaff] = useState<TripStaff[]>([]);
   const [date, setDate] = useState(() => localDate(new Date()));
   const [busQuery, setBusQuery] = useState("");
   const [routeQuery, setRouteQuery] = useState("");
@@ -97,16 +129,47 @@ export function DispatchPage() {
   const [departure, setDeparture] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [staffSaving, setStaffSaving] = useState(false);
+  const [staffId, setStaffId] = useState("");
+  const [actionPending, setActionPending] = useState(false);
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [revision, setRevision] = useState(0);
+  const [liveStreamState, setLiveStreamState] = useState<"connecting" | "live" | "reconnecting">("connecting");
   const [params, setParams] = useSearchParams();
   const selectedTripId = params.get("trip");
   const selectedTrip = trips.find((trip) => trip.id === selectedTripId);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const source = new EventSource("/api/dispatch/live");
+    source.onopen = () => setLiveStreamState("live");
+    source.onerror = () => setLiveStreamState("reconnecting");
+
+    const receiveLocation = (event: MessageEvent<string>) => {
+      try {
+        const update = dispatchLocationUpdateSchema.parse(JSON.parse(event.data));
+        setTrips((current) => current.map((trip) =>
+          trip.id === update.tripId ? { ...trip, location: update.location } : trip
+        ));
+        setNow(Date.now());
+      } catch {
+        // Ignore malformed live events; the normal board refresh remains the fallback.
+      }
+    };
+
+    const receiveReady = () => setLiveStreamState("live");
+    source.addEventListener("ready", receiveReady);
+    source.addEventListener("location", receiveLocation as EventListener);
+    return () => {
+      source.removeEventListener("ready", receiveReady);
+      source.removeEventListener("location", receiveLocation as EventListener);
+      source.close();
+    };
   }, []);
 
   useEffect(() => {
@@ -115,21 +178,23 @@ export function DispatchPage() {
     const url = `/api/dispatch/board?${new URLSearchParams(bounds)}`;
     async function load() {
       try {
-        const [busResponse, routeResponse, boardResponse] = await Promise.all([
+        const [busResponse, routeResponse, boardResponse, staffResponse] = await Promise.all([
           fetch("/api/fleet/buses", { signal: controller.signal }),
           fetch("/api/routes", { signal: controller.signal }),
-          fetch(url, { signal: controller.signal })
+          fetch(url, { signal: controller.signal }),
+          fetch("/api/dispatch/staff", { signal: controller.signal })
         ]);
-        if (!busResponse.ok || !routeResponse.ok || !boardResponse.ok) {
+        if (!busResponse.ok || !routeResponse.ok || !boardResponse.ok || !staffResponse.ok) {
           throw new Error("Could not load dispatch.");
         }
-        const [busData, routeData, boardData] = await Promise.all([
-          busResponse.json(), routeResponse.json(), boardResponse.json()
+        const [busData, routeData, boardData, staffData] = await Promise.all([
+          busResponse.json(), routeResponse.json(), boardResponse.json(), staffResponse.json()
         ]);
         if (controller.signal.aborted) return;
         setBuses(busesResponseSchema.parse(busData).buses);
         setRoutes(routesResponseSchema.parse(routeData).routes);
         setTrips(boardResponseSchema.parse(boardData).trips);
+        setStaff(dispatchStaffResponseSchema.parse(staffData).staff);
         setError("");
       } catch (cause) {
         if (!controller.signal.aborted) {
@@ -143,6 +208,10 @@ export function DispatchPage() {
     const timer = window.setInterval(() => void load(), 15_000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [date, revision]);
+
+  useEffect(() => {
+    setStaffId(selectedTrip?.assignedStaff?.id ?? "");
+  }, [selectedTrip?.id, selectedTrip?.assignedStaff?.id]);
 
   async function planTrip(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,6 +241,55 @@ export function DispatchPage() {
       setError(cause instanceof Error ? cause.message : "Could not plan trip.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveStaffAssignment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedTrip || selectedTrip.status !== "planned" || staffSaving) return;
+    const parsed = assignTripStaffSchema.safeParse({ memberId: staffId || null });
+    if (!parsed.success) return;
+
+    setStaffSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/dispatch/trips/${selectedTrip.id}/staff`, {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed.data)
+      });
+      if (!response.ok) {
+        throw new Error(await readError(response, "Could not save staff assignment."));
+      }
+      tripStaffAssignmentResponseSchema.parse(await response.json());
+      setRevision((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save staff assignment.");
+    } finally {
+      setStaffSaving(false);
+    }
+  }
+
+  async function recordAction(type: "start" | "arrive" | "depart" | "complete" | "cancel",
+    stopId?: string) {
+    if (!selectedTrip || actionPending) return;
+    const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}) });
+    if (!action.success) return;
+    setActionPending(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/dispatch/trips/${selectedTrip.id}/actions`, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action.data)
+      });
+      if (!response.ok) throw new Error(await readError(response, "Could not update trip."));
+      setRevision((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not update trip.");
+    } finally {
+      setActionPending(false);
     }
   }
 
@@ -212,18 +330,65 @@ export function DispatchPage() {
 
   return <>
     <p className="eyebrow">OPERATIONS / DISPATCH</p>
+    {error && <p className="auth-error" role="alert">{error}</p>}
+    {liveStreamState !== "live" && (
+      <p className="board-live-warning" role="status">
+        {liveStreamState === "reconnecting"
+          ? "Live location connection interrupted · reconnecting. 15-second refresh is still active."
+          : "Starting live location connection · 15-second refresh is active."}
+      </p>
+    )}
     {selectedTrip ? <>
       <button className="board-back" type="button" onClick={showAll}>← Show all buses</button>
       <div className="board-detail-head">
         <div>
           <h1>{selectedTrip.busLabel}</h1>
-          <p className="description">{selectedTrip.routeName} {period(selectedTrip.routeName) &&
-            <span className="board-period">{period(selectedTrip.routeName)}</span>}</p>
+          <p className="description">{selectedTrip.routeName} {
+            <span className="board-period">{selectedTrip.servicePeriod}</span>}</p>
           <p>Scheduled departure: {dateTime(selectedTrip.departureAt)}</p>
         </div>
         <span className="board-status">{selectedTrip.status}</span>
       </div>
       <p className="board-tracking" role="status">{trackingText(selectedTrip, now)}</p>
+      {selectedTrip.status === "planned" ? <form className="board-staff-form"
+        onSubmit={(event) => void saveStaffAssignment(event)}>
+        <label htmlFor="dispatch-staff">Assigned staff</label>
+        <select id="dispatch-staff" value={staffId}
+          onChange={(event) => setStaffId(event.target.value)} disabled={staffSaving}>
+          <option value="">Unassigned</option>
+          {staff.map((person) => <option value={person.id} key={person.id}>
+            {person.displayName}
+          </option>)}
+        </select>
+        <button type="submit" disabled={staffSaving ||
+          staffId === (selectedTrip.assignedStaff?.id ?? "")}>
+          {staffSaving ? "Saving…" : "Save staff"}
+        </button>
+        {!selectedTrip.assignedStaff && <span>Assign staff before starting this trip.</span>}
+      </form> : <p className="board-assigned-staff">
+        Staff: <strong>{selectedTrip.assignedStaff?.displayName ?? "Not recorded"}</strong>
+      </p>}
+      {staffPresenceText(selectedTrip, now) && <p
+        className={`board-staff-presence ${staffPresenceClass(selectedTrip, now)}`}
+        role="status">
+        {staffPresenceText(selectedTrip, now)}
+      </p>}
+      <div className="board-trip-actions" aria-label="Trip controls">
+        {selectedTrip.status === "planned" && <>
+          <button type="button" disabled={actionPending || !selectedTrip.assignedStaff}
+            onClick={() => void recordAction("start")}>Start trip</button>
+          <button type="button" disabled={actionPending}
+            onClick={() => void recordAction("cancel")}>Cancel trip</button>
+        </>}
+        {selectedTrip.status === "active" && <>
+          <button type="button" disabled={actionPending}
+            onClick={() => void recordAction("cancel")}>Cancel trip</button>
+          <button type="button" disabled={actionPending ||
+            !selectedTrip.stops.at(-1)?.arrivedAt ||
+            selectedTrip.stops.slice(0, -1).some((stop) => !stop.departedAt)}
+            onClick={() => void recordAction("complete")}>Complete trip</button>
+        </>}
+      </div>
       {trips.filter((trip) => trip.busId === selectedTrip.busId).length > 1 &&
         <div className="board-other-trips">
           <span>Other trips for {selectedTrip.busLabel}: </span>
@@ -238,11 +403,20 @@ export function DispatchPage() {
       <div className="board-detail-grid">
         <section className="dispatch-card board-timetable">
           <h2>Stops</h2>
-          <p>Trip departure: {time(selectedTrip.departureAt)}</p>
+          <p>Scheduled departure: {time(selectedTrip.departureAt)}</p>
           <ol>{selectedTrip.stops.map((stop) => <li key={stop.id}>
             <strong>{stop.position}. {stop.label}</strong>
             <span>{stop.arrivedAt ? `Arrived ${time(stop.arrivedAt)}` : "Arrival not recorded"}</span>
-            <span>{stop.departedAt ? `Departed ${time(stop.departedAt)}` : "Departure not recorded"}</span>
+            <span>{stop.id === selectedTrip.stops.at(-1)?.id
+              ? "Final destination"
+              : stop.departedAt ? `Departed ${time(stop.departedAt)}` : "Departure not recorded"}</span>
+            {selectedTrip.status === "active" &&
+              selectedTrip.stops.find((item) => !item.departedAt)?.id === stop.id &&
+              (!stop.arrivedAt || stop.id !== selectedTrip.stops.at(-1)?.id) &&
+              <button type="button" disabled={actionPending}
+                onClick={() => void recordAction(stop.arrivedAt ? "depart" : "arrive", stop.id)}>
+                {stop.arrivedAt ? "Record departure" : "Record arrival"}
+              </button>}
           </li>)}</ol>
         </section>
         <section className="dispatch-card board-map-panel">
@@ -266,7 +440,6 @@ export function DispatchPage() {
           value={routeQuery} onChange={(event) => setRouteQuery(event.target.value)}
           placeholder="Find a route" /></label>
       </div>
-      {error && <p className="auth-error" role="alert">{error}</p>}
       {loading ? <p>Loading buses…</p> : filteredBuses.length === 0 ?
         <p>{visibleBuses.length ? "No buses match those filters." :
           <>No buses added. <Link to="/fleet">Add a bus in Fleet</Link>.</>}</p> :
@@ -278,9 +451,14 @@ export function DispatchPage() {
             style={{ "--bus-color": color } as CSSProperties}
             onClick={() => openTrip(trip.id)}>
             <span className="board-card-head"><strong>{bus.label}</strong>
-              {period(trip.routeName) && <span className="board-period">{period(trip.routeName)}</span>}</span>
+              <span className="board-period">{trip.servicePeriod}</span></span>
             <span className="board-card-route">{trip.routeName}</span>
             <span className="board-card-time">{time(trip.departureAt)} · {trip.status}</span>
+            <span className="board-card-staff">Staff: {trip.assignedStaff?.displayName ?? "Unassigned"}</span>
+            {staffPresenceText(trip, now) && <span
+              className={`board-staff-presence ${staffPresenceClass(trip, now)}`}>
+              {staffPresenceText(trip, now)}
+            </span>}
             <span className="board-card-tracking">{trackingText(trip, now)}</span>
             <span className="board-mini-line" aria-label={`${trip.stops.length} stops`}>
               {trip.stops.map((stop) => <span key={stop.id} title={stop.label} />)}
@@ -316,7 +494,7 @@ export function DispatchPage() {
           onChange={(event) => setRouteId(event.target.value)} required disabled={saving}>
           <option value="">Choose a route</option>
           {routes.filter((route) => route.active && route.stops.length).map((route) =>
-            <option value={route.id} key={route.id}>{route.name} ({route.stops.length} stops)</option>)}
+            <option value={route.id} key={route.id}>{route.name} · {route.servicePeriod} ({route.stops.length} stops)</option>)}
         </select>
         <label htmlFor="dispatch-departure">Departure date and time</label>
         <input id="dispatch-departure" type="datetime-local" value={departure}

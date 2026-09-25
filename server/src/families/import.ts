@@ -3,6 +3,7 @@ import { z } from "zod";
 import { pool } from "../db/pool.js";
 import { readTenant } from "../db/tenant.js";
 import type { PoolClient } from "pg";
+import { syncPlannedTripRiders } from "./access.js";
 
 const key = z.string().trim().min(1).max(120);
 const name = z.string().trim().min(1).max(120);
@@ -46,15 +47,18 @@ function validateKeys(data: Roster) {
 async function resolve(client: PoolClient, data: Roster) {
   const routes = await client.query<{
     routeName: string; stopLabel: string; routeId: string; stopId: string; active: boolean;
+    servicePeriod: "AM" | "PM";
   }>(`SELECT r.name AS "routeName", s.label AS "stopLabel", r.id AS "routeId",
-              s.id AS "stopId", r.active
+              s.id AS "stopId", r.active, r.service_period AS "servicePeriod"
          FROM routes r JOIN route_stops s ON s.route_id = r.id`);
   const linked = new Map<string, { am: Link; pm: Link }>();
   for (const rider of data.riders) {
     const resolveStop = (direction: "am" | "pm"): Link => {
       const target = rider[direction];
       if (!target) return null;
-      const matches = routes.rows.filter((row) => row.routeName === target.route && row.stopLabel === target.stop && row.active);
+      const matches = routes.rows.filter((row) => row.routeName === target.route &&
+        row.stopLabel === target.stop && row.active &&
+        row.servicePeriod === direction.toUpperCase());
       if (matches.length !== 1) throw new Error(`${rider.key} ${direction.toUpperCase()}: expected one active stop ${target.route} / ${target.stop}, found ${matches.length}`);
       return { routeId: matches[0].routeId, stopId: matches[0].stopId };
     };
@@ -124,6 +128,7 @@ async function main() {
            VALUES ($1, $2, $3, $4)`, [riderId, direction.toUpperCase(), stop.routeId, stop.stopId]);
       }
     }
+    await syncPlannedTripRiders(client);
     await client.query("COMMIT");
     console.log("Roster imported. Reapplying the same file updates these keyed records without duplicating them.");
   } catch (error) {

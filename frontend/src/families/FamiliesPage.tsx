@@ -50,7 +50,9 @@ function AssignmentFields({
 }) {
   const routeKey = direction === "am" ? "amRoute" : "pmRoute";
   const stopKey = direction === "am" ? "amStop" : "pmStop";
-  const selectedRoute = routes.find((route) => route.id === draft[routeKey]);
+  const servicePeriod = direction.toUpperCase() as Route["servicePeriod"];
+  const selectedRoute = routes.find((route) => route.id === draft[routeKey] &&
+    route.servicePeriod === servicePeriod);
   return (
     <div className="family-assignment-fields">
       <label>{direction.toUpperCase()} route
@@ -59,7 +61,8 @@ function AssignmentFields({
           onChange={(event) => change({ [routeKey]: event.target.value, [stopKey]: "" })}
         >
           <option value="">No {direction.toUpperCase()} assignment</option>
-          {routes.filter((route) => route.active || route.id === draft[routeKey]).map((route) => (
+          {routes.filter((route) => route.servicePeriod === servicePeriod &&
+            (route.active || route.id === draft[routeKey])).map((route) => (
             <option key={route.id} value={route.id}>
               {route.name}{route.active ? "" : " (inactive)"}
             </option>

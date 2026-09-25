@@ -5,6 +5,8 @@ import { routeRoutes } from "./routes/routes.js";
 import { geocodeRoutes } from "./geocode/routes.js";
 import { dispatchRoutes } from "./dispatch/routes.js";
 import { familyRoutes } from "./families/routes.js";
+import { memberRoutes } from "./members/routes.js";
+import { staffRoutes } from "./staff/routes.js";
 import { readTenant } from "./db/tenant.js";
 
 const tenant = await readTenant();
@@ -18,6 +20,8 @@ app.use("/api/routes", routeRoutes);
 app.use("/api/geocode", geocodeRoutes);
 app.use("/api/dispatch", dispatchRoutes);
 app.use("/api/families", familyRoutes);
+app.use("/api/members", memberRoutes);
+app.use("/api/staff", staffRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });

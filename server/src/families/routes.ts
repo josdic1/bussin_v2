@@ -7,6 +7,7 @@ import {
 import { requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import type { PoolClient } from "pg";
+import { syncPlannedTripRiders } from "./access.js";
 
 export const familyRoutes = Router();
 const idSchema = z.string().uuid();
@@ -187,7 +188,8 @@ async function validStops(client: PoolClient, data: RiderInput, riderId?: string
     if (!assigned) continue;
     const stop = await client.query(
       `SELECT 1 FROM route_stops s JOIN routes r ON r.id = s.route_id
-       WHERE s.route_id = $1 AND s.id = $2 AND (r.active OR EXISTS (
+       WHERE s.route_id = $1 AND s.id = $2 AND r.service_period = $4
+         AND (r.active OR EXISTS (
          SELECT 1 FROM rider_stop_assignments old WHERE old.rider_id = $3
          AND old.direction = $4 AND old.route_id = s.route_id AND old.route_stop_id = s.id
        )) FOR SHARE OF s, r`,
@@ -223,7 +225,9 @@ async function writeRider(request: Request, response: Response, id?: string) {
     }
     if (!(await validStops(client, parsed.data, id))) {
       await client.query("ROLLBACK");
-      response.status(409).json({ error: "Choose stops on existing active routes." });
+      response.status(409).json({
+        error: "Choose AM stops on AM routes and PM stops on PM routes."
+      });
       return;
     }
     const rider = id
@@ -247,6 +251,7 @@ async function writeRider(request: Request, response: Response, id?: string) {
          VALUES ($1, $2, $3, $4)`, [riderId, direction, stop.routeId, stop.stopId]
       );
     }
+    await syncPlannedTripRiders(client);
     await client.query("COMMIT");
     response.status(id ? 200 : 201).json({ id: riderId });
   } catch (error) {
