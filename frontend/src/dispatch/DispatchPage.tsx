@@ -43,6 +43,30 @@ function time(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+const EARLY_START_WARNING_MS = 10 * 60_000;
+
+function plannedTripTiming(departureAt: string, now: number) {
+  const departure = Date.parse(departureAt);
+  if (!Number.isFinite(departure)) return null;
+  const lateBy = now - departure;
+  if (lateBy >= 60_000) {
+    return { kind: "overdue" as const, minutesLate: Math.floor(lateBy / 60_000) };
+  }
+  if (lateBy >= 0) {
+    return { kind: "due" as const, minutesLate: 0 };
+  }
+  return null;
+}
+
+function confirmEarlyStart(trip: BoardTrip) {
+  const earlyBy = Date.parse(trip.departureAt) - Date.now();
+  if (earlyBy <= EARLY_START_WARNING_MS) return true;
+  const minutesEarly = Math.ceil(earlyBy / 60_000);
+  return window.confirm(
+    `This trip is scheduled for ${time(trip.departureAt)}. Start ${minutesEarly} minutes early?`
+  );
+}
+
  function trackingText(trip: BoardTrip, now: number) {
   if (trip.status !== "active") {
     if (trip.status === "planned") {
@@ -274,6 +298,7 @@ export function DispatchPage() {
   async function recordAction(type: "start" | "arrive" | "depart" | "complete" | "cancel",
     stopId?: string) {
     if (!selectedTrip || actionPending) return;
+    if (type === "start" && !confirmEarlyStart(selectedTrip)) return;
     const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}) });
     if (!action.success) return;
     setActionPending(true);
@@ -350,6 +375,15 @@ export function DispatchPage() {
         <span className="board-status">{selectedTrip.status}</span>
       </div>
       <p className="board-tracking" role="status">{trackingText(selectedTrip, now)}</p>
+      {selectedTrip.status === "planned" && (() => {
+        const timing = plannedTripTiming(selectedTrip.departureAt, now);
+        return timing ? <p className={`board-trip-alert board-trip-alert-${timing.kind}`} role="alert">
+          <strong>{timing.kind === "due" ? "DUE NOW" : "TRIP OVERDUE"}</strong>
+          <span>Scheduled {time(selectedTrip.departureAt)}{
+            timing.kind === "overdue" ? ` · ${timing.minutesLate} min late` : ""
+          }</span>
+        </p> : null;
+      })()}
       {selectedTrip.status === "planned" ? <form className="board-staff-form"
         onSubmit={(event) => void saveStaffAssignment(event)}>
         <label htmlFor="dispatch-staff">Assigned staff</label>
@@ -455,6 +489,14 @@ export function DispatchPage() {
             <span className="board-card-route">{trip.routeName}</span>
             <span className="board-card-time">{time(trip.departureAt)} · {trip.status}</span>
             <span className="board-card-staff">Staff: {trip.assignedStaff?.displayName ?? "Unassigned"}</span>
+            {trip.status === "planned" && (() => {
+              const timing = plannedTripTiming(trip.departureAt, now);
+              return timing ? <span className={`board-card-alert board-card-alert-${timing.kind}`}>
+                {timing.kind === "due"
+                  ? "DUE NOW"
+                  : `TRIP OVERDUE · ${timing.minutesLate} min late`}
+              </span> : null;
+            })()}
             {staffPresenceText(trip, now) && <span
               className={`board-staff-presence ${staffPresenceClass(trip, now)}`}>
               {staffPresenceText(trip, now)}

@@ -27,6 +27,13 @@ function departureLabel(value: string): string {
   }).format(new Date(value));
 }
 
+function departureTimeLabel(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 type PhoneLocationState =
   | { status: "off" }
   | { status: "requesting" }
@@ -75,6 +82,20 @@ function locationTime(value: number): string {
 const PHONE_LOCATION_STALE_MS = 60_000;
 const PHONE_LOCATION_FUTURE_TOLERANCE_MS = 30_000;
 const PHONE_LOCATION_INTENT_KEY = "bussin.staff.phone-location-trip";
+const EARLY_START_WARNING_MS = 10 * 60_000;
+
+function plannedTripTiming(departureAt: string, now: number) {
+  const departure = Date.parse(departureAt);
+  if (!Number.isFinite(departure)) return null;
+  const lateBy = now - departure;
+  if (lateBy >= 60_000) {
+    return { kind: "overdue" as const, minutesLate: Math.floor(lateBy / 60_000) };
+  }
+  if (lateBy >= 0) {
+    return { kind: "due" as const, minutesLate: 0 };
+  }
+  return null;
+}
 
 function rememberPhoneLocationIntent(tripId: string): void {
   try {
@@ -113,6 +134,7 @@ export function StaffTripPage() {
   const [locationUploadNote, setLocationUploadNote] = useState("");
   const [lastUploadedAt, setLastUploadedAt] = useState<number | null>(null);
   const [locationNow, setLocationNow] = useState(() => Date.now());
+  const [tripClockNow, setTripClockNow] = useState(() => Date.now());
   const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<ScreenWakeLockSentinel | null>(null);
@@ -229,6 +251,13 @@ export function StaffTripPage() {
   }, [phoneLocation.status]);
 
   useEffect(() => {
+    if (trip?.status !== "planned") return;
+    setTripClockNow(Date.now());
+    const timer = window.setInterval(() => setTripClockNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, [trip?.id, trip?.status]);
+
+  useEffect(() => {
     const keepAwake = trip?.status === "active" && shouldResumePhoneLocation(trip.id);
     if (!keepAwake) {
       releaseScreenWakeLock();
@@ -264,6 +293,18 @@ export function StaffTripPage() {
 
   async function recordAction(type: "start" | "arrive" | "depart" | "complete", stopId?: string) {
     if (!trip || actionPending) return;
+
+    if (type === "start") {
+      const earlyBy = Date.parse(trip.departureAt) - Date.now();
+      if (earlyBy > EARLY_START_WARNING_MS) {
+        const minutesEarly = Math.ceil(earlyBy / 60_000);
+        const confirmed = window.confirm(
+          `This trip is scheduled for ${departureTimeLabel(trip.departureAt)}. Start ${minutesEarly} minutes early?`
+        );
+        if (!confirmed) return;
+      }
+    }
+
     const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}) });
     if (!action.success) return;
 
@@ -537,6 +578,8 @@ export function StaffTripPage() {
     : phoneLocationStale
       ? "stale"
       : phoneLocation.status;
+  const plannedTiming = trip?.status === "planned"
+    ? plannedTripTiming(trip.departureAt, tripClockNow) : null;
 
   return (
     <main className="staff-screen">
@@ -587,6 +630,14 @@ export function StaffTripPage() {
                   <dd>{departureLabel(trip.departureAt)}</dd>
                 </div>
               </dl>
+
+              {plannedTiming && <div
+                className={`staff-trip-alert staff-trip-alert-${plannedTiming.kind}`} role="alert">
+                <strong>{plannedTiming.kind === "due" ? "DUE NOW" : "TRIP OVERDUE"}</strong>
+                <span>Scheduled {departureTimeLabel(trip.departureAt)}{
+                  plannedTiming.kind === "overdue" ? ` · ${plannedTiming.minutesLate} min late` : ""
+                }</span>
+              </div>}
 
               <div className="staff-primary-action" aria-label="Trip controls">
                 {trip.status === "planned" && (
