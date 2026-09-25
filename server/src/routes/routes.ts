@@ -10,8 +10,15 @@ import {
 import { requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { syncPlannedTripRiders } from "../families/access.js";
+import { generateAndStoreRouteGeometry } from "./geometry.js";
 
 export const routeRoutes = Router();
+
+function refreshRouteGeometry(routeId: string): void {
+  void generateAndStoreRouteGeometry(routeId).catch((error) => {
+    console.error(`Could not refresh geometry for route ${routeId}`, error);
+  });
+}
 
 type RouteRow = {
   id: string;
@@ -143,6 +150,7 @@ routeRoutes.post(
 
       const output = routeSchema.parse(route);
       await client.query("COMMIT");
+      refreshRouteGeometry(route.id);
       response.status(201).json(output);
     } catch (error) {
       await client.query("ROLLBACK");
@@ -333,6 +341,7 @@ routeRoutes.put("/:id", requireSameOrigin, requireRole("admin"), async (request,
         active: created.rows[0].active, stops
       });
       await client.query("COMMIT");
+      refreshRouteGeometry(newRouteId);
       response.json(output);
       return;
     }
@@ -379,6 +388,7 @@ routeRoutes.put("/:id", requireSameOrigin, requireRole("admin"), async (request,
       active: existing.rows[0].active, stops
     });
     await client.query("COMMIT");
+    refreshRouteGeometry(id.data);
     response.json(output);
   } catch (error) {
     await client.query("ROLLBACK");
