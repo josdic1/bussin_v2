@@ -352,3 +352,49 @@ export const addressSearchResponseSchema = z.strictObject({
 
 export type AddressSearchResult =
   z.infer<typeof addressSearchResponseSchema>["results"][number];
+
+export const familyPortalEtaSchema = z.strictObject({
+  status: z.enum([
+    "live",
+    "aging",
+    "calculating",
+    "stale",
+    "off-route",
+    "unavailable"
+  ]),
+  source: z.enum(["mapbox-traffic", "live-gps"]).nullable(),
+  stopEtaAt: z.string().nullable(),
+  leaveAt: z.string().nullable(),
+  leaveBufferMinutes: z.number().int().min(0).max(60)
+});
+
+export const familyPortalRideSchema = z.strictObject({
+  riderId: z.string().uuid(),
+  riderName: z.string(),
+  tripId: z.string().uuid(),
+  routeName: z.string(),
+  servicePeriod: routeServicePeriodSchema,
+  busLabel: z.string(),
+  departureAt: z.string(),
+  tripStatus: z.enum(["planned", "active"]),
+  stop: z.strictObject({
+    id: z.string().uuid(),
+    label: z.string(),
+    latitude: coordinateSchema.shape.latitude,
+    longitude: coordinateSchema.shape.longitude,
+    arrivedAt: z.string().nullable(),
+    departedAt: z.string().nullable()
+  }),
+  location: z.strictObject({
+    latitude: coordinateSchema.shape.latitude,
+    longitude: coordinateSchema.shape.longitude,
+    observedAt: z.string()
+  }).nullable(),
+  eta: familyPortalEtaSchema.nullable()
+});
+
+export const familyPortalResponseSchema = z.strictObject({
+  rides: z.array(familyPortalRideSchema)
+});
+
+export type FamilyPortalRide = z.infer<typeof familyPortalRideSchema>;

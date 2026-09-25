@@ -109,6 +109,7 @@ export function FamiliesPage() {
   const [guardianError, setGuardianError] = useState("");
   const [editingGuardianId, setEditingGuardianId] = useState<string | null>(null);
   const [addingGuardian, setAddingGuardian] = useState(false);
+  const [accountActionId, setAccountActionId] = useState<string | null>(null);
 
   function editGuardian(guardian: Rider["guardians"][number]) {
     setEditingGuardianId(guardian.id);
@@ -237,6 +238,44 @@ export function FamiliesPage() {
     } finally { setAddingGuardian(false); }
   }
 
+  async function runGuardianAccountAction(
+    guardian: Guardian,
+    action: "activate" | "deactivate" | "reset-password"
+  ) {
+    setAccountActionId(guardian.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch(
+        `/api/families/guardians/${guardian.id}/account/${action}`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+
+      if (!response.ok) throw await errorFrom(response);
+
+      const body: unknown = await response.json();
+
+      await refresh();
+
+      if (action === "activate") {
+        setNotice(`${guardian.name} activated. Temporary password: genericpassword`);
+      } else if (action === "reset-password") {
+        setNotice(`${guardian.name}'s password reset to genericpassword. They must change it at next login.`);
+      } else {
+        setNotice(`${guardian.name}'s login deactivated.`);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Account action failed.");
+    } finally {
+      setAccountActionId(null);
+    }
+  }
+
   async function saveGuardianLinks(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!linkRiderId) return;
@@ -311,6 +350,15 @@ export function FamiliesPage() {
               </label>
               <label className="family-check"><input type="checkbox" checked={needsAttention}
                 onChange={(event) => setNeedsAttention(event.target.checked)} /> Needs attention only</label>
+              <button type="button" className="family-action" onClick={() => {
+                startEditing();
+                requestAnimationFrame(() =>
+                  document.getElementById("family-rider-editor")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start"
+                  })
+                );
+              }}>Add rider</button>
               <span className="family-count">{loading ? "Loading…" : `${matching.length} of ${riders.length} riders`}</span>
             </div>
             <div className="family-layout"><div className="family-table-scroll"><table className="family-table">
@@ -362,7 +410,36 @@ export function FamiliesPage() {
                 <td>{guardian.name}</td><td>{guardian.email ?? "—"}</td>
                 <td>{guardian.phone ?? "—"}</td>
                 <td>{guardian.accountStatus === "active" ? "Active" : guardian.accountStatus === "pending" ? "Setup needed" : "No account linked"}</td>
-                <td><button type="button" className="family-edit-guardian" onClick={() => editGuardian(guardian)}>Edit</button></td>
+                <td>
+                  <button type="button" className="family-edit-guardian"
+                    onClick={() => editGuardian(guardian)}>Edit</button>
+                  {guardian.accountStatus === "none" && <button
+                    type="button"
+                    className="family-action"
+                    disabled={accountActionId === guardian.id || !guardian.email}
+                    onClick={() => void runGuardianAccountAction(guardian, "activate")}
+                  >{accountActionId === guardian.id ? "Activating…" : "Activate account"}</button>}
+                  {guardian.accountStatus === "active" && <>
+                    <button
+                      type="button"
+                      className="family-edit-guardian"
+                      disabled={accountActionId === guardian.id}
+                      onClick={() => void runGuardianAccountAction(guardian, "reset-password")}
+                    >Reset password</button>
+                    <button
+                      type="button"
+                      className="family-edit-guardian"
+                      disabled={accountActionId === guardian.id}
+                      onClick={() => void runGuardianAccountAction(guardian, "deactivate")}
+                    >Deactivate</button>
+                  </>}
+                  {guardian.accountStatus === "pending" && <button
+                    type="button"
+                    className="family-action"
+                    disabled={accountActionId === guardian.id}
+                    onClick={() => void runGuardianAccountAction(guardian, "activate")}
+                  >Reactivate account</button>}
+                </td>
               </tr>)}
               {!guardians.length && <tr><td colSpan={5} className="family-empty-cell">No guardian contacts yet. Add one below or import a roster.</td></tr>}</tbody>
             </table></div>
@@ -386,7 +463,7 @@ export function FamiliesPage() {
       <section className="family-management" aria-label="Roster source">
         <div className="family-management-head"><h2>Roster source</h2></div>
         <p>Load the roster before testing. Use the Guardians tab to add or correct contacts. Reimporting updates imported contact details from the source file.</p>
-        {editingId !== undefined && <form className="family-editor" onSubmit={(event) => void saveRider(event)}>
+        {editingId !== undefined && <form id="family-rider-editor" className="family-editor" onSubmit={(event) => void saveRider(event)}>
           <h3>{editingId ? "Edit rider" : "Add rider"}</h3>
           <div className="family-editor-grid">
             <label>Child's first name<input value={draft.givenName} maxLength={80} required

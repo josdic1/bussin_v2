@@ -6,6 +6,7 @@ import { FamiliesPage } from "./families/FamiliesPage";
 import { DispatchPage } from "./dispatch/DispatchPage";
 import { MembersPage } from "./members/MembersPage";
 import { StaffTripPage } from "./staff/StaffTripPage";
+import { FamilyPortalPage } from "./families/FamilyPortalPage";
 const RoutesPage = lazy(async () => {
   const module = await import("./routes/RoutesPage");
   return { default: module.RoutesPage };
@@ -200,10 +201,14 @@ function AuthGate() {
     return <StaffTripPage />;
   }
 
+  if (member.roles.includes("family")) {
+    return <FamilyPortalPage />;
+  }
+
   return (
     <AuthScreen
-      title="Portal coming soon"
-      description="Your account is active. Your portal is being built."
+      title="No portal assigned"
+      description="Your account is active, but it does not have an available portal."
     >
       <SignOut />
     </AuthScreen>
