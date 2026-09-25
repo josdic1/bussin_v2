@@ -194,10 +194,34 @@ export const boardLocationSchema = coordinateSchema.extend({
   accuracyM: z.number().positive()
 });
 
+export const boardStopEtaSchema = z.strictObject({
+  stopId: z.string().uuid(),
+  label: z.string(),
+  etaAt: z.string(),
+  durationSecondsFromNow: z.number().nonnegative(),
+  distanceMFromNow: z.number().nonnegative(),
+  actualArrival: z.boolean()
+});
+
+export const boardEtaSchema = z.strictObject({
+  status: z.enum([
+    "live",
+    "aging",
+    "calculating",
+    "stale",
+    "off-route",
+    "unavailable"
+  ]),
+  source: z.enum(["mapbox-traffic", "live-gps"]).nullable(),
+  generatedAt: z.string().nullable(),
+  stops: z.array(boardStopEtaSchema)
+});
+
 export const boardTripSchema = plannedTripSchema.extend({
   stops: z.array(boardStopSchema),
   location: boardLocationSchema.nullable(),
-  staffLastSeenAt: z.string().nullable()
+  staffLastSeenAt: z.string().nullable(),
+  eta: boardEtaSchema.nullable()
 });
 
 export const boardResponseSchema = z.strictObject({

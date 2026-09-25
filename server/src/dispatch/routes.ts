@@ -17,6 +17,7 @@ import { pool } from "../db/pool.js";
 import { snapshotTripRiders } from "../families/access.js";
 import { applyTripAction } from "../trips/actions.js";
 import { subscribeToDispatchLocations } from "./live.js";
+import { buildDispatchEta } from "../eta/dispatchEta.js";
 
 export const dispatchRoutes = Router();
 
@@ -338,6 +339,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
       latitude: number; longitude: number;
       observedAt: string; accuracyM: number;
     } | null; staffLastSeenAt: string | null;
+    eta: Awaited<ReturnType<typeof buildDispatchEta>>;
   }>();
   for (const row of result.rows) {
     let trip = trips.get(row.id);
@@ -356,7 +358,8 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
           ? { latitude: row.locationLatitude, longitude: row.locationLongitude,
               observedAt: row.observedAt.toISOString(), accuracyM: row.accuracyM }
           : null,
-        staffLastSeenAt: row.staffLastSeenAt?.toISOString() ?? null
+        staffLastSeenAt: row.staffLastSeenAt?.toISOString() ?? null,
+        eta: null
       };
       trips.set(row.id, trip);
     }
@@ -373,6 +376,24 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
       });
     }
   }
+  await Promise.all(
+    [...trips.values()].map(async (trip) => {
+      if (trip.status !== "active") return;
+
+      try {
+        trip.eta = await buildDispatchEta(trip.id);
+      } catch (error) {
+        console.error(`Could not calculate ETA for trip ${trip.id}`, error);
+        trip.eta = {
+          status: "unavailable",
+          source: null,
+          generatedAt: null,
+          stops: []
+        };
+      }
+    })
+  );
+
   response.json(boardResponseSchema.parse({ trips: [...trips.values()] }));
 });
 

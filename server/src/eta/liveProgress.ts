@@ -21,7 +21,7 @@ export type LiveRouteProgress = StabilizedRouteProgress & {
   observedAt: string;
 };
 
-function routeCoordinates(geometry: unknown): RouteCoordinate[] {
+export function routeCoordinates(geometry: unknown): RouteCoordinate[] {
   if (
     !geometry ||
     typeof geometry !== "object" ||

@@ -67,7 +67,61 @@ function confirmEarlyStart(trip: BoardTrip) {
   );
 }
 
- function trackingText(trip: BoardTrip, now: number) {
+ function etaText(trip: BoardTrip) {
+  if (trip.status !== "active") return null;
+
+  if (!trip.eta || trip.eta.status === "calculating") {
+    return "ETA calculating";
+  }
+
+  if (trip.eta.status === "stale") {
+    return "ETA unavailable · location stale";
+  }
+
+  if (trip.eta.status === "off-route") {
+    return "ETA unavailable · bus off route";
+  }
+
+  if (trip.eta.status === "unavailable") {
+    return "ETA unavailable";
+  }
+
+  const nextStop =
+    trip.eta.stops.find((stop) => !stop.actualArrival) ??
+    trip.eta.stops[0];
+
+  if (!nextStop) return "ETA unavailable";
+
+  const source =
+    trip.eta.source === "mapbox-traffic"
+      ? "traffic"
+      : "live GPS pace";
+
+  const freshness =
+    trip.eta.status === "aging"
+      ? " · location aging"
+      : "";
+
+  return `${nextStop.label} · ETA ${time(nextStop.etaAt)} · ${source}${freshness}`;
+}
+
+function stopEtaText(trip: BoardTrip, stopId: string) {
+  if (
+    trip.status !== "active" ||
+    !trip.eta ||
+    !["live", "aging"].includes(trip.eta.status)
+  ) {
+    return null;
+  }
+
+  const eta = trip.eta.stops.find((stop) => stop.stopId === stopId);
+
+  if (!eta || eta.actualArrival) return null;
+
+  return `ETA ${time(eta.etaAt)}`;
+}
+
+function trackingText(trip: BoardTrip, now: number) {
   if (trip.status !== "active") {
     if (trip.status === "planned") {
       return Date.parse(trip.departureAt) < now
@@ -375,6 +429,11 @@ export function DispatchPage() {
         <span className="board-status">{selectedTrip.status}</span>
       </div>
       <p className="board-tracking" role="status">{trackingText(selectedTrip, now)}</p>
+      {etaText(selectedTrip) && (
+        <p className="board-tracking" role="status">
+          <strong>{etaText(selectedTrip)}</strong>
+        </p>
+      )}
       {selectedTrip.status === "planned" && (() => {
         const timing = plannedTripTiming(selectedTrip.departureAt, now);
         return timing ? <p className={`board-trip-alert board-trip-alert-${timing.kind}`} role="alert">
@@ -441,6 +500,9 @@ export function DispatchPage() {
           <ol>{selectedTrip.stops.map((stop) => <li key={stop.id}>
             <strong>{stop.position}. {stop.label}</strong>
             <span>{stop.arrivedAt ? `Arrived ${time(stop.arrivedAt)}` : "Arrival not recorded"}</span>
+            {stopEtaText(selectedTrip, stop.id) && (
+              <span><strong>{stopEtaText(selectedTrip, stop.id)}</strong></span>
+            )}
             <span>{stop.id === selectedTrip.stops.at(-1)?.id
               ? "Final destination"
               : stop.departedAt ? `Departed ${time(stop.departedAt)}` : "Departure not recorded"}</span>
@@ -502,6 +564,11 @@ export function DispatchPage() {
               {staffPresenceText(trip, now)}
             </span>}
             <span className="board-card-tracking">{trackingText(trip, now)}</span>
+            {etaText(trip) && (
+              <span className="board-card-tracking">
+                <strong>{etaText(trip)}</strong>
+              </span>
+            )}
             <span className="board-mini-line" aria-label={`${trip.stops.length} stops`}>
               {trip.stops.map((stop) => <span key={stop.id} title={stop.label} />)}
             </span>
