@@ -708,3 +708,39 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
   font-size: 12px;
   font-weight: 700;
 }
+
+.staff-wake-lock-warning {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #d8c18f;
+  background: #fff9ec;
+  color: #6f551c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.staff-wake-lock-status {
+  margin: 12px 0 0;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .05em;
+}
+.staff-wake-lock-awake { color: #17663f; }
+.staff-wake-lock-needs-tap { color: #9a3f35; }
+
+.staff-wake-lock-warning {
+  display: grid;
+  gap: 10px;
+}
+
+.staff-wake-lock-button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  background: #17382c;
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  letter-spacing: .04em;
+  cursor: pointer;
+}

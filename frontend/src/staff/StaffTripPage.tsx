@@ -136,8 +136,12 @@ export function StaffTripPage() {
   const [locationNow, setLocationNow] = useState(() => Date.now());
   const [tripClockNow, setTripClockNow] = useState(() => Date.now());
   const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const [wakeLockWarning, setWakeLockWarning] = useState("");
+  const [wakeLockHeld, setWakeLockHeld] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const wakeLockRef = useRef<ScreenWakeLockSentinel | null>(null);
+  const wakeLockRequestPendingRef = useRef(false);
+  const wakeLockIntentionalReleaseRef = useRef(false);
 
   const loadTrip = useCallback(async (signal?: AbortSignal) => {
     const response = await fetch("/api/staff/trip", {
@@ -241,6 +245,7 @@ export function StaffTripPage() {
     }
     forgetPhoneLocationIntent();
     releaseScreenWakeLock();
+    setWakeLockWarning("");
     setPhoneLocation({ status: "off" });
   }, [trip?.id, trip?.status]);
 
@@ -422,27 +427,85 @@ export function StaffTripPage() {
   async function requestScreenWakeLock() {
     if (!trip || trip.status !== "active" || !shouldResumePhoneLocation(trip.id)) return;
     if (document.visibilityState !== "visible") return;
+
+    const activeTripId = trip.id;
     const wakeLock = (navigator as WakeLockNavigator).wakeLock;
-    if (!wakeLock) return;
-    if (wakeLockRef.current && !wakeLockRef.current.released) return;
+
+    if (!wakeLock) {
+      setWakeLockHeld(false);
+      setWakeLockWarning(
+        "Screen stay-awake is unavailable. Keep this phone awake while GPS is live."
+      );
+      return;
+    }
+
+    if (wakeLockRef.current && !wakeLockRef.current.released) {
+      setWakeLockHeld(true);
+      setWakeLockWarning("");
+      return;
+    }
+
+    if (wakeLockRequestPendingRef.current) return;
+    wakeLockRequestPendingRef.current = true;
 
     try {
       const sentinel = await wakeLock.request("screen");
+
+      // The driver may have stopped tracking while Safari was still granting
+      // the asynchronous request. Never keep that late lock alive.
+      if (
+        document.visibilityState !== "visible" ||
+        !shouldResumePhoneLocation(activeTripId)
+      ) {
+        await sentinel.release().catch(() => undefined);
+        return;
+      }
+
       wakeLockRef.current = sentinel;
+      wakeLockIntentionalReleaseRef.current = false;
+      setWakeLockHeld(true);
+      setWakeLockWarning("");
+
       sentinel.addEventListener("release", () => {
         if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
+        setWakeLockHeld(false);
+
+        if (wakeLockIntentionalReleaseRef.current) {
+          wakeLockIntentionalReleaseRef.current = false;
+          return;
+        }
+
+        if (
+          document.visibilityState === "visible" &&
+          shouldResumePhoneLocation(activeTripId)
+        ) {
+          setWakeLockWarning(
+            "Screen stay-awake was released. Tap below to restore live tracking."
+          );
+        }
       });
     } catch {
-      // Wake Lock is a convenience, not a tracking dependency. GPS continues
-      // normally if iOS/browser policy refuses to keep the screen awake.
+      setWakeLockHeld(false);
+      setWakeLockWarning(
+        "Screen stay-awake needs your tap. Restore it to keep GPS live."
+      );
+    } finally {
+      wakeLockRequestPendingRef.current = false;
     }
   }
 
   function releaseScreenWakeLock() {
     const sentinel = wakeLockRef.current;
     wakeLockRef.current = null;
+    setWakeLockHeld(false);
+
     if (sentinel && !sentinel.released) {
-      void sentinel.release().catch(() => undefined);
+      wakeLockIntentionalReleaseRef.current = true;
+      void sentinel.release().catch(() => {
+        wakeLockIntentionalReleaseRef.current = false;
+      });
+    } else {
+      wakeLockIntentionalReleaseRef.current = false;
     }
   }
 
@@ -496,6 +559,7 @@ export function StaffTripPage() {
     }
     forgetPhoneLocationIntent();
     releaseScreenWakeLock();
+    setWakeLockWarning("");
     setPhoneLocation({ status: "off" });
     setLocationUploadError("");
     setLocationUploadNote("");
@@ -735,6 +799,23 @@ export function StaffTripPage() {
                     <p className="staff-location-background-note">
                       Keep Bussin open during the trip. Mobile browsers may pause GPS in the background; Bussin marks old locations stale and requests a fresh fix when you return.
                     </p>
+                    <p className={`staff-wake-lock-status ${
+                      wakeLockHeld ? "staff-wake-lock-awake" : "staff-wake-lock-needs-tap"
+                    }`}>
+                      Screen: {wakeLockHeld ? "AWAKE" : "NEEDS TAP"}
+                    </p>
+                    {wakeLockWarning && (
+                      <div className="staff-wake-lock-warning" role="status">
+                        <span>{wakeLockWarning}</span>
+                        <button
+                          className="staff-wake-lock-button"
+                          type="button"
+                          onClick={() => void requestScreenWakeLock()}
+                        >
+                          KEEP SCREEN AWAKE
+                        </button>
+                      </div>
+                    )}
                     <button className="staff-location-stop" type="button" onClick={stopPhoneLocation}>
                       Stop location
                     </button>
