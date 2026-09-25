@@ -9,6 +9,10 @@ type MapboxTrafficResponse = {
   routes?: Array<{
     duration?: number;
     distance?: number;
+    legs?: Array<{
+      duration?: number;
+      distance?: number;
+    }>;
   }>;
 };
 
@@ -16,6 +20,10 @@ export type TrafficTravelTime = {
   durationSeconds: number;
   distanceM: number;
   source: "mapbox-traffic";
+  legs: Array<{
+    durationSeconds: number;
+    distanceM: number;
+  }>;
 };
 
 const MAPBOX_TRAFFIC_BASE =
@@ -37,7 +45,8 @@ export async function readTrafficTravelTime(
     return {
       durationSeconds: 0,
       distanceM: 0,
-      source: "mapbox-traffic"
+      source: "mapbox-traffic",
+      legs: []
     };
   }
 
@@ -73,7 +82,18 @@ export async function readTrafficTravelTime(
     route.duration < 0 ||
     typeof route.distance !== "number" ||
     !Number.isFinite(route.distance) ||
-    route.distance < 0
+    route.distance < 0 ||
+    !Array.isArray(route.legs) ||
+    route.legs.length !== remainingStops.length ||
+    route.legs.some(
+      (leg) =>
+        typeof leg.duration !== "number" ||
+        !Number.isFinite(leg.duration) ||
+        leg.duration < 0 ||
+        typeof leg.distance !== "number" ||
+        !Number.isFinite(leg.distance) ||
+        leg.distance < 0
+    )
   ) {
     return null;
   }
@@ -81,6 +101,10 @@ export async function readTrafficTravelTime(
   return {
     durationSeconds: route.duration,
     distanceM: route.distance,
-    source: "mapbox-traffic"
+    source: "mapbox-traffic",
+    legs: route.legs.map((leg) => ({
+      durationSeconds: leg.duration as number,
+      distanceM: leg.distance as number
+    }))
   };
 }
