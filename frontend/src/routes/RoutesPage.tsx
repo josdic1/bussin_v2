@@ -32,6 +32,7 @@ export function RoutesPage() {
   const [matches, setMatches] = useState<AddressSearchResult[]>([]);
   const [candidate, setCandidate] = useState<AddressSearchResult | null>(null);
   const [searching, setSearching] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [searchError, setSearchError] = useState("");
   const searchController = useRef<AbortController | null>(null);
   const [saving, setSaving] = useState(false);
@@ -115,6 +116,37 @@ export function RoutesPage() {
     } finally {
       if (!controller.signal.aborted) setSearching(false);
     }
+  }
+
+  function useCurrentLocation() {
+    if (!("geolocation" in navigator)) {
+      setError("This device cannot provide its location.");
+      return;
+    }
+
+    setLocating(true);
+    setError("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const coordinate = {
+          latitude: roundCoordinate(position.coords.latitude),
+          longitude: roundCoordinate(position.coords.longitude)
+        };
+        setCandidate({
+          label: "Current phone location",
+          ...coordinate,
+          locationType: "place"
+        });
+        setMatches([]);
+        setSearchError("");
+        setLocating(false);
+      },
+      (failure) => {
+        setLocating(false);
+        setError(failure.message || "Could not get the phone location.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
   }
 
   function pickStop(coordinate: Coordinate) {
@@ -407,6 +439,10 @@ export function RoutesPage() {
             />
             {searching && <span className="route-searching" role="status">Finding…</span>}
           </div>
+          <button type="button" className="route-use-location"
+            disabled={locating} onClick={useCurrentLocation}>
+            {locating ? "Getting current location…" : "Use my current location for this stop"}
+          </button>
           {searchError && <p className="auth-error" role="alert">{searchError}</p>}
           {matches.length > 0 && (
             <ul id="route-address-suggestions" className="route-address-results"
@@ -430,9 +466,10 @@ export function RoutesPage() {
           {candidate && (
             <div className="route-address-selected">
               <p><strong>Selected:</strong> {candidate.label}</p>
-              <p>Drag the orange pin to the pickup point. Name the stop above, then add it.</p>
+              <p>Confirm the orange pin is on the actual bus pickup/drop-off point. Drag it if needed.</p>
+              <p><strong>Coordinates:</strong> {candidate.latitude.toFixed(6)}, {candidate.longitude.toFixed(6)}</p>
               <button type="button" onClick={() => pickStop(candidate)}>
-                Add stop at this location
+                Add stop at this exact pin
               </button>
             </div>
           )}
@@ -464,6 +501,9 @@ export function RoutesPage() {
                     onChange={(event) => changeStop(index, event.target.value)}
                     maxLength={120}
                   />
+                  <small className="route-stop-coordinate">
+                    {stop.latitude.toFixed(6)}, {stop.longitude.toFixed(6)}
+                  </small>
                   <div className="route-stop-actions">
                     <button type="button" disabled={index === 0}
                       onClick={() => reorderStop(index, -1)}>Up</button>

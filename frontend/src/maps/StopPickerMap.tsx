@@ -43,8 +43,7 @@ export function StopPickerMap({ stops, focus, onFocusMove, onPick, onMove }: Pro
   const handlers = useRef({ onFocusMove, onPick, onMove });
   handlers.current = { onFocusMove, onPick, onMove };
 
-  const style = import.meta.env.VITE_MAP_STYLE_URL ||
-    (import.meta.env.DEV ? localStyle : null);
+  const style = import.meta.env.VITE_MAP_STYLE_URL || localStyle;
 
   useEffect(() => {
     if (!container.current || !style) return;
@@ -124,10 +123,6 @@ export function StopPickerMap({ stops, focus, onFocusMove, onPick, onMove }: Pro
 
     return () => { marker.remove(); };
   }, [focus]);
-
-  if (!style) {
-    return <p role="alert">Map service is not configured.</p>;
-  }
 
   return (
     <div

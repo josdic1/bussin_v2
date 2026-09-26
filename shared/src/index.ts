@@ -254,6 +254,13 @@ export const dispatchGpsAuditEntrySchema = z.discriminatedUnion("kind", [
     occurredAt: z.string(),
     action: z.enum(["arrived_stop", "departed_stop"]),
     stopLabel: z.string()
+  }),
+  z.strictObject({
+    kind: z.literal("gap"),
+    id: z.string(),
+    startedAt: z.string(),
+    resumedAt: z.string(),
+    durationSeconds: z.number().int().positive()
   })
 ]);
 

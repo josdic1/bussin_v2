@@ -119,6 +119,21 @@ dispatchRoutes.get(
       )
     ]);
 
+    const gapEntries = samples.rows.slice(0, -1).flatMap((newer, index) => {
+      const older = samples.rows[index + 1];
+      const durationSeconds = Math.round(
+        (newer.observedAt.getTime() - older.observedAt.getTime()) / 1000
+      );
+      if (durationSeconds <= 30) return [];
+      return [{
+        kind: "gap" as const,
+        id: `gap:${older.id}:${newer.id}`,
+        startedAt: older.observedAt.toISOString(),
+        resumedAt: newer.observedAt.toISOString(),
+        durationSeconds
+      }];
+    });
+
     const entries = [
       ...samples.rows.map((sample) => ({
         kind: "sample" as const,
@@ -131,6 +146,7 @@ dispatchRoutes.get(
         speedMps: sample.speedMps,
         headingDegrees: sample.headingDegrees
       })),
+      ...gapEntries,
       ...journeyEvents.rows.map((event) => ({
         kind: "journey" as const,
         id: event.id,
@@ -139,8 +155,16 @@ dispatchRoutes.get(
         stopLabel: event.stopLabel
       }))
     ].sort((a, b) => {
-      const aTime = Date.parse(a.kind === "sample" ? a.observedAt : a.occurredAt);
-      const bTime = Date.parse(b.kind === "sample" ? b.observedAt : b.occurredAt);
+      const aTime = Date.parse(a.kind === "sample"
+        ? a.observedAt
+        : a.kind === "journey"
+          ? a.occurredAt
+          : a.resumedAt);
+      const bTime = Date.parse(b.kind === "sample"
+        ? b.observedAt
+        : b.kind === "journey"
+          ? b.occurredAt
+          : b.resumedAt);
       return bTime - aTime;
     });
 

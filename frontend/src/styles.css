@@ -744,3 +744,22 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
   letter-spacing: .04em;
   cursor: pointer;
 }
+
+.board-gps-audit { margin-top: 16px; }
+.board-gps-audit-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.board-gps-audit-head h2 { margin-bottom: 4px; }
+.board-gps-audit-head p { margin-top: 0; color: #627168; }
+.board-gps-audit-head > span { white-space: nowrap; font-size: 12px; font-weight: 800; color: #627168; }
+.board-gps-audit-list { max-height: 310px; overflow: auto; list-style: none; padding: 0; margin: 14px 0 0; border-top: 1px solid #d9e0da; }
+.board-gps-audit-list li { display: grid; grid-template-columns: 95px 125px 70px minmax(190px, 1fr) 80px 80px; gap: 10px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid #e7ece8; font-size: 12px; }
+.board-gps-audit-list time { font-variant-numeric: tabular-nums; color: #627168; }
+.board-gps-audit-list strong { font-size: 11px; letter-spacing: .06em; }
+.board-gps-audit-received { color: #627168; }
+.board-gps-audit-journey { grid-template-columns: 95px 125px minmax(190px, 1fr) !important; }
+.board-gps-audit-journey strong { color: #176b41; }
+@media (max-width: 760px) {
+  .board-gps-audit-list li { grid-template-columns: 90px 1fr 70px; }
+  .board-gps-audit-list li span:nth-of-type(2),
+  .board-gps-audit-list li span:nth-of-type(4) { grid-column: 2 / -1; }
+  .board-gps-audit-journey { grid-template-columns: 90px 1fr !important; }
+}
