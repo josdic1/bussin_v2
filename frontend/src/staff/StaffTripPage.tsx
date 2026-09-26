@@ -190,6 +190,13 @@ export function StaffTripPage() {
   }, [loadTrip]);
 
   useEffect(() => {
+    // Staff runtime is infrastructure, not a driver toggle. Every open staff
+    // screen immediately attempts both capabilities and keeps their true state visible.
+    startPhoneLocation();
+    void requestScreenWakeLock();
+  }, []);
+
+  useEffect(() => {
     const refreshTrip = () => {
       void loadTrip().then(() => setError("")).catch((cause) => {
         setError(cause instanceof Error ? cause.message : "Could not refresh your trip.");
@@ -230,23 +237,15 @@ export function StaffTripPage() {
     if (trip === undefined) return;
 
     if (trip?.status === "active") {
-      // Safari can reload a foreground page while the network changes. Preserve
-      // the driver's explicit tracking choice for this active trip so a Wi-Fi
-      // -> cellular handoff does not silently turn location off.
-      if (watchIdRef.current === null && shouldResumePhoneLocation(trip.id)) {
-        startPhoneLocation();
-      }
+      // Product truth: an active staff trip always owns live phone location.
+      // There is no separate "enable tracking" mode for the driver.
+      rememberPhoneLocationIntent(trip.id);
+      if (watchIdRef.current === null) startPhoneLocation();
       return;
     }
 
-    if (watchIdRef.current !== null && "geolocation" in navigator) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    forgetPhoneLocationIntent();
-    releaseScreenWakeLock();
-    setWakeLockWarning("");
-    setPhoneLocation({ status: "off" });
+    // GPS and wake lock remain active while the staff screen is open, even before
+    // a trip starts. Uploading still occurs only for an active assigned trip.
   }, [trip?.id, trip?.status]);
 
   useEffect(() => {
@@ -263,20 +262,13 @@ export function StaffTripPage() {
   }, [trip?.id, trip?.status]);
 
   useEffect(() => {
-    const keepAwake = trip?.status === "active" && shouldResumePhoneLocation(trip.id);
-    if (!keepAwake) {
-      releaseScreenWakeLock();
-      return;
-    }
     void requestScreenWakeLock();
   }, [trip?.id, trip?.status, phoneLocation.status]);
 
   useEffect(() => {
     const restoreScreenWakeLock = () => {
       if (document.visibilityState !== "visible") return;
-      if (trip?.status === "active" && shouldResumePhoneLocation(trip.id)) {
-        void requestScreenWakeLock();
-      }
+      void requestScreenWakeLock();
     };
     document.addEventListener("visibilitychange", restoreScreenWakeLock);
     window.addEventListener("pageshow", restoreScreenWakeLock);
@@ -425,10 +417,9 @@ export function StaffTripPage() {
   }
 
   async function requestScreenWakeLock() {
-    if (!trip || trip.status !== "active" || !shouldResumePhoneLocation(trip.id)) return;
     if (document.visibilityState !== "visible") return;
 
-    const activeTripId = trip.id;
+    const activeTripId = trip?.status === "active" ? trip.id : null;
     const wakeLock = (navigator as WakeLockNavigator).wakeLock;
 
     if (!wakeLock) {
@@ -454,8 +445,7 @@ export function StaffTripPage() {
       // The driver may have stopped tracking while Safari was still granting
       // the asynchronous request. Never keep that late lock alive.
       if (
-        document.visibilityState !== "visible" ||
-        !shouldResumePhoneLocation(activeTripId)
+        document.visibilityState !== "visible"
       ) {
         await sentinel.release().catch(() => undefined);
         return;
@@ -476,8 +466,7 @@ export function StaffTripPage() {
         }
 
         if (
-          document.visibilityState === "visible" &&
-          shouldResumePhoneLocation(activeTripId)
+          document.visibilityState === "visible"
         ) {
           setWakeLockWarning(
             "Screen stay-awake was released. Tap below to restore live tracking."
@@ -511,7 +500,6 @@ export function StaffTripPage() {
 
   function startPhoneLocation() {
     if (watchIdRef.current !== null) return;
-    if (!trip || trip.status !== "active") return;
     if (!("geolocation" in navigator)) {
       forgetPhoneLocationIntent();
       setPhoneLocation({
@@ -521,7 +509,7 @@ export function StaffTripPage() {
       return;
     }
 
-    rememberPhoneLocationIntent(trip.id);
+    if (trip?.status === "active") rememberPhoneLocationIntent(trip.id);
     void requestScreenWakeLock();
     setPhoneLocation({ status: "requesting" });
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -544,7 +532,6 @@ export function StaffTripPage() {
   }
 
   function restartPhoneLocation() {
-    if (!trip || trip.status !== "active" || !shouldResumePhoneLocation(trip.id)) return;
     if (watchIdRef.current !== null && "geolocation" in navigator) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -570,10 +557,8 @@ export function StaffTripPage() {
     const handleOnline = () => {
       setOnline(true);
       setLocationUploadError("");
-      if (trip?.status === "active" && shouldResumePhoneLocation(trip.id)) {
-        setLocationUploadNote("Connection restored · restarting GPS tracking.");
-        restartPhoneLocation();
-      }
+      setLocationUploadNote("Connection restored · restarting GPS tracking.");
+      restartPhoneLocation();
     };
     const handleOffline = () => {
       setOnline(false);
@@ -593,14 +578,11 @@ export function StaffTripPage() {
   useEffect(() => {
     const recoverPhoneLocation = () => {
       if (document.visibilityState !== "visible") return;
-      if (trip?.status === "active" && shouldResumePhoneLocation(trip.id)) {
-        // iOS Safari can leave an existing watchPosition id in memory after the
-        // page was suspended even though that watcher no longer produces fixes.
-        // Treat every foreground return as a hard GPS recovery: discard the old
-        // watcher and create a new one while preserving the driver's saved intent.
-        setLocationUploadNote("Bussin returned to the foreground · restarting GPS tracking.");
-        restartPhoneLocation();
-      }
+      // iOS Safari can leave an existing watchPosition id in memory after the
+      // page was suspended even though that watcher no longer produces fixes.
+      setLocationUploadNote("Bussin returned to the foreground · restarting GPS tracking.");
+      restartPhoneLocation();
+      void requestScreenWakeLock();
     };
     document.addEventListener("visibilitychange", recoverPhoneLocation);
     window.addEventListener("focus", recoverPhoneLocation);
@@ -611,6 +593,29 @@ export function StaffTripPage() {
       window.removeEventListener("pageshow", recoverPhoneLocation);
     };
   }, [trip?.id, trip?.status]);
+
+  useEffect(() => {
+    const watchdog = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+
+      void requestScreenWakeLock();
+
+      if (phoneLocation.status === "tracking") {
+        const ageMs = Date.now() - phoneLocation.observedAt;
+        if (ageMs > 30_000) {
+          setLocationUploadNote("GPS stopped updating · restarting automatically.");
+          restartPhoneLocation();
+        } else {
+          requestFreshPhoneLocation();
+        }
+        return;
+      }
+
+      if (phoneLocation.status !== "requesting") startPhoneLocation();
+    }, 15_000);
+
+    return () => window.clearInterval(watchdog);
+  }, [trip?.id, trip?.status, phoneLocation.status, phoneLocation.status === "tracking" ? phoneLocation.observedAt : 0]);
 
   async function signOut() {
     stopPhoneLocation();
@@ -660,6 +665,50 @@ export function StaffTripPage() {
         <h1>{member?.display_name ?? "Your trip"}</h1>
         {signOutError && <p className="auth-error" role="alert">{signOutError}</p>}
         {error && <p className="auth-error" role="alert">{error}</p>}
+
+        <section className="staff-location-card" aria-label="Bussin system status">
+          <div className="staff-location-head">
+            <div>
+              <p className="eyebrow">SYSTEM</p>
+              <h2>Runtime truth</h2>
+            </div>
+          </div>
+          <div className="staff-runtime-truth">
+            <p className={`staff-wake-lock-status ${
+              wakeLockHeld ? "staff-wake-lock-awake" : "staff-wake-lock-needs-tap"
+            }`}>
+              Wake Lock: {wakeLockHeld ? "✓ ACTIVE" : "⚠ NOT ACTIVE"}
+            </p>
+            <p className={`staff-wake-lock-status ${
+              phoneLocation.status === "tracking" && !phoneLocationStale && online
+                ? "staff-wake-lock-awake"
+                : "staff-wake-lock-needs-tap"
+            }`}>
+              Location: {phoneLocation.status === "tracking" && !phoneLocationStale && online
+                ? `✓ LIVE · ±${Math.round(phoneLocation.accuracy)} m`
+                : phoneLocation.status === "requesting"
+                  ? "… FINDING GPS"
+                  : phoneLocation.status === "error"
+                    ? "⚠ ERROR"
+                    : phoneLocationStale
+                      ? "⚠ STALE"
+                      : !online
+                        ? "⚠ OFFLINE"
+                        : "⚠ NOT ACTIVE"}
+            </p>
+          </div>
+          {!wakeLockHeld && wakeLockWarning && (
+            <button className="staff-wake-lock-button" type="button"
+              onClick={() => void requestScreenWakeLock()}>
+              RESTORE WAKE LOCK
+            </button>
+          )}
+          {phoneLocation.status === "error" && (
+            <button className="staff-location-button" type="button" onClick={restartPhoneLocation}>
+              RETRY LOCATION
+            </button>
+          )}
+        </section>
 
         {trip === undefined ? (
           <section className="staff-state">
@@ -745,14 +794,7 @@ export function StaffTripPage() {
                 </div>
 
                 {phoneLocation.status === "off" && (
-                  <>
-                    <p className="staff-location-copy">
-                      Turn on location so this phone can follow the bus during the trip.
-                    </p>
-                    <button className="staff-location-button" type="button" onClick={startPhoneLocation}>
-                      Enable location
-                    </button>
-                  </>
+                  <p className="staff-location-copy">Starting live location automatically…</p>
                 )}
 
                 {phoneLocation.status === "requesting" && (
@@ -802,26 +844,6 @@ export function StaffTripPage() {
                     <p className="staff-location-background-note">
                       Keep Bussin open during the trip. Mobile browsers may pause GPS in the background; Bussin marks old locations stale and requests a fresh fix when you return.
                     </p>
-                    <p className={`staff-wake-lock-status ${
-                      wakeLockHeld ? "staff-wake-lock-awake" : "staff-wake-lock-needs-tap"
-                    }`}>
-                      Screen: {wakeLockHeld ? "AWAKE" : "NEEDS TAP"}
-                    </p>
-                    {wakeLockWarning && (
-                      <div className="staff-wake-lock-warning" role="status">
-                        <span>{wakeLockWarning}</span>
-                        <button
-                          className="staff-wake-lock-button"
-                          type="button"
-                          onClick={() => void requestScreenWakeLock()}
-                        >
-                          KEEP SCREEN AWAKE
-                        </button>
-                      </div>
-                    )}
-                    <button className="staff-location-stop" type="button" onClick={stopPhoneLocation}>
-                      Stop location
-                    </button>
                   </>
                 )}
               </section>
