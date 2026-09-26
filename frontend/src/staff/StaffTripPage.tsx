@@ -797,6 +797,9 @@ export function StaffTripPage() {
                                 : "Sending first fix to Dispatch…"}
                     </p>
                     <p className="staff-location-background-note">
+                      Journey is watching the next stop automatically while GPS is live. Manual Arrive/Depart remains available.
+                    </p>
+                    <p className="staff-location-background-note">
                       Keep Bussin open during the trip. Mobile browsers may pause GPS in the background; Bussin marks old locations stale and requests a fresh fix when you return.
                     </p>
                     <p className={`staff-wake-lock-status ${

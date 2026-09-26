@@ -11,6 +11,7 @@ import { readSession } from "../auth/sessions.js";
 import { pool } from "../db/pool.js";
 import { applyTripAction } from "../trips/actions.js";
 import { subscribeToStaffTrips } from "./live.js";
+import { applyJourneyFromGps } from "./journey.js";
 import {
   locationDatabaseRejectionReason,
   locationSampleRejectionReason
@@ -365,6 +366,24 @@ staffRoutes.post(
         }
       }
       throw error;
+    }
+
+    // Journey automation is deliberately isolated from canonical GPS storage.
+    // If automation fails, the accepted GPS sample remains valid and manual
+    // Arrive/Depart controls continue to work exactly as before.
+    const journeyClient = await pool.connect();
+    try {
+      await journeyClient.query("BEGIN");
+      await applyJourneyFromGps(journeyClient, {
+        tripId: assignment.rows[0].tripId,
+        actorId: member.id
+      });
+      await journeyClient.query("COMMIT");
+    } catch (error) {
+      await journeyClient.query("ROLLBACK").catch(() => undefined);
+      console.error("Journey GPS automation failed; manual trip controls remain available.", error);
+    } finally {
+      journeyClient.release();
     }
 
     response.status(201).json(staffLocationSampleResponseSchema.parse({ accepted: true }));

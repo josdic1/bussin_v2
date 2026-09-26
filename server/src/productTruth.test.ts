@@ -6,6 +6,7 @@ import { createRouteSchema, updateRouteSchema } from "@bussin/shared";
 import { snapshotTripRiders } from "./families/access.js";
 import { applyTripAction } from "./trips/actions.js";
 import { locationSampleRejectionReason } from "./staff/locationPolicy.js";
+import { hasArrivalEvidence, hasDepartureEvidence } from "./staff/journey.js";
 import { etaAvailability } from "./eta/freshness.js";
 import { buildTrafficStopEtas } from "./eta/stopEtas.js";
 
@@ -836,6 +837,60 @@ test("database protects Bussin product truth", async (t) => {
     await client.query("ROLLBACK").catch(() => {});
     client.release();
   }
+});
+
+test("Journey requires sustained accurate evidence before automatic arrival", () => {
+  const stop = { latitude: 40.7484, longitude: -74.2600 };
+  const base = Date.parse("2026-09-26T16:00:00.000Z");
+  const sample = (seconds: number, latitude: number, accuracyM = 12, speedMps: number | null = 0) => ({
+    observedAt: new Date(base + seconds * 1000),
+    latitude,
+    longitude: stop.longitude,
+    accuracyM,
+    speedMps
+  });
+
+  assert.equal(hasArrivalEvidence([
+    sample(0, 40.74840),
+    sample(6, 40.74841),
+    sample(13, 40.74842)
+  ], stop), true);
+
+  assert.equal(hasArrivalEvidence([
+    sample(0, 40.74840),
+    sample(6, 40.74841),
+    sample(13, 40.74842, 60)
+  ], stop), false);
+
+  assert.equal(hasArrivalEvidence([
+    sample(0, 40.74840, 12, 8),
+    sample(6, 40.74841, 12, 8),
+    sample(13, 40.74842, 12, 8)
+  ], stop), false);
+});
+
+test("Journey requires sustained movement away before automatic departure", () => {
+  const stop = { latitude: 40.7484, longitude: -74.2600 };
+  const base = Date.parse("2026-09-26T16:10:00.000Z");
+  const sample = (seconds: number, latitude: number) => ({
+    observedAt: new Date(base + seconds * 1000),
+    latitude,
+    longitude: stop.longitude,
+    accuracyM: 10,
+    speedMps: 8
+  });
+
+  assert.equal(hasDepartureEvidence([
+    sample(0, 40.74910),
+    sample(6, 40.74920),
+    sample(13, 40.74932)
+  ], stop), true);
+
+  assert.equal(hasDepartureEvidence([
+    sample(0, 40.74910),
+    sample(6, 40.74904),
+    sample(13, 40.74912)
+  ], stop), false);
 });
 
 test.after(async () => {
