@@ -81,6 +81,9 @@ function locationTime(value: number): string {
 
 const PHONE_LOCATION_STALE_MS = 60_000;
 const PHONE_LOCATION_FUTURE_TOLERANCE_MS = 30_000;
+const GPS_WATCH_STALL_MS = 20_000;
+const GPS_WATCHDOG_INTERVAL_MS = 8_000;
+const GPS_BURST_DEDUPE_MS = 2_500;
 const PHONE_LOCATION_INTENT_KEY = "bussin.staff.phone-location-trip";
 const EARLY_START_WARNING_MS = 10 * 60_000;
 
@@ -142,6 +145,13 @@ export function StaffTripPage() {
   const wakeLockRef = useRef<ScreenWakeLockSentinel | null>(null);
   const wakeLockRequestPendingRef = useRef(false);
   const wakeLockIntentionalReleaseRef = useRef(false);
+  const watchStartedAtRef = useRef<number | null>(null);
+  const lastUploadCandidateRef = useRef<{
+    observedAt: number;
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  } | null>(null);
 
   const loadTrip = useCallback(async (signal?: AbortSignal) => {
     const response = await fetch("/api/staff/trip", {
@@ -337,10 +347,30 @@ export function StaffTripPage() {
       return;
     }
 
+    const observedAt = position.timestamp || Date.now();
+    const prior = lastUploadCandidateRef.current;
+    const sameBurstFix = prior !== null &&
+      observedAt >= prior.observedAt &&
+      observedAt - prior.observedAt < GPS_BURST_DEDUPE_MS &&
+      Math.abs(position.coords.latitude - prior.latitude) < 0.0000001 &&
+      Math.abs(position.coords.longitude - prior.longitude) < 0.0000001 &&
+      Math.abs(position.coords.accuracy - prior.accuracy) < 0.5;
+
+    // iOS can emit the same CLLocation several times in one burst. Suppress only
+    // near-simultaneous exact repeats; normal stationary fixes several seconds
+    // apart still reach Journey so sustained-arrival evidence remains intact.
+    if (sameBurstFix) return;
+    lastUploadCandidateRef.current = {
+      observedAt,
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy: position.coords.accuracy
+    };
+
     const sample = staffLocationSampleInputSchema.safeParse({
       tripId: trip.id,
       clientSampleId: crypto.randomUUID(),
-      observedAt: new Date(position.timestamp || Date.now()).toISOString(),
+      observedAt: new Date(observedAt).toISOString(),
       latitude: position.coords.latitude,
       longitude: position.coords.longitude,
       accuracyM: position.coords.accuracy,
@@ -396,6 +426,7 @@ export function StaffTripPage() {
   }
 
   function acceptPhonePosition(position: GeolocationPosition) {
+    watchStartedAtRef.current = Date.now();
     setPhoneLocation({
       status: "tracking",
       latitude: position.coords.latitude,
@@ -405,15 +436,6 @@ export function StaffTripPage() {
     });
     setLocationNow(Date.now());
     void uploadPhoneLocation(position);
-  }
-
-  function requestFreshPhoneLocation() {
-    if (watchIdRef.current === null || !("geolocation" in navigator)) return;
-    navigator.geolocation.getCurrentPosition(
-      acceptPhonePosition,
-      () => setLocationUploadNote("Waiting for a fresh GPS fix."),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 }
-    );
   }
 
   async function requestScreenWakeLock() {
@@ -511,6 +533,7 @@ export function StaffTripPage() {
 
     if (trip?.status === "active") rememberPhoneLocationIntent(trip.id);
     void requestScreenWakeLock();
+    watchStartedAtRef.current = Date.now();
     setPhoneLocation({ status: "requesting" });
     watchIdRef.current = navigator.geolocation.watchPosition(
       acceptPhonePosition,
@@ -551,6 +574,8 @@ export function StaffTripPage() {
     setLocationUploadError("");
     setLocationUploadNote("");
     setLastUploadedAt(null);
+    watchStartedAtRef.current = null;
+    lastUploadCandidateRef.current = null;
   }
 
   useEffect(() => {
@@ -599,20 +624,32 @@ export function StaffTripPage() {
       if (document.visibilityState !== "visible") return;
 
       void requestScreenWakeLock();
+      const now = Date.now();
 
       if (phoneLocation.status === "tracking") {
-        const ageMs = Date.now() - phoneLocation.observedAt;
-        if (ageMs > 30_000) {
-          setLocationUploadNote("GPS stopped updating · restarting automatically.");
+        const ageMs = now - phoneLocation.observedAt;
+        if (ageMs > GPS_WATCH_STALL_MS) {
+          setLocationUploadNote(
+            `GPS silent for ${Math.max(1, Math.round(ageMs / 1000))}s · restarting automatically.`
+          );
           restartPhoneLocation();
-        } else {
-          requestFreshPhoneLocation();
         }
         return;
       }
 
-      if (phoneLocation.status !== "requesting") startPhoneLocation();
-    }, 15_000);
+      if (phoneLocation.status === "requesting") {
+        const waitingMs = watchStartedAtRef.current === null
+          ? GPS_WATCH_STALL_MS + 1
+          : now - watchStartedAtRef.current;
+        if (waitingMs > GPS_WATCH_STALL_MS) {
+          setLocationUploadNote("GPS request went silent · restarting automatically.");
+          restartPhoneLocation();
+        }
+        return;
+      }
+
+      startPhoneLocation();
+    }, GPS_WATCHDOG_INTERVAL_MS);
 
     return () => window.clearInterval(watchdog);
   }, [trip?.id, trip?.status, phoneLocation.status, phoneLocation.status === "tracking" ? phoneLocation.observedAt : 0]);

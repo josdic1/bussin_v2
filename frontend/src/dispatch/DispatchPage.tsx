@@ -536,7 +536,7 @@ export function DispatchPage() {
             <h2>GPS capture log</h2>
             <p>What Dispatch actually received from the staff phone. Newest first.</p>
           </div>
-          <span>{gpsAudit.length} captured</span>
+          <span>{gpsAudit.filter((entry) => entry.kind === "sample").length} captured</span>
         </div>
         {gpsAuditError && <p className="auth-error" role="alert">{gpsAuditError}</p>}
         {!gpsAuditError && gpsAudit.length === 0 ? <p>No GPS captures yet.</p> :
@@ -548,10 +548,16 @@ export function DispatchPage() {
               <span>{entry.latitude.toFixed(6)}, {entry.longitude.toFixed(6)}</span>
               <span>{entry.speedMps === null ? "speed —" : `${(entry.speedMps * 2.23694).toFixed(1)} mph`}</span>
               <span className="board-gps-audit-received">server +{Math.max(0, Math.round((Date.parse(entry.receivedAt) - Date.parse(entry.observedAt)) / 1000))}s</span>
-            </li> : <li key={entry.id} className="board-gps-audit-journey">
+            </li> : entry.kind === "journey" ? <li key={entry.id} className="board-gps-audit-journey">
               <time dateTime={entry.occurredAt}>{new Date(entry.occurredAt).toLocaleTimeString()}</time>
               <strong>{entry.action === "arrived_stop" ? "AUTO ARRIVED" : "AUTO DEPARTED"}</strong>
               <span>{entry.stopLabel}</span>
+            </li> : <li key={entry.id} className="board-gps-audit-gap">
+              <time dateTime={entry.resumedAt}>{new Date(entry.resumedAt).toLocaleTimeString()}</time>
+              <strong>GPS RESUMED</strong>
+              <span>No accepted captures for {entry.durationSeconds >= 60
+                ? `${Math.floor(entry.durationSeconds / 60)}m ${entry.durationSeconds % 60}s`
+                : `${entry.durationSeconds}s`}</span>
             </li>)}
           </ol>}
       </section>
