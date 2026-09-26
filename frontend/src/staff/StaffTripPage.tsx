@@ -81,6 +81,8 @@ function locationTime(value: number): string {
 
 const PHONE_LOCATION_STALE_MS = 60_000;
 const PHONE_LOCATION_FUTURE_TOLERANCE_MS = 30_000;
+const GPS_POLL_INTERVAL_MS = 6_000;
+const GPS_REQUEST_TIMEOUT_MS = 12_000;
 const GPS_WATCH_STALL_MS = 20_000;
 const GPS_WATCHDOG_INTERVAL_MS = 8_000;
 const GPS_BURST_DEDUPE_MS = 2_500;
@@ -141,11 +143,15 @@ export function StaffTripPage() {
   const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [wakeLockWarning, setWakeLockWarning] = useState("");
   const [wakeLockHeld, setWakeLockHeld] = useState(false);
-  const watchIdRef = useRef<number | null>(null);
+  const locationPollTimerRef = useRef<number | null>(null);
+  const locationRequestInFlightRef = useRef(false);
+  const tripRef = useRef<StaffTrip | null | undefined>(undefined);
   const wakeLockRef = useRef<ScreenWakeLockSentinel | null>(null);
   const wakeLockRequestPendingRef = useRef(false);
   const wakeLockIntentionalReleaseRef = useRef(false);
   const watchStartedAtRef = useRef<number | null>(null);
+  tripRef.current = trip;
+
   const lastUploadCandidateRef = useRef<{
     observedAt: number;
     latitude: number;
@@ -237,9 +243,11 @@ export function StaffTripPage() {
   }, [loadTrip]);
 
   useEffect(() => () => {
-    if (watchIdRef.current !== null && "geolocation" in navigator) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
+    if (locationPollTimerRef.current !== null) {
+      window.clearTimeout(locationPollTimerRef.current);
+      locationPollTimerRef.current = null;
     }
+    locationRequestInFlightRef.current = false;
     releaseScreenWakeLock();
   }, []);
 
@@ -250,7 +258,7 @@ export function StaffTripPage() {
       // Product truth: an active staff trip always owns live phone location.
       // There is no separate "enable tracking" mode for the driver.
       rememberPhoneLocationIntent(trip.id);
-      if (watchIdRef.current === null) startPhoneLocation();
+      startPhoneLocation();
       return;
     }
 
@@ -340,7 +348,8 @@ export function StaffTripPage() {
   }
 
   async function uploadPhoneLocation(position: GeolocationPosition) {
-    if (!trip || trip.status !== "active") return;
+    const activeTrip = tripRef.current;
+    if (!activeTrip || activeTrip.status !== "active") return;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       setLocationUploadError("");
       setLocationUploadNote("Offline · waiting for a connection. Old fixes will not be replayed.");
@@ -368,7 +377,7 @@ export function StaffTripPage() {
     };
 
     const sample = staffLocationSampleInputSchema.safeParse({
-      tripId: trip.id,
+      tripId: activeTrip.id,
       clientSampleId: crypto.randomUUID(),
       observedAt: new Date(observedAt).toISOString(),
       latitude: position.coords.latitude,
@@ -520,53 +529,77 @@ export function StaffTripPage() {
     }
   }
 
-  function startPhoneLocation() {
-    if (watchIdRef.current !== null) return;
+  function scheduleNextLocationPoll(delayMs = GPS_POLL_INTERVAL_MS) {
+    if (locationPollTimerRef.current !== null) {
+      window.clearTimeout(locationPollTimerRef.current);
+    }
+    locationPollTimerRef.current = window.setTimeout(() => {
+      locationPollTimerRef.current = null;
+      pollPhoneLocation();
+    }, delayMs);
+  }
+
+  function pollPhoneLocation() {
     if (!("geolocation" in navigator)) {
-      forgetPhoneLocationIntent();
-      setPhoneLocation({
-        status: "error",
-        message: "This browser does not support phone location."
-      });
+      setPhoneLocation({ status: "error", message: "This browser does not support phone location." });
       return;
     }
+    if (locationRequestInFlightRef.current) return;
 
-    if (trip?.status === "active") rememberPhoneLocationIntent(trip.id);
-    void requestScreenWakeLock();
+    locationRequestInFlightRef.current = true;
     watchStartedAtRef.current = Date.now();
-    setPhoneLocation({ status: "requesting" });
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      acceptPhonePosition,
+    if (phoneLocation.status !== "tracking") setPhoneLocation({ status: "requesting" });
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        locationRequestInFlightRef.current = false;
+        acceptPhonePosition(position);
+        scheduleNextLocationPoll();
+      },
       (locationError) => {
+        locationRequestInFlightRef.current = false;
         if (locationError.code === locationError.PERMISSION_DENIED) {
-          if (watchIdRef.current !== null) {
-            navigator.geolocation.clearWatch(watchIdRef.current);
-            watchIdRef.current = null;
-          }
           forgetPhoneLocationIntent();
-          releaseScreenWakeLock();
           setPhoneLocation({ status: "error", message: locationErrorMessage(locationError) });
           return;
         }
-        setLocationUploadNote(locationErrorMessage(locationError));
+        setLocationUploadNote(`${locationErrorMessage(locationError)} Retrying automatically.`);
+        scheduleNextLocationPoll();
       },
-      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 15_000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: GPS_REQUEST_TIMEOUT_MS }
     );
   }
 
-  function restartPhoneLocation() {
-    if (watchIdRef.current !== null && "geolocation" in navigator) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
+  function startPhoneLocation() {
+    if (!("geolocation" in navigator)) {
+      forgetPhoneLocationIntent();
+      setPhoneLocation({ status: "error", message: "This browser does not support phone location." });
+      return;
     }
-    startPhoneLocation();
+
+    const activeTrip = tripRef.current;
+    if (activeTrip?.status === "active") rememberPhoneLocationIntent(activeTrip.id);
+    void requestScreenWakeLock();
+
+    if (locationPollTimerRef.current !== null || locationRequestInFlightRef.current) return;
+    pollPhoneLocation();
+  }
+
+  function restartPhoneLocation() {
+    if (locationPollTimerRef.current !== null) {
+      window.clearTimeout(locationPollTimerRef.current);
+      locationPollTimerRef.current = null;
+    }
+    locationRequestInFlightRef.current = false;
+    pollPhoneLocation();
   }
 
   function stopPhoneLocation() {
-    if (watchIdRef.current !== null && "geolocation" in navigator) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
+    if (locationPollTimerRef.current !== null) {
+      window.clearTimeout(locationPollTimerRef.current);
+      locationPollTimerRef.current = null;
     }
+    locationRequestInFlightRef.current = false;
     forgetPhoneLocationIntent();
     releaseScreenWakeLock();
     setWakeLockWarning("");
@@ -587,7 +620,7 @@ export function StaffTripPage() {
     };
     const handleOffline = () => {
       setOnline(false);
-      if (trip?.status === "active" && watchIdRef.current !== null) {
+      if (trip?.status === "active") {
         setLocationUploadError("");
         setLocationUploadNote("Offline · waiting for a connection. Old fixes will not be replayed.");
       }
