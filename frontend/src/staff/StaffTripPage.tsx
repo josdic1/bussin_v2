@@ -86,6 +86,8 @@ const GPS_REQUEST_TIMEOUT_MS = 12_000;
 const GPS_WATCH_STALL_MS = 20_000;
 const GPS_WATCHDOG_INTERVAL_MS = 8_000;
 const GPS_BURST_DEDUPE_MS = 2_500;
+const GPS_UPLOAD_RETRY_MS = 3_000;
+const GPS_UPLOAD_QUEUE_MAX = 20;
 const PHONE_LOCATION_INTENT_KEY = "bussin.staff.phone-location-trip";
 const EARLY_START_WARNING_MS = 10 * 60_000;
 
@@ -138,6 +140,7 @@ export function StaffTripPage() {
   const [locationUploadError, setLocationUploadError] = useState("");
   const [locationUploadNote, setLocationUploadNote] = useState("");
   const [lastUploadedAt, setLastUploadedAt] = useState<number | null>(null);
+  const [dispatchTransport, setDispatchTransport] = useState<"idle" | "sending" | "live" | "offline" | "error">("idle");
   const [locationNow, setLocationNow] = useState(() => Date.now());
   const [tripClockNow, setTripClockNow] = useState(() => Date.now());
   const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
@@ -145,6 +148,9 @@ export function StaffTripPage() {
   const [wakeLockHeld, setWakeLockHeld] = useState(false);
   const locationPollTimerRef = useRef<number | null>(null);
   const locationRequestInFlightRef = useRef(false);
+  const uploadQueueRef = useRef<ReturnType<typeof staffLocationSampleInputSchema.parse>[]>([]);
+  const uploadFlushInFlightRef = useRef(false);
+  const uploadRetryTimerRef = useRef<number | null>(null);
   const tripRef = useRef<StaffTrip | null | undefined>(undefined);
   const wakeLockRef = useRef<ScreenWakeLockSentinel | null>(null);
   const wakeLockRequestPendingRef = useRef(false);
@@ -247,7 +253,12 @@ export function StaffTripPage() {
       window.clearTimeout(locationPollTimerRef.current);
       locationPollTimerRef.current = null;
     }
+    if (uploadRetryTimerRef.current !== null) {
+      window.clearTimeout(uploadRetryTimerRef.current);
+      uploadRetryTimerRef.current = null;
+    }
     locationRequestInFlightRef.current = false;
+    uploadFlushInFlightRef.current = false;
     releaseScreenWakeLock();
   }, []);
 
@@ -347,14 +358,83 @@ export function StaffTripPage() {
     }
   }
 
-  async function uploadPhoneLocation(position: GeolocationPosition) {
-    const activeTrip = tripRef.current;
-    if (!activeTrip || activeTrip.status !== "active") return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      setLocationUploadError("");
-      setLocationUploadNote("Offline · waiting for a connection. Old fixes will not be replayed.");
+  function scheduleUploadRetry() {
+    if (uploadRetryTimerRef.current !== null) return;
+    uploadRetryTimerRef.current = window.setTimeout(() => {
+      uploadRetryTimerRef.current = null;
+      void flushLocationUploadQueue();
+    }, GPS_UPLOAD_RETRY_MS);
+  }
+
+  async function flushLocationUploadQueue() {
+    if (uploadFlushInFlightRef.current) return;
+    if (uploadQueueRef.current.length === 0) {
+      if (lastUploadedAt !== null) setDispatchTransport("live");
       return;
     }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setDispatchTransport("offline");
+      setLocationUploadError("");
+      setLocationUploadNote(`Dispatch offline · ${uploadQueueRef.current.length} GPS fix${uploadQueueRef.current.length === 1 ? "" : "es"} queued.`);
+      scheduleUploadRetry();
+      return;
+    }
+
+    uploadFlushInFlightRef.current = true;
+    setDispatchTransport("sending");
+    try {
+      while (uploadQueueRef.current.length > 0) {
+        const sample = uploadQueueRef.current[0];
+        const response = await fetch("/api/staff/trip/location", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sample)
+        });
+        if (!response.ok) throw new Error(await readError(response, "Could not send location to Dispatch."));
+
+        const result = staffLocationSampleResponseSchema.parse(await response.json());
+        uploadQueueRef.current.shift();
+        setLocationUploadError("");
+
+        if (!result.accepted && result.reason !== "duplicate") {
+          const note = result.reason === "stale"
+            ? "Dispatch rejected an old queued fix; continuing with fresh GPS."
+            : result.reason === "future"
+              ? "Phone time is out of sync; waiting for a valid GPS fix."
+              : "Dispatch rejected a low-accuracy fix; waiting for better GPS.";
+          setLocationUploadNote(note);
+          continue;
+        }
+
+        setLastUploadedAt(Date.now());
+        setDispatchTransport("live");
+        setLocationUploadNote(uploadQueueRef.current.length > 0
+          ? `Dispatch reconnected · sending ${uploadQueueRef.current.length} queued GPS fix${uploadQueueRef.current.length === 1 ? "" : "es"}.`
+          : "");
+      }
+    } catch (cause) {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setOnline(false);
+        setDispatchTransport("offline");
+      } else {
+        setDispatchTransport("error");
+      }
+      setLocationUploadError(
+        cause instanceof Error
+          ? `${cause.message} GPS is still running; Dispatch upload will retry automatically.`
+          : "Dispatch upload failed. GPS is still running; upload will retry automatically."
+      );
+      setLocationUploadNote(`${uploadQueueRef.current.length} GPS fix${uploadQueueRef.current.length === 1 ? "" : "es"} queued.`);
+      scheduleUploadRetry();
+    } finally {
+      uploadFlushInFlightRef.current = false;
+    }
+  }
+
+  function uploadPhoneLocation(position: GeolocationPosition) {
+    const activeTrip = tripRef.current;
+    if (!activeTrip || activeTrip.status !== "active") return;
 
     const observedAt = position.timestamp || Date.now();
     const prior = lastUploadCandidateRef.current;
@@ -365,9 +445,6 @@ export function StaffTripPage() {
       Math.abs(position.coords.longitude - prior.longitude) < 0.0000001 &&
       Math.abs(position.coords.accuracy - prior.accuracy) < 0.5;
 
-    // iOS can emit the same CLLocation several times in one burst. Suppress only
-    // near-simultaneous exact repeats; normal stationary fixes several seconds
-    // apart still reach Journey so sustained-arrival evidence remains intact.
     if (sameBurstFix) return;
     lastUploadCandidateRef.current = {
       observedAt,
@@ -376,7 +453,7 @@ export function StaffTripPage() {
       accuracy: position.coords.accuracy
     };
 
-    const sample = staffLocationSampleInputSchema.safeParse({
+    const parsed = staffLocationSampleInputSchema.safeParse({
       tripId: activeTrip.id,
       clientSampleId: crypto.randomUUID(),
       observedAt: new Date(observedAt).toISOString(),
@@ -386,52 +463,16 @@ export function StaffTripPage() {
       speedMps: position.coords.speed,
       headingDegrees: position.coords.heading
     });
-    if (!sample.success) {
-      setLocationUploadError("This phone produced a location sample Bussin could not send.");
+    if (!parsed.success) {
+      setLocationUploadError("This phone produced a location sample Bussin could not queue.");
       return;
     }
 
-    try {
-      const response = await fetch("/api/staff/trip/location", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sample.data)
-      });
-      if (!response.ok) {
-        throw new Error(await readError(response, "Could not send this location."));
-      }
-      const result = staffLocationSampleResponseSchema.parse(await response.json());
-      setLocationUploadError("");
-      if (!result.accepted) {
-        if (result.reason === "duplicate") {
-          setLocationUploadNote("");
-          setLastUploadedAt(Date.now());
-          return;
-        }
-        const note = result.reason === "stale"
-          ? "Waiting for a fresh GPS fix."
-          : result.reason === "future"
-            ? "Phone time is out of sync. Waiting for a valid GPS fix."
-            : `Waiting for better GPS accuracy (±${Math.round(position.coords.accuracy)} m).`;
-        setLocationUploadNote(note);
-        return;
-      }
-      setLocationUploadNote("");
-      setLastUploadedAt(Date.now());
-    } catch (cause) {
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        setOnline(false);
-        setLocationUploadError("");
-        setLocationUploadNote("Offline · waiting for a connection. Old fixes will not be replayed.");
-        return;
-      }
-      setLocationUploadError(
-        cause instanceof Error
-          ? `${cause.message} Bussin will retry with the next fresh GPS fix.`
-          : "Could not send this location. Bussin will retry with the next fresh GPS fix."
-      );
+    uploadQueueRef.current.push(parsed.data);
+    if (uploadQueueRef.current.length > GPS_UPLOAD_QUEUE_MAX) {
+      uploadQueueRef.current.splice(0, uploadQueueRef.current.length - GPS_UPLOAD_QUEUE_MAX);
     }
+    void flushLocationUploadQueue();
   }
 
   function acceptPhonePosition(position: GeolocationPosition) {
@@ -607,6 +648,12 @@ export function StaffTripPage() {
     setLocationUploadError("");
     setLocationUploadNote("");
     setLastUploadedAt(null);
+    setDispatchTransport("idle");
+    uploadQueueRef.current = [];
+    if (uploadRetryTimerRef.current !== null) {
+      window.clearTimeout(uploadRetryTimerRef.current);
+      uploadRetryTimerRef.current = null;
+    }
     watchStartedAtRef.current = null;
     lastUploadCandidateRef.current = null;
   }
@@ -615,14 +662,16 @@ export function StaffTripPage() {
     const handleOnline = () => {
       setOnline(true);
       setLocationUploadError("");
-      setLocationUploadNote("Connection restored · restarting GPS tracking.");
+      setLocationUploadNote("Connection restored · resuming GPS and Dispatch upload.");
       restartPhoneLocation();
+      void flushLocationUploadQueue();
     };
     const handleOffline = () => {
       setOnline(false);
       if (trip?.status === "active") {
+        setDispatchTransport("offline");
         setLocationUploadError("");
-        setLocationUploadNote("Offline · waiting for a connection. Old fixes will not be replayed.");
+        setLocationUploadNote(`Dispatch offline · ${uploadQueueRef.current.length} queued GPS fix${uploadQueueRef.current.length === 1 ? "" : "es"}.`);
       }
     };
     window.addEventListener("online", handleOnline);
@@ -765,6 +814,21 @@ export function StaffTripPage() {
                       : !online
                         ? "⚠ OFFLINE"
                         : "⚠ NOT ACTIVE"}
+            </p>
+            <p className={`staff-wake-lock-status ${
+              dispatchTransport === "live"
+                ? "staff-wake-lock-awake"
+                : "staff-wake-lock-needs-tap"
+            }`}>
+              Dispatch: {dispatchTransport === "live"
+                ? "✓ RECEIVING"
+                : dispatchTransport === "sending"
+                  ? "… SENDING"
+                  : dispatchTransport === "offline"
+                    ? `⚠ OFFLINE · ${uploadQueueRef.current.length} QUEUED`
+                    : dispatchTransport === "error"
+                      ? `⚠ RETRYING · ${uploadQueueRef.current.length} QUEUED`
+                      : "… WAITING FOR FIRST SEND"}
             </p>
           </div>
           {!wakeLockHeld && wakeLockWarning && (
