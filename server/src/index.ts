@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { authRoutes } from "./auth/routes.js";
 import { fleetRoutes } from "./fleet/routes.js";
@@ -27,8 +28,34 @@ app.get("/health", (_request, response) => {
   response.json({ status: "running" });
 });
 
+const isProduction = process.env.NODE_ENV === "production";
+
+if (isProduction) {
+  const frontendDist = fileURLToPath(
+    new URL("../../frontend/dist/", import.meta.url)
+  );
+  const frontendIndex = fileURLToPath(
+    new URL("../../frontend/dist/index.html", import.meta.url)
+  );
+
+  app.use(express.static(frontendDist));
+
+  app.use((request, response, next) => {
+    if (
+      request.method !== "GET" ||
+      request.path.startsWith("/api/") ||
+      request.path === "/health"
+    ) {
+      next();
+      return;
+    }
+
+    response.sendFile(frontendIndex);
+  });
+}
+
 const port = Number(process.env.PORT ?? 3001);
 
-app.listen(port, process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1", () => {
+app.listen(port, isProduction ? "0.0.0.0" : "127.0.0.1", () => {
   console.log(`Bussin ${tenant.name} server listening on port ${port}`);
 });
