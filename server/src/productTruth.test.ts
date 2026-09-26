@@ -6,6 +6,8 @@ import { createRouteSchema, updateRouteSchema } from "@bussin/shared";
 import { snapshotTripRiders } from "./families/access.js";
 import { applyTripAction } from "./trips/actions.js";
 import { locationSampleRejectionReason } from "./staff/locationPolicy.js";
+import { etaAvailability } from "./eta/freshness.js";
+import { buildTrafficStopEtas } from "./eta/stopEtas.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const databaseName = process.env.PGDATABASE;
@@ -87,6 +89,60 @@ test("GPS quality policy classifies stale, future, and inaccurate fixes", () => 
     observedAt: "2026-09-24T18:00:00.000Z",
     accuracyM: 15
   }, now), null);
+});
+
+test("ETA freshness never treats stale or off-route GPS as available", () => {
+  const now = Date.parse("2026-09-26T14:00:00.000Z");
+
+  assert.deepEqual(
+    etaAvailability("2026-09-26T13:58:59.000Z", false, now),
+    {
+      freshness: "stale",
+      available: false,
+      ageSeconds: 61
+    }
+  );
+
+  assert.deepEqual(
+    etaAvailability("2026-09-26T13:59:55.000Z", true, now),
+    {
+      freshness: "off-route",
+      available: false,
+      ageSeconds: 5
+    }
+  );
+
+  assert.equal(
+    etaAvailability("2026-09-26T13:59:40.000Z", false, now).available,
+    true
+  );
+});
+
+test("an arrived stop is an actual arrival, not a future ETA", () => {
+  const arrivedAt = "2026-09-26T14:02:00.000Z";
+
+  const result = buildTrafficStopEtas(
+    [{
+      id: "stop-1",
+      label: "Test stop",
+      arrivedAt,
+      departedAt: null
+    }],
+    [{
+      durationSeconds: 30,
+      distanceM: 200
+    }],
+    Date.parse("2026-09-26T14:03:00.000Z")
+  );
+
+  assert.deepEqual(result, [{
+    stopId: "stop-1",
+    label: "Test stop",
+    etaAt: arrivedAt,
+    durationSecondsFromNow: 0,
+    distanceMFromNow: 0,
+    actualArrival: true
+  }]);
 });
 
 test("database protects Bussin product truth", async (t) => {
@@ -582,6 +638,37 @@ test("database protects Bussin product truth", async (t) => {
       assert.equal(revision.rows[0].supersedesRouteId, amRouteId);
     });
 
+    await t.test("guardian leave buffer defaults to five and stays between zero and sixty minutes", async () => {
+      const guardian = await client.query<{ id: string; leaveBufferMinutes: number }>(
+        `INSERT INTO guardians (name, email)
+         VALUES ($1, $2)
+         RETURNING id, leave_buffer_minutes AS "leaveBufferMinutes"`,
+        [`Buffer Guardian ${token}`, `buffer-${token}@example.test`]
+      );
+
+      assert.equal(guardian.rows[0].leaveBufferMinutes, 5);
+
+      await client.query(
+        `UPDATE guardians SET leave_buffer_minutes = 0 WHERE id = $1`,
+        [guardian.rows[0].id]
+      );
+
+      await client.query(
+        `UPDATE guardians SET leave_buffer_minutes = 60 WHERE id = $1`,
+        [guardian.rows[0].id]
+      );
+
+      await expectDatabaseError(client, "23514", () => client.query(
+        `UPDATE guardians SET leave_buffer_minutes = -1 WHERE id = $1`,
+        [guardian.rows[0].id]
+      ));
+
+      await expectDatabaseError(client, "23514", () => client.query(
+        `UPDATE guardians SET leave_buffer_minutes = 61 WHERE id = $1`,
+        [guardian.rows[0].id]
+      ));
+    });
+
     await t.test("family access comes only from guardian -> rider -> trip", async () => {
       const routeStop = await client.query<{ id: string }>(
         `INSERT INTO route_stops (route_id, position, label, latitude, longitude)
@@ -653,6 +740,40 @@ test("database protects Bussin product truth", async (t) => {
       );
       assert.equal(access.rowCount, 1);
       assert.equal(access.rows[0].tripStopId, tripStopId);
+
+      const secondMember = await client.query<{ id: string }>(
+        `INSERT INTO members (email, display_name)
+         VALUES ($1, 'Second Test Guardian') RETURNING id`,
+        [`guardian-two-${token}@example.test`]
+      );
+      const secondMemberId = secondMember.rows[0].id;
+
+      await client.query(
+        "INSERT INTO member_roles (member_id, role) VALUES ($1, 'family')",
+        [secondMemberId]
+      );
+
+      const secondGuardian = await client.query<{ id: string }>(
+        `INSERT INTO guardians (name, email, member_id)
+         VALUES ('Second Test Guardian', $1, $2) RETURNING id`,
+        [`guardian-two-${token}@example.test`, secondMemberId]
+      );
+
+      await client.query(
+        `INSERT INTO rider_guardian_links (rider_id, guardian_id, source)
+         VALUES ($1, $2, 'manual')`,
+        [riderId, secondGuardian.rows[0].id]
+      );
+
+      const secondAccess = await client.query<{ tripStopId: string }>(
+        `SELECT trip_stop_id AS "tripStopId"
+           FROM family_trip_access
+          WHERE member_id = $1 AND rider_id = $2 AND trip_id = $3`,
+        [secondMemberId, riderId, tripId]
+      );
+
+      assert.equal(secondAccess.rowCount, 1);
+      assert.equal(secondAccess.rows[0].tripStopId, tripStopId);
 
       const unrelated = await client.query<{ id: string }>(
         `INSERT INTO members (email, display_name)
