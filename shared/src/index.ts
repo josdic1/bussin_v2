@@ -236,6 +236,33 @@ export const dispatchLocationUpdateSchema = z.strictObject({
 export type BoardTrip = z.infer<typeof boardTripSchema>;
 export type DispatchLocationUpdate = z.infer<typeof dispatchLocationUpdateSchema>;
 
+export const dispatchGpsAuditEntrySchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("sample"),
+    id: z.string().uuid(),
+    observedAt: z.string(),
+    receivedAt: z.string(),
+    latitude: coordinateSchema.shape.latitude,
+    longitude: coordinateSchema.shape.longitude,
+    accuracyM: z.number().positive(),
+    speedMps: z.number().nonnegative().nullable(),
+    headingDegrees: z.number().min(0).lt(360).nullable()
+  }),
+  z.strictObject({
+    kind: z.literal("journey"),
+    id: z.string().uuid(),
+    occurredAt: z.string(),
+    action: z.enum(["arrived_stop", "departed_stop"]),
+    stopLabel: z.string()
+  })
+]);
+
+export const dispatchGpsAuditResponseSchema = z.strictObject({
+  entries: z.array(dispatchGpsAuditEntrySchema)
+});
+
+export type DispatchGpsAuditEntry = z.infer<typeof dispatchGpsAuditEntrySchema>;
+
 export const staffTripStopSchema = z.strictObject({
   id: z.string().uuid(),
   position: z.number().int().positive(),

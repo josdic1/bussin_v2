@@ -7,11 +7,13 @@ import {
   createPlannedTripSchema,
   dispatchStaffResponseSchema,
   dispatchLocationUpdateSchema,
+  dispatchGpsAuditResponseSchema,
   plannedTripSchema,
   routesResponseSchema,
   tripActionSchema,
   tripStaffAssignmentResponseSchema,
   type BoardTrip,
+  type DispatchGpsAuditEntry,
   type Bus,
   type Route,
   type TripStaff
@@ -214,6 +216,8 @@ export function DispatchPage() {
   const [now, setNow] = useState(() => Date.now());
   const [revision, setRevision] = useState(0);
   const [liveStreamState, setLiveStreamState] = useState<"connecting" | "live" | "reconnecting">("connecting");
+  const [gpsAudit, setGpsAudit] = useState<DispatchGpsAuditEntry[]>([]);
+  const [gpsAuditError, setGpsAuditError] = useState("");
   const [params, setParams] = useSearchParams();
   const selectedTripId = params.get("trip");
   const selectedTrip = trips.find((trip) => trip.id === selectedTripId);
@@ -290,6 +294,39 @@ export function DispatchPage() {
   useEffect(() => {
     setStaffId(selectedTrip?.assignedStaff?.id ?? "");
   }, [selectedTrip?.id, selectedTrip?.assignedStaff?.id]);
+
+  useEffect(() => {
+    if (!selectedTripId) {
+      setGpsAudit([]);
+      setGpsAuditError("");
+      return;
+    }
+
+    const controller = new AbortController();
+    async function loadGpsAudit() {
+      try {
+        const response = await fetch(`/api/dispatch/trips/${selectedTripId}/gps-audit`, {
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error("Could not load GPS capture log.");
+        const data = dispatchGpsAuditResponseSchema.parse(await response.json());
+        if (controller.signal.aborted) return;
+        setGpsAudit(data.entries);
+        setGpsAuditError("");
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          setGpsAuditError(cause instanceof Error ? cause.message : "Could not load GPS capture log.");
+        }
+      }
+    }
+
+    void loadGpsAudit();
+    const timer = window.setInterval(() => void loadGpsAudit(), 5_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [selectedTripId]);
 
   async function planTrip(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -492,6 +529,31 @@ export function DispatchPage() {
         </div>}
       <section className="board-detail-timeline" aria-label="Stops in route order">
         <StopLine trip={selectedTrip} color={colorForBus(selectedTrip.busId)} />
+      </section>
+      <section className="dispatch-card board-gps-audit" aria-label="GPS capture log">
+        <div className="board-gps-audit-head">
+          <div>
+            <h2>GPS capture log</h2>
+            <p>What Dispatch actually received from the staff phone. Newest first.</p>
+          </div>
+          <span>{gpsAudit.length} captured</span>
+        </div>
+        {gpsAuditError && <p className="auth-error" role="alert">{gpsAuditError}</p>}
+        {!gpsAuditError && gpsAudit.length === 0 ? <p>No GPS captures yet.</p> :
+          <ol className="board-gps-audit-list">
+            {gpsAudit.map((entry) => entry.kind === "sample" ? <li key={entry.id}>
+              <time dateTime={entry.observedAt}>{new Date(entry.observedAt).toLocaleTimeString()}</time>
+              <strong>GPS CAPTURE</strong>
+              <span>±{Math.round(entry.accuracyM)} m</span>
+              <span>{entry.latitude.toFixed(6)}, {entry.longitude.toFixed(6)}</span>
+              <span>{entry.speedMps === null ? "speed —" : `${(entry.speedMps * 2.23694).toFixed(1)} mph`}</span>
+              <span className="board-gps-audit-received">server +{Math.max(0, Math.round((Date.parse(entry.receivedAt) - Date.parse(entry.observedAt)) / 1000))}s</span>
+            </li> : <li key={entry.id} className="board-gps-audit-journey">
+              <time dateTime={entry.occurredAt}>{new Date(entry.occurredAt).toLocaleTimeString()}</time>
+              <strong>{entry.action === "arrived_stop" ? "AUTO ARRIVED" : "AUTO DEPARTED"}</strong>
+              <span>{entry.stopLabel}</span>
+            </li>)}
+          </ol>}
       </section>
       <div className="board-detail-grid">
         <section className="dispatch-card board-timetable">

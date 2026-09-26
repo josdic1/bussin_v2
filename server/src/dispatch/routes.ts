@@ -5,6 +5,7 @@ import {
   boardResponseSchema,
   createPlannedTripSchema,
   dispatchStaffResponseSchema,
+  dispatchGpsAuditResponseSchema,
   plannedTripSchema,
   plannedTripsResponseSchema,
   tripActionResponseSchema,
@@ -22,6 +23,24 @@ import { buildDispatchEta } from "../eta/dispatchEta.js";
 export const dispatchRoutes = Router();
 
 const tripIdSchema = z.string().uuid();
+
+type GpsAuditSampleRow = {
+  id: string;
+  observedAt: Date;
+  receivedAt: Date;
+  latitude: number;
+  longitude: number;
+  accuracyM: number;
+  speedMps: number | null;
+  headingDegrees: number | null;
+};
+
+type JourneyAuditRow = {
+  id: string;
+  occurredAt: Date;
+  action: "arrived_stop" | "departed_stop";
+  stopLabel: string;
+};
 
 dispatchRoutes.get("/live", requireRole("admin", "dispatch"), async (request, response) => {
   response.set({
@@ -50,6 +69,84 @@ dispatchRoutes.get("/live", requireRole("admin", "dispatch"), async (request, re
     unsubscribe();
   });
 });
+
+dispatchRoutes.get(
+  "/trips/:id/gps-audit",
+  requireRole("admin", "dispatch"),
+  async (request, response) => {
+    const tripId = tripIdSchema.safeParse(request.params.id);
+    if (!tripId.success) {
+      response.status(400).json({ error: "Choose a valid trip." });
+      return;
+    }
+
+    const [samples, journeyEvents] = await Promise.all([
+      pool.query<GpsAuditSampleRow>(
+        `SELECT id,
+                observed_at AS "observedAt",
+                received_at AS "receivedAt",
+                latitude::double precision AS latitude,
+                longitude::double precision AS longitude,
+                accuracy_m::double precision AS "accuracyM",
+                speed_mps::double precision AS "speedMps",
+                heading_degrees::double precision AS "headingDegrees"
+           FROM trip_location_samples
+          WHERE trip_id = $1
+          ORDER BY observed_at DESC
+          LIMIT 200`,
+        [tripId.data]
+      ),
+      pool.query<JourneyAuditRow>(
+        `SELECT e.id,
+                e.occurred_at AS "occurredAt",
+                e.event_type AS action,
+                s.label AS "stopLabel"
+           FROM trip_events e
+           JOIN trip_stops s
+             ON s.trip_id = e.trip_id
+            AND s.id = e.trip_stop_id
+          WHERE e.trip_id = $1
+            AND e.note = 'journey:gps'
+            AND e.event_type IN ('arrived_stop', 'departed_stop')
+            AND NOT EXISTS (
+              SELECT 1
+                FROM trip_events replacement
+               WHERE replacement.replaces_event_id = e.id
+            )
+          ORDER BY e.occurred_at DESC
+          LIMIT 100`,
+        [tripId.data]
+      )
+    ]);
+
+    const entries = [
+      ...samples.rows.map((sample) => ({
+        kind: "sample" as const,
+        id: sample.id,
+        observedAt: sample.observedAt.toISOString(),
+        receivedAt: sample.receivedAt.toISOString(),
+        latitude: sample.latitude,
+        longitude: sample.longitude,
+        accuracyM: sample.accuracyM,
+        speedMps: sample.speedMps,
+        headingDegrees: sample.headingDegrees
+      })),
+      ...journeyEvents.rows.map((event) => ({
+        kind: "journey" as const,
+        id: event.id,
+        occurredAt: event.occurredAt.toISOString(),
+        action: event.action,
+        stopLabel: event.stopLabel
+      }))
+    ].sort((a, b) => {
+      const aTime = Date.parse(a.kind === "sample" ? a.observedAt : a.occurredAt);
+      const bTime = Date.parse(b.kind === "sample" ? b.observedAt : b.occurredAt);
+      return bTime - aTime;
+    });
+
+    response.json(dispatchGpsAuditResponseSchema.parse({ entries }));
+  }
+);
 
 dispatchRoutes.get("/staff", requireRole("admin", "dispatch"), async (_request, response) => {
   const result = await pool.query<{ id: string; displayName: string }>(
