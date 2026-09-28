@@ -136,6 +136,10 @@ export function StaffTripPage() {
   const [signOutError, setSignOutError] = useState("");
   const [actionPending, setActionPending] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
+  const [journeyNotice, setJourneyNotice] = useState<{
+    action: "arrived" | "departed";
+    stopLabel: string;
+  } | null>(null);
   const [phoneLocation, setPhoneLocation] = useState<PhoneLocationState>({ status: "off" });
   const [locationUploadError, setLocationUploadError] = useState("");
   const [locationUploadNote, setLocationUploadNote] = useState("");
@@ -335,6 +339,7 @@ export function StaffTripPage() {
     if (!action.success) return;
 
     setActionPending(true);
+    setJourneyNotice(null);
     setError("");
     try {
       const response = await fetch("/api/staff/trip/actions", {
@@ -405,6 +410,14 @@ export function StaffTripPage() {
               : "Dispatch rejected a low-accuracy fix; waiting for better GPS.";
           setLocationUploadNote(note);
           continue;
+        }
+
+        if (result.accepted && result.journey) {
+          setJourneyNotice({
+            action: result.journey.action,
+            stopLabel: result.journey.stopLabel
+          });
+          await loadTrip();
         }
 
         setLastUploadedAt(Date.now());
@@ -886,6 +899,23 @@ export function StaffTripPage() {
                 }</span>
               </div>}
 
+              {journeyNotice && (
+                <div className="staff-journey-notice" role="status" aria-live="assertive">
+                  <div>
+                    <strong>
+                      {journeyNotice.action === "arrived" ? "AUTO ARRIVED" : "AUTO DEPARTED"}
+                      {` · ${journeyNotice.stopLabel}`}
+                    </strong>
+                    <span>
+                      Bussin recorded this automatically. No manual tap was needed.
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => setJourneyNotice(null)}>
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
               <div className="staff-primary-action" aria-label="Trip controls">
                 {trip.status === "planned" && (
                   <button type="button" disabled={actionPending}
@@ -996,7 +1026,13 @@ export function StaffTripPage() {
                       <div>
                         <strong>{stop.label}</strong>
                         <span className="staff-stop-state">
-                          {done ? "Done" : stop.arrivedAt ? "Arrived" : current ? "Next stop" : "Upcoming"}
+                          {stop.departedAt
+                            ? stop.departureMethod === "automatic" ? "Auto departed · Done" : "Departed · Done"
+                            : isFinal && stop.arrivedAt
+                              ? stop.arrivalMethod === "automatic" ? "Auto arrived · Done" : "Arrived · Done"
+                              : stop.arrivedAt
+                                ? stop.arrivalMethod === "automatic" ? "Auto arrived" : "Arrived"
+                                : current ? "Next stop" : "Upcoming"}
                         </span>
                       </div>
                     </li>

@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import type { StaffJourneyTransition } from "@bussin/shared";
 import { applyTripAction } from "../trips/actions.js";
 
 export const JOURNEY_CONFIG = {
@@ -97,6 +98,7 @@ export function hasDepartureEvidence(samples: JourneySample[], stop: StopPoint):
 type JourneyStopRow = {
   id: string;
   position: number;
+  label: string;
   latitude: number;
   longitude: number;
   arrivedAt: Date | null;
@@ -127,10 +129,11 @@ async function recentSamples(
 export async function applyJourneyFromGps(
   client: PoolClient,
   input: { tripId: string; actorId: string }
-): Promise<"arrived" | "departed" | null> {
+): Promise<StaffJourneyTransition | null> {
   const stops = await client.query<JourneyStopRow>(
     `SELECT s.id,
             s.position,
+            s.label,
             s.latitude::double precision AS latitude,
             s.longitude::double precision AS longitude,
             arrived.occurred_at AS "arrivedAt",
@@ -182,7 +185,9 @@ export async function applyJourneyFromGps(
       action: { type: "arrive", stopId: next.id },
       eventNote: "journey:gps"
     });
-    return outcome.ok ? "arrived" : null;
+    return outcome.ok
+      ? { action: "arrived", stopId: next.id, stopLabel: next.label }
+      : null;
   }
 
   if (next.id === finalStop?.id) return null;
@@ -196,5 +201,7 @@ export async function applyJourneyFromGps(
     action: { type: "depart", stopId: next.id },
     eventNote: "journey:gps"
   });
-  return outcome.ok ? "departed" : null;
+  return outcome.ok
+    ? { action: "departed", stopId: next.id, stopLabel: next.label }
+    : null;
 }

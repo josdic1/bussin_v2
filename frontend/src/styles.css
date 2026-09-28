@@ -670,6 +670,33 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
   .board-card-alert-overdue { animation: none; }
 }
 
+
+.staff-journey-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #86ae96;
+  background: #eef7f1;
+  color: #17382c;
+}
+.staff-journey-notice > div { display: grid; gap: 4px; }
+.staff-journey-notice strong { font-size: 13px; letter-spacing: .06em; }
+.staff-journey-notice span { font-size: 12px; font-weight: 700; }
+.staff-journey-notice button {
+  flex: none;
+  border: 1px solid #86ae96;
+  background: transparent;
+  color: #17382c;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .staff-primary-action { margin-top: 24px; padding-top: 20px; border-top: 1px solid #dce2d9; }
 .staff-primary-action button { width: 100%; min-height: 58px; border: 0; border-radius: 8px; background: #17382c; color: #fff; font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; }
 .staff-primary-action button:disabled { cursor: wait; opacity: .6; }

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { Pool, type PoolClient } from "pg";
-import { createRouteSchema, updateRouteSchema } from "@bussin/shared";
+import {
+  createRouteSchema,
+  staffLocationSampleResponseSchema,
+  updateRouteSchema
+} from "@bussin/shared";
 import { snapshotTripRiders } from "./families/access.js";
 import { applyTripAction } from "./trips/actions.js";
 import { locationSampleRejectionReason } from "./staff/locationPolicy.js";
@@ -66,6 +70,23 @@ test("route inputs require explicit family and AM/PM", () => {
     servicePeriod: "AM",
     stops
   }).success, true);
+});
+
+test("accepted GPS responses can report the automatic journey transition", () => {
+  const parsed = staffLocationSampleResponseSchema.parse({
+    accepted: true,
+    journey: {
+      action: "arrived",
+      stopId: "11111111-1111-4111-8111-111111111111",
+      stopLabel: "PU2"
+    }
+  });
+
+  assert.equal(parsed.accepted, true);
+  if (parsed.accepted) {
+    assert.equal(parsed.journey?.action, "arrived");
+    assert.equal(parsed.journey?.stopLabel, "PU2");
+  }
 });
 
 test("GPS quality policy classifies stale, future, and inaccurate fixes", () => {

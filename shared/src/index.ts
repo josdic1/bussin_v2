@@ -277,7 +277,9 @@ export const staffTripStopSchema = z.strictObject({
   latitude: coordinateSchema.shape.latitude,
   longitude: coordinateSchema.shape.longitude,
   arrivedAt: z.string().nullable(),
-  departedAt: z.string().nullable()
+  departedAt: z.string().nullable(),
+  arrivalMethod: z.enum(["automatic", "manual"]).nullable(),
+  departureMethod: z.enum(["automatic", "manual"]).nullable()
 });
 
 export const staffTripSchema = z.strictObject({
@@ -318,8 +320,19 @@ export const staffLocationSampleRejectionReasonSchema = z.enum([
   "poor_accuracy"
 ]);
 
+export const staffJourneyTransitionSchema = z.strictObject({
+  action: z.enum(["arrived", "departed"]),
+  stopId: z.string().uuid(),
+  stopLabel: z.string()
+});
+
+export type StaffJourneyTransition = z.infer<typeof staffJourneyTransitionSchema>;
+
 export const staffLocationSampleResponseSchema = z.union([
-  z.strictObject({ accepted: z.literal(true) }),
+  z.strictObject({
+    accepted: z.literal(true),
+    journey: staffJourneyTransitionSchema.nullable()
+  }),
   z.strictObject({
     accepted: z.literal(false),
     reason: staffLocationSampleRejectionReasonSchema

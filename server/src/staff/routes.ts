@@ -33,6 +33,8 @@ type StaffTripRow = {
   longitude: number | null;
   arrivedAt: Date | null;
   departedAt: Date | null;
+  arrivalNote: string | null;
+  departureNote: string | null;
 };
 
 function sessionToken(cookieHeader: string | undefined): string | undefined {
@@ -126,14 +128,16 @@ staffRoutes.get("/trip", requireRole("staff"), async (request, response) => {
             ts.latitude::double precision AS latitude,
             ts.longitude::double precision AS longitude,
             arrived.occurred_at AS "arrivedAt",
-            departed.occurred_at AS "departedAt"
+            departed.occurred_at AS "departedAt",
+            arrived.note AS "arrivalNote",
+            departed.note AS "departureNote"
        FROM staff_assignments a
        JOIN trips t ON t.id = a.trip_id
        JOIN routes r ON r.id = t.route_id
        JOIN buses b ON b.id = t.bus_id
        LEFT JOIN trip_stops ts ON ts.trip_id = t.id
        LEFT JOIN LATERAL (
-         SELECT e.occurred_at
+         SELECT e.occurred_at, e.note
            FROM trip_events e
           WHERE e.trip_id = t.id
             AND e.trip_stop_id = ts.id
@@ -143,7 +147,7 @@ staffRoutes.get("/trip", requireRole("staff"), async (request, response) => {
           LIMIT 1
        ) arrived ON true
        LEFT JOIN LATERAL (
-         SELECT e.occurred_at
+         SELECT e.occurred_at, e.note
            FROM trip_events e
           WHERE e.trip_id = t.id
             AND e.trip_stop_id = ts.id
@@ -178,7 +182,13 @@ staffRoutes.get("/trip", requireRole("staff"), async (request, response) => {
       latitude: row.latitude,
       longitude: row.longitude,
       arrivedAt: row.arrivedAt?.toISOString() ?? null,
-      departedAt: row.departedAt?.toISOString() ?? null
+      departedAt: row.departedAt?.toISOString() ?? null,
+      arrivalMethod: row.arrivedAt
+        ? row.arrivalNote === "journey:gps" ? "automatic" : "manual"
+        : null,
+      departureMethod: row.departedAt
+        ? row.departureNote === "journey:gps" ? "automatic" : "manual"
+        : null
     }];
   });
 
@@ -371,10 +381,11 @@ staffRoutes.post(
     // Journey automation is deliberately isolated from canonical GPS storage.
     // If automation fails, the accepted GPS sample remains valid and manual
     // Arrive/Depart controls continue to work exactly as before.
+    let journey: Awaited<ReturnType<typeof applyJourneyFromGps>> = null;
     const journeyClient = await pool.connect();
     try {
       await journeyClient.query("BEGIN");
-      await applyJourneyFromGps(journeyClient, {
+      journey = await applyJourneyFromGps(journeyClient, {
         tripId: assignment.rows[0].tripId,
         actorId: member.id
       });
@@ -386,6 +397,9 @@ staffRoutes.post(
       journeyClient.release();
     }
 
-    response.status(201).json(staffLocationSampleResponseSchema.parse({ accepted: true }));
+    response.status(201).json(staffLocationSampleResponseSchema.parse({
+      accepted: true,
+      journey
+    }));
   }
 );
