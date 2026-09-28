@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -306,7 +307,27 @@ familyRoutes.post("/guardians", requireSameOrigin, requireRole("admin"), async (
 });
 
 
-const FAMILY_TEMP_PASSWORD = "genericpassword";
+const FAMILY_TEMP_PASSWORD_WORDS = [
+  "Maple",
+  "River",
+  "Tiger",
+  "Sunny",
+  "Cedar",
+  "Blue",
+  "Happy",
+  "Lucky"
+] as const;
+
+function createFamilyTemporaryPassword(): string {
+  const word =
+    FAMILY_TEMP_PASSWORD_WORDS[
+      randomInt(FAMILY_TEMP_PASSWORD_WORDS.length)
+    ];
+
+  const digits = randomInt(1000, 10000);
+
+  return `${word}-${digits}`;
+}
 
 familyRoutes.post("/guardians/:id/account/activate",
   requireSameOrigin, requireRole("admin"), async (request, response) => {
@@ -348,7 +369,8 @@ familyRoutes.post("/guardians/:id/account/activate",
         return;
       }
 
-      const passwordHash = await hashPassword(FAMILY_TEMP_PASSWORD);
+      const temporaryPassword = createFamilyTemporaryPassword();
+      const passwordHash = await hashPassword(temporaryPassword);
       let memberId = guardian.member_id;
 
       if (!memberId) {
@@ -412,7 +434,7 @@ familyRoutes.post("/guardians/:id/account/activate",
 
       response.json({
         status: "active",
-        temporaryPassword: FAMILY_TEMP_PASSWORD
+        temporaryPassword
       });
     } catch (error) {
       await client.query("ROLLBACK");
@@ -468,7 +490,8 @@ familyRoutes.post("/guardians/:id/account/reset-password",
       return;
     }
 
-    const passwordHash = await hashPassword(FAMILY_TEMP_PASSWORD);
+    const temporaryPassword = createFamilyTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
 
     const result = await pool.query<{ memberId: string }>(
       `UPDATE members m
@@ -498,7 +521,7 @@ familyRoutes.post("/guardians/:id/account/reset-password",
 
     response.json({
       status: "password-reset",
-      temporaryPassword: FAMILY_TEMP_PASSWORD
+      temporaryPassword
     });
   }
 );

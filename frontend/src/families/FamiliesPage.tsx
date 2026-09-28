@@ -262,10 +262,25 @@ export function FamiliesPage() {
 
       await refresh();
 
-      if (action === "activate") {
-        setNotice(`${guardian.name} activated. Temporary password: genericpassword`);
-      } else if (action === "reset-password") {
-        setNotice(`${guardian.name}'s password reset to genericpassword. They must change it at next login.`);
+      if (action === "activate" || action === "reset-password") {
+        if (
+          typeof body !== "object" ||
+          body === null ||
+          !("temporaryPassword" in body) ||
+          typeof body.temporaryPassword !== "string"
+        ) {
+          throw new Error("Server did not return a temporary password.");
+        }
+
+        if (action === "activate") {
+          setNotice(
+            `${guardian.name} activated. Temporary password: ${body.temporaryPassword}`
+          );
+        } else {
+          setNotice(
+            `${guardian.name}'s password reset to ${body.temporaryPassword}. They must change it at next login.`
+          );
+        }
       } else {
         setNotice(`${guardian.name}'s login deactivated.`);
       }
