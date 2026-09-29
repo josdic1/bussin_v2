@@ -3,7 +3,6 @@ import {
 } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../auth/AuthProvider";
-import "./ops.css";
 
 export type ViewMode = "desktop" | "adv" | "simple";
 export type Role = "monitor" | "driver";
