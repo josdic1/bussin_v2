@@ -697,6 +697,42 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
   cursor: pointer;
 }
 
+
+.staff-journey-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.staff-auto-control {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid #c8d4ca;
+  background: #f7faf7;
+  color: #17382c;
+}
+.staff-auto-control > strong { font-size: 16px; }
+.staff-auto-control > span { font-size: 13px; font-weight: 700; line-height: 1.45; }
+.staff-auto-control-arrived {
+  border-color: #86ae96;
+  background: #eef7f1;
+}
+.staff-auto-detail { color: #647168; }
+.staff-auto-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.staff-primary-action .staff-secondary-action {
+  width: auto;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid #9aa89e;
+  border-radius: 7px;
+  background: #fff;
+  color: #17382c;
+  font-size: 13px;
+  font-weight: 800;
+}
+.staff-primary-action .staff-secondary-action:disabled { opacity: .55; }
+
 .staff-primary-action { margin-top: 24px; padding-top: 20px; border-top: 1px solid #dce2d9; }
 .staff-primary-action button { width: 100%; min-height: 58px; border: 0; border-radius: 8px; background: #17382c; color: #fff; font: inherit; font-size: 17px; font-weight: 800; cursor: pointer; }
 .staff-primary-action button:disabled { cursor: wait; opacity: .6; }
@@ -784,9 +820,12 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
 .board-gps-audit-received { color: #627168; }
 .board-gps-audit-journey { grid-template-columns: 95px 125px minmax(190px, 1fr) !important; }
 .board-gps-audit-journey strong { color: #176b41; }
+.board-gps-audit-correction { grid-template-columns: 95px 125px minmax(190px, 1fr) !important; }
+.board-gps-audit-correction strong { color: #8a5a0a; }
 @media (max-width: 760px) {
   .board-gps-audit-list li { grid-template-columns: 90px 1fr 70px; }
   .board-gps-audit-list li span:nth-of-type(2),
   .board-gps-audit-list li span:nth-of-type(4) { grid-column: 2 / -1; }
-  .board-gps-audit-journey { grid-template-columns: 90px 1fr !important; }
+  .board-gps-audit-journey,
+  .board-gps-audit-correction { grid-template-columns: 90px 1fr !important; }
 }

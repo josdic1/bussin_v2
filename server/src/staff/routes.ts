@@ -381,11 +381,14 @@ staffRoutes.post(
     // Journey automation is deliberately isolated from canonical GPS storage.
     // If automation fails, the accepted GPS sample remains valid and manual
     // Arrive/Depart controls continue to work exactly as before.
-    let journey: Awaited<ReturnType<typeof applyJourneyFromGps>> = null;
+    let journeyResult: Awaited<ReturnType<typeof applyJourneyFromGps>> = {
+      transition: null,
+      progress: null
+    };
     const journeyClient = await pool.connect();
     try {
       await journeyClient.query("BEGIN");
-      journey = await applyJourneyFromGps(journeyClient, {
+      journeyResult = await applyJourneyFromGps(journeyClient, {
         tripId: assignment.rows[0].tripId,
         actorId: member.id
       });
@@ -397,9 +400,15 @@ staffRoutes.post(
       journeyClient.release();
     }
 
+    if (journeyResult.progress) {
+      response.setHeader(
+        "X-Bussin-Journey-Progress",
+        encodeURIComponent(JSON.stringify(journeyResult.progress))
+      );
+    }
     response.status(201).json(staffLocationSampleResponseSchema.parse({
       accepted: true,
-      journey
+      journey: journeyResult.transition
     }));
   }
 );

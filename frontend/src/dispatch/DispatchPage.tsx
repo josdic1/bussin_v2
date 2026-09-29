@@ -552,6 +552,10 @@ export function DispatchPage() {
               <time dateTime={entry.occurredAt}>{new Date(entry.occurredAt).toLocaleTimeString()}</time>
               <strong>{entry.action === "arrived_stop" ? "AUTO ARRIVED" : "AUTO DEPARTED"}</strong>
               <span>{entry.stopLabel}</span>
+            </li> : entry.kind === "correction" ? <li key={entry.id} className="board-gps-audit-correction">
+              <time dateTime={entry.occurredAt}>{new Date(entry.occurredAt).toLocaleTimeString()}</time>
+              <strong>ARRIVAL UNDONE</strong>
+              <span>{entry.stopLabel}</span>
             </li> : <li key={entry.id} className="board-gps-audit-gap">
               <time dateTime={entry.resumedAt}>{new Date(entry.resumedAt).toLocaleTimeString()}</time>
               <strong>GPS RESUMED</strong>

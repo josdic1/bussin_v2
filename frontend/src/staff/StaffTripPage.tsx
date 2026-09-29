@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  staffJourneyProgressSchema,
   staffLocationSampleInputSchema,
   staffLocationSampleResponseSchema,
   staffTripResponseSchema,
   tripActionResponseSchema,
   tripActionSchema,
+  type StaffJourneyProgress,
   type StaffTrip
 } from "@bussin/shared";
 import { useAuth } from "../auth/AuthProvider";
@@ -79,6 +81,21 @@ function locationTime(value: number): string {
   }).format(new Date(value));
 }
 
+function distanceMeters(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number }
+): number {
+  const radians = (value: number) => value * Math.PI / 180;
+  const earthRadiusM = 6_371_000;
+  const latitudeDelta = radians(b.latitude - a.latitude);
+  const longitudeDelta = radians(b.longitude - a.longitude);
+  const latitudeA = radians(a.latitude);
+  const latitudeB = radians(b.latitude);
+  const haversine = Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(latitudeA) * Math.cos(latitudeB) * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * earthRadiusM * Math.asin(Math.sqrt(haversine));
+}
+
 const PHONE_LOCATION_STALE_MS = 60_000;
 const PHONE_LOCATION_FUTURE_TOLERANCE_MS = 30_000;
 const GPS_POLL_INTERVAL_MS = 6_000;
@@ -138,8 +155,10 @@ export function StaffTripPage() {
   const [justCompleted, setJustCompleted] = useState(false);
   const [journeyNotice, setJourneyNotice] = useState<{
     action: "arrived" | "departed";
+    stopId: string;
     stopLabel: string;
   } | null>(null);
+  const [journeyProgress, setJourneyProgress] = useState<StaffJourneyProgress | null>(null);
   const [phoneLocation, setPhoneLocation] = useState<PhoneLocationState>({ status: "off" });
   const [locationUploadError, setLocationUploadError] = useState("");
   const [locationUploadNote, setLocationUploadNote] = useState("");
@@ -321,8 +340,18 @@ export function StaffTripPage() {
     trip.stops.slice(0, -1).every((stop) => stop.departedAt)
   );
 
-  async function recordAction(type: "start" | "arrive" | "depart" | "complete", stopId?: string) {
+  async function recordAction(
+    type: "start" | "arrive" | "depart" | "undo_arrival" | "complete",
+    stopId?: string
+  ) {
     if (!trip || actionPending) return;
+
+    if (type === "undo_arrival") {
+      const stop = trip.stops.find((candidate) => candidate.id === stopId);
+      if (!stop || !window.confirm(
+        `Undo arrival at ${stop.label}? Bussin will keep the original event in the audit history as a corrected event.`
+      )) return;
+    }
 
     if (type === "start") {
       const earlyBy = Date.parse(trip.departureAt) - Date.now();
@@ -340,6 +369,7 @@ export function StaffTripPage() {
 
     setActionPending(true);
     setJourneyNotice(null);
+    if (type === "undo_arrival") setJourneyProgress(null);
     setError("");
     try {
       const response = await fetch("/api/staff/trip/actions", {
@@ -399,6 +429,12 @@ export function StaffTripPage() {
         if (!response.ok) throw new Error(await readError(response, "Could not send location to Dispatch."));
 
         const result = staffLocationSampleResponseSchema.parse(await response.json());
+        const rawJourneyProgress = response.headers.get("X-Bussin-Journey-Progress");
+        const parsedJourneyProgress = rawJourneyProgress
+          ? staffJourneyProgressSchema.safeParse(
+              JSON.parse(decodeURIComponent(rawJourneyProgress))
+            )
+          : null;
         uploadQueueRef.current.shift();
         setLocationUploadError("");
 
@@ -412,12 +448,18 @@ export function StaffTripPage() {
           continue;
         }
 
-        if (result.accepted && result.journey) {
-          setJourneyNotice({
-            action: result.journey.action,
-            stopLabel: result.journey.stopLabel
-          });
-          await loadTrip();
+        if (result.accepted) {
+          setJourneyProgress(
+            parsedJourneyProgress?.success ? parsedJourneyProgress.data : null
+          );
+          if (result.journey) {
+            setJourneyNotice({
+              action: result.journey.action,
+              stopId: result.journey.stopId,
+              stopLabel: result.journey.stopLabel
+            });
+            await loadTrip();
+          }
         }
 
         setLastUploadedAt(Date.now());
@@ -781,6 +823,20 @@ export function StaffTripPage() {
       : phoneLocation.status;
   const plannedTiming = trip?.status === "planned"
     ? plannedTripTiming(trip.departureAt, tripClockNow) : null;
+  const currentStopDistanceM = trip?.status === "active" && nextStop && phoneLocation.status === "tracking"
+    ? distanceMeters(
+        { latitude: phoneLocation.latitude, longitude: phoneLocation.longitude },
+        { latitude: nextStop.latitude, longitude: nextStop.longitude }
+      )
+    : null;
+  const manualDepartureAvailable = Boolean(
+    nextStop?.arrivedAt &&
+    !readyToComplete &&
+    Date.now() - Date.parse(nextStop.arrivedAt) >= 30_000
+  );
+  const arrivalSecondsRemaining = journeyProgress?.phase === "confirming_arrival"
+    ? Math.max(0, journeyProgress.requiredSpanSeconds - journeyProgress.qualifyingSpanSeconds)
+    : null;
 
   return (
     <main className="staff-screen">
@@ -910,9 +966,15 @@ export function StaffTripPage() {
                       Bussin recorded this automatically. No manual tap was needed.
                     </span>
                   </div>
-                  <button type="button" onClick={() => setJourneyNotice(null)}>
-                    Dismiss
-                  </button>
+                  <div className="staff-journey-notice-actions">
+                    {journeyNotice.action === "arrived" && (
+                      <button type="button" disabled={actionPending}
+                        onClick={() => void recordAction("undo_arrival", journeyNotice.stopId)}>
+                        Undo arrival
+                      </button>
+                    )}
+                    <button type="button" onClick={() => setJourneyNotice(null)}>Dismiss</button>
+                  </div>
                 </div>
               )}
 
@@ -929,16 +991,54 @@ export function StaffTripPage() {
                     {actionPending ? "Completing…" : "Complete trip"}
                   </button>
                 )}
-                {trip.status === "active" && !readyToComplete && nextStop && (
-                  <button type="button" disabled={actionPending}
-                    onClick={() => void recordAction(
-                      nextStop.arrivedAt ? "depart" : "arrive", nextStop.id
-                    )}>
-                    {actionPending ? "Saving…"
-                      : nextStop.arrivedAt
-                        ? `Depart ${nextStop.label}`
-                        : `Arrive at ${nextStop.label}`}
-                  </button>
+                {trip.status === "active" && !readyToComplete && nextStop && !nextStop.arrivedAt && (
+                  <div className="staff-auto-control">
+                    <strong>Next stop · {nextStop.label}</strong>
+                    {journeyProgress?.stopId === nextStop.id && journeyProgress.phase === "confirming_arrival" ? (
+                      <>
+                        <span>Confirming arrival… {arrivalSecondsRemaining ?? 0}s remaining</span>
+                        <span className="staff-auto-detail">
+                          GPS checks {journeyProgress.qualifyingFixes}/{journeyProgress.requiredFixes}
+                          {` · ${journeyProgress.distanceM} m from stop`}
+                        </span>
+                      </>
+                    ) : journeyProgress?.stopId === nextStop.id && journeyProgress.phase === "rearming" ? (
+                      <span>Arrival was undone. Leave the stop area before auto-arrival rearms.</span>
+                    ) : (
+                      <span>
+                        Auto-arrival armed. Stop at the pickup and wait for ✓ ARRIVED.
+                        {currentStopDistanceM !== null ? ` · ${Math.round(currentStopDistanceM)} m away` : ""}
+                      </span>
+                    )}
+                    <button className="staff-secondary-action" type="button" disabled={actionPending}
+                      onClick={() => void recordAction("arrive", nextStop.id)}>
+                      {actionPending ? "Saving…" : "Arrive manually"}
+                    </button>
+                  </div>
+                )}
+                {trip.status === "active" && !readyToComplete && nextStop?.arrivedAt && (
+                  <div className="staff-auto-control staff-auto-control-arrived">
+                    <strong>✓ ARRIVED · {nextStop.label}</strong>
+                    <span>Departure is automatic. Drive normally when ready.</span>
+                    {journeyProgress?.stopId === nextStop.id && journeyProgress.phase === "confirming_departure" && (
+                      <span className="staff-auto-detail">
+                        Confirming departure · GPS checks {journeyProgress.qualifyingFixes}/{journeyProgress.requiredFixes}
+                        {` · ${journeyProgress.distanceM} m from stop`}
+                      </span>
+                    )}
+                    <div className="staff-auto-actions">
+                      <button className="staff-secondary-action" type="button" disabled={actionPending}
+                        onClick={() => void recordAction("undo_arrival", nextStop.id)}>
+                        Undo arrival
+                      </button>
+                      {manualDepartureAvailable && (
+                        <button className="staff-secondary-action" type="button" disabled={actionPending}
+                          onClick={() => void recordAction("depart", nextStop.id)}>
+                          Depart manually
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </section>
@@ -1026,13 +1126,13 @@ export function StaffTripPage() {
                       <div>
                         <strong>{stop.label}</strong>
                         <span className="staff-stop-state">
-                          {stop.departedAt
-                            ? stop.departureMethod === "automatic" ? "Auto departed · Done" : "Departed · Done"
-                            : isFinal && stop.arrivedAt
-                              ? stop.arrivalMethod === "automatic" ? "Auto arrived · Done" : "Arrived · Done"
-                              : stop.arrivedAt
-                                ? stop.arrivalMethod === "automatic" ? "Auto arrived" : "Arrived"
-                                : current ? "Next stop" : "Upcoming"}
+                          {stop.arrivedAt
+                            ? `${stop.arrivalMethod === "automatic" ? "Auto arrived" : "Arrived"}${
+                                stop.departedAt
+                                  ? ` · ${stop.departureMethod === "automatic" ? "Auto departed" : "Departed"} · Done`
+                                  : isFinal ? " · Done" : ""
+                              }`
+                            : current ? "Next stop" : "Upcoming"}
                         </span>
                       </div>
                     </li>

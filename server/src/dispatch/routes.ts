@@ -42,6 +42,12 @@ type JourneyAuditRow = {
   stopLabel: string;
 };
 
+type JourneyCorrectionAuditRow = {
+  id: string;
+  occurredAt: Date;
+  stopLabel: string;
+};
+
 dispatchRoutes.get("/live", requireRole("admin", "dispatch"), async (request, response) => {
   response.set({
     "Content-Type": "text/event-stream",
@@ -80,7 +86,7 @@ dispatchRoutes.get(
       return;
     }
 
-    const [samples, journeyEvents] = await Promise.all([
+    const [samples, journeyEvents, journeyCorrections] = await Promise.all([
       pool.query<GpsAuditSampleRow>(
         `SELECT id,
                 observed_at AS "observedAt",
@@ -114,6 +120,25 @@ dispatchRoutes.get(
                WHERE replacement.replaces_event_id = e.id
             )
           ORDER BY e.occurred_at DESC
+          LIMIT 100`,
+        [tripId.data]
+      ),
+      pool.query<JourneyCorrectionAuditRow>(
+        `SELECT correction.id,
+                correction.occurred_at AS "occurredAt",
+                s.label AS "stopLabel"
+           FROM trip_events correction
+           JOIN trip_events original
+             ON original.id = correction.replaces_event_id
+            AND original.trip_id = correction.trip_id
+           JOIN trip_stops s
+             ON s.trip_id = correction.trip_id
+            AND s.id = correction.trip_stop_id
+          WHERE correction.trip_id = $1
+            AND correction.event_type = 'correction'
+            AND correction.note = 'staff:undo-arrival'
+            AND original.event_type = 'arrived_stop'
+          ORDER BY correction.occurred_at DESC
           LIMIT 100`,
         [tripId.data]
       )
@@ -153,16 +178,23 @@ dispatchRoutes.get(
         occurredAt: event.occurredAt.toISOString(),
         action: event.action,
         stopLabel: event.stopLabel
+      })),
+      ...journeyCorrections.rows.map((event) => ({
+        kind: "correction" as const,
+        id: event.id,
+        occurredAt: event.occurredAt.toISOString(),
+        action: "arrival_undone" as const,
+        stopLabel: event.stopLabel
       }))
     ].sort((a, b) => {
       const aTime = Date.parse(a.kind === "sample"
         ? a.observedAt
-        : a.kind === "journey"
+        : a.kind === "journey" || a.kind === "correction"
           ? a.occurredAt
           : a.resumedAt);
       const bTime = Date.parse(b.kind === "sample"
         ? b.observedAt
-        : b.kind === "journey"
+        : b.kind === "journey" || b.kind === "correction"
           ? b.occurredAt
           : b.resumedAt);
       return bTime - aTime;

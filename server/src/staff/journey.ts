@@ -1,5 +1,8 @@
 import type { PoolClient } from "pg";
-import type { StaffJourneyTransition } from "@bussin/shared";
+import type {
+  StaffJourneyProgress,
+  StaffJourneyTransition
+} from "@bussin/shared";
 import { applyTripAction } from "../trips/actions.js";
 
 export const JOURNEY_CONFIG = {
@@ -27,6 +30,16 @@ type JourneySample = {
 type StopPoint = {
   latitude: number;
   longitude: number;
+};
+
+type EvidenceProgress = {
+  count: number;
+  spanMs: number;
+};
+
+export type JourneyAutomationResult = {
+  transition: StaffJourneyTransition | null;
+  progress: StaffJourneyProgress | null;
 };
 
 function radians(value: number): number {
@@ -59,26 +72,42 @@ function latestConsecutiveEvidence(
   return evidence.reverse();
 }
 
-export function hasArrivalEvidence(samples: JourneySample[], stop: StopPoint): boolean {
-  const evidence = latestConsecutiveEvidence(
+function evidenceProgress(evidence: JourneySample[]): EvidenceProgress {
+  if (!evidence.length) return { count: 0, spanMs: 0 };
+  return {
+    count: evidence.length,
+    spanMs: evidence.at(-1)!.observedAt.getTime() - evidence[0].observedAt.getTime()
+  };
+}
+
+function arrivalEvidence(samples: JourneySample[], stop: StopPoint): JourneySample[] {
+  return latestConsecutiveEvidence(
     samples,
     (sample) => sample.accuracyM <= JOURNEY_CONFIG.maxAccuracyM &&
       distanceMeters(sample, stop) <= JOURNEY_CONFIG.arrivalRadiusM &&
       (sample.speedMps === null || sample.speedMps <= JOURNEY_CONFIG.arrivalMaxSpeedMps),
     JOURNEY_CONFIG.arrivalEvidenceCount
   );
+}
+
+function departureEvidence(samples: JourneySample[], stop: StopPoint): JourneySample[] {
+  return latestConsecutiveEvidence(
+    samples,
+    (sample) => sample.accuracyM <= JOURNEY_CONFIG.maxAccuracyM &&
+      distanceMeters(sample, stop) >= JOURNEY_CONFIG.departureRadiusM,
+    JOURNEY_CONFIG.departureEvidenceCount
+  );
+}
+
+export function hasArrivalEvidence(samples: JourneySample[], stop: StopPoint): boolean {
+  const evidence = arrivalEvidence(samples, stop);
   if (evidence.length < JOURNEY_CONFIG.arrivalEvidenceCount) return false;
   return evidence.at(-1)!.observedAt.getTime() - evidence[0].observedAt.getTime() >=
     JOURNEY_CONFIG.arrivalMinSpanMs;
 }
 
 export function hasDepartureEvidence(samples: JourneySample[], stop: StopPoint): boolean {
-  const evidence = latestConsecutiveEvidence(
-    samples,
-    (sample) => sample.accuracyM <= JOURNEY_CONFIG.maxAccuracyM &&
-      distanceMeters(sample, stop) >= JOURNEY_CONFIG.departureRadiusM,
-    JOURNEY_CONFIG.departureEvidenceCount
-  );
+  const evidence = departureEvidence(samples, stop);
   if (evidence.length < JOURNEY_CONFIG.departureEvidenceCount) return false;
 
   const span = evidence.at(-1)!.observedAt.getTime() - evidence[0].observedAt.getTime();
@@ -103,6 +132,7 @@ type JourneyStopRow = {
   longitude: number;
   arrivedAt: Date | null;
   departedAt: Date | null;
+  undoneArrivalAt: Date | null;
 };
 
 async function recentSamples(
@@ -126,10 +156,34 @@ async function recentSamples(
   return result.rows;
 }
 
+function roundedDistance(sample: JourneySample | undefined, stop: StopPoint): number {
+  return sample ? Math.max(0, Math.round(distanceMeters(sample, stop))) : 0;
+}
+
+function makeProgress(
+  phase: StaffJourneyProgress["phase"],
+  stop: JourneyStopRow,
+  distanceM: number,
+  evidence: EvidenceProgress,
+  requiredFixes: number,
+  requiredSpanMs: number
+): StaffJourneyProgress {
+  return {
+    phase,
+    stopId: stop.id,
+    stopLabel: stop.label,
+    distanceM,
+    qualifyingFixes: evidence.count,
+    requiredFixes,
+    qualifyingSpanSeconds: Math.round(evidence.spanMs / 1000),
+    requiredSpanSeconds: Math.round(requiredSpanMs / 1000)
+  };
+}
+
 export async function applyJourneyFromGps(
   client: PoolClient,
   input: { tripId: string; actorId: string }
-): Promise<StaffJourneyTransition | null> {
+): Promise<JourneyAutomationResult> {
   const stops = await client.query<JourneyStopRow>(
     `SELECT s.id,
             s.position,
@@ -137,7 +191,8 @@ export async function applyJourneyFromGps(
             s.latitude::double precision AS latitude,
             s.longitude::double precision AS longitude,
             arrived.occurred_at AS "arrivedAt",
-            departed.occurred_at AS "departedAt"
+            departed.occurred_at AS "departedAt",
+            undone_arrival.occurred_at AS "undoneArrivalAt"
        FROM trip_stops s
        LEFT JOIN LATERAL (
          SELECT e.occurred_at
@@ -165,19 +220,72 @@ export async function applyJourneyFromGps(
           ORDER BY e.occurred_at DESC, e.recorded_at DESC
           LIMIT 1
        ) departed ON true
+       LEFT JOIN LATERAL (
+         SELECT correction.occurred_at
+           FROM trip_events correction
+           JOIN trip_events original
+             ON original.id = correction.replaces_event_id
+            AND original.trip_id = correction.trip_id
+          WHERE correction.trip_id = s.trip_id
+            AND correction.trip_stop_id = s.id
+            AND correction.event_type = 'correction'
+            AND correction.note = 'staff:undo-arrival'
+            AND original.event_type = 'arrived_stop'
+          ORDER BY correction.occurred_at DESC, correction.recorded_at DESC
+          LIMIT 1
+       ) undone_arrival ON true
       WHERE s.trip_id = $1
       ORDER BY s.position`,
     [input.tripId]
   );
 
   const next = stops.rows.find((stop) => !stop.departedAt);
-  if (!next) return null;
+  if (!next) return { transition: null, progress: null };
   const finalStop = stops.rows.at(-1);
   const stopPoint = { latitude: next.latitude, longitude: next.longitude };
 
   if (!next.arrivedAt) {
-    const samples = await recentSamples(client, input.tripId, null);
-    if (!hasArrivalEvidence(samples, stopPoint)) return null;
+    let samples = await recentSamples(client, input.tripId, next.undoneArrivalAt);
+    const latest = [...samples].sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime())[0];
+
+    if (next.undoneArrivalAt) {
+      const rearmSample = [...samples]
+        .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime())
+        .find((sample) => sample.accuracyM <= JOURNEY_CONFIG.maxAccuracyM &&
+          distanceMeters(sample, stopPoint) > JOURNEY_CONFIG.arrivalRadiusM);
+
+      if (!rearmSample) {
+        return {
+          transition: null,
+          progress: makeProgress(
+            "rearming",
+            next,
+            roundedDistance(latest, stopPoint),
+            { count: 0, spanMs: 0 },
+            JOURNEY_CONFIG.arrivalEvidenceCount,
+            JOURNEY_CONFIG.arrivalMinSpanMs
+          )
+        };
+      }
+      samples = samples.filter((sample) => sample.observedAt > rearmSample.observedAt);
+    }
+
+    const evidence = arrivalEvidence(samples, stopPoint);
+    const progress = evidenceProgress(evidence);
+    if (!hasArrivalEvidence(samples, stopPoint)) {
+      return {
+        transition: null,
+        progress: makeProgress(
+          progress.count > 0 ? "confirming_arrival" : "approaching",
+          next,
+          roundedDistance(latest, stopPoint),
+          progress,
+          JOURNEY_CONFIG.arrivalEvidenceCount,
+          JOURNEY_CONFIG.arrivalMinSpanMs
+        )
+      };
+    }
+
     const outcome = await applyTripAction(client, {
       tripId: input.tripId,
       actorId: input.actorId,
@@ -186,14 +294,54 @@ export async function applyJourneyFromGps(
       eventNote: "journey:gps"
     });
     return outcome.ok
-      ? { action: "arrived", stopId: next.id, stopLabel: next.label }
-      : null;
+      ? {
+          transition: { action: "arrived", stopId: next.id, stopLabel: next.label },
+          progress: makeProgress(
+            "arrived",
+            next,
+            roundedDistance(latest, stopPoint),
+            progress,
+            JOURNEY_CONFIG.arrivalEvidenceCount,
+            JOURNEY_CONFIG.arrivalMinSpanMs
+          )
+        }
+      : { transition: null, progress: null };
   }
 
-  if (next.id === finalStop?.id) return null;
+  if (next.id === finalStop?.id) {
+    const samples = await recentSamples(client, input.tripId, next.arrivedAt);
+    const latest = [...samples].sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime())[0];
+    return {
+      transition: null,
+      progress: makeProgress(
+        "arrived",
+        next,
+        roundedDistance(latest, stopPoint),
+        { count: 0, spanMs: 0 },
+        JOURNEY_CONFIG.departureEvidenceCount,
+        JOURNEY_CONFIG.departureMinSpanMs
+      )
+    };
+  }
 
   const samples = await recentSamples(client, input.tripId, next.arrivedAt);
-  if (!hasDepartureEvidence(samples, stopPoint)) return null;
+  const latest = [...samples].sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime())[0];
+  const evidence = departureEvidence(samples, stopPoint);
+  const progress = evidenceProgress(evidence);
+  if (!hasDepartureEvidence(samples, stopPoint)) {
+    return {
+      transition: null,
+      progress: makeProgress(
+        progress.count > 0 ? "confirming_departure" : "arrived",
+        next,
+        roundedDistance(latest, stopPoint),
+        progress,
+        JOURNEY_CONFIG.departureEvidenceCount,
+        JOURNEY_CONFIG.departureMinSpanMs
+      )
+    };
+  }
+
   const outcome = await applyTripAction(client, {
     tripId: input.tripId,
     actorId: input.actorId,
@@ -202,6 +350,9 @@ export async function applyJourneyFromGps(
     eventNote: "journey:gps"
   });
   return outcome.ok
-    ? { action: "departed", stopId: next.id, stopLabel: next.label }
-    : null;
+    ? {
+        transition: { action: "departed", stopId: next.id, stopLabel: next.label },
+        progress: null
+      }
+    : { transition: null, progress: null };
 }

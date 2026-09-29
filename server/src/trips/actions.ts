@@ -68,6 +68,7 @@ export async function applyTripAction(
     position: number;
     arrived: boolean;
     departed: boolean;
+    arrivalEventId: string | null;
   }>(
     `SELECT s.id, s.position,
             EXISTS (SELECT 1 FROM trip_events e WHERE e.trip_stop_id = s.id
@@ -75,7 +76,11 @@ export async function applyTripAction(
                 (SELECT 1 FROM trip_events replacement WHERE replacement.replaces_event_id = e.id)) AS arrived,
             EXISTS (SELECT 1 FROM trip_events e WHERE e.trip_stop_id = s.id
               AND e.event_type = 'departed_stop' AND NOT EXISTS
-                (SELECT 1 FROM trip_events replacement WHERE replacement.replaces_event_id = e.id)) AS departed
+                (SELECT 1 FROM trip_events replacement WHERE replacement.replaces_event_id = e.id)) AS departed,
+            (SELECT e.id FROM trip_events e WHERE e.trip_stop_id = s.id
+              AND e.event_type = 'arrived_stop' AND NOT EXISTS
+                (SELECT 1 FROM trip_events replacement WHERE replacement.replaces_event_id = e.id)
+              ORDER BY e.occurred_at DESC, e.recorded_at DESC LIMIT 1) AS "arrivalEventId"
        FROM trip_stops s WHERE s.trip_id = $1 ORDER BY s.position`,
     [input.tripId]
   );
@@ -85,6 +90,7 @@ export async function applyTripAction(
   let eventType: string;
   let stopId: string | null = null;
   let update: string | null = null;
+  let replacementEventId: string | null = null;
   let problem: string | null = null;
 
   switch (input.action.type) {
@@ -130,6 +136,16 @@ export async function applyTripAction(
         stopId = next.id;
       }
       break;
+    case "undo_arrival":
+      if (trip.rows[0].status !== "active") problem = "Start the trip first.";
+      else if (!next || next.id !== input.action.stopId || !next.arrived || next.departed || !next.arrivalEventId) {
+        problem = "Only the current stop arrival can be undone before departure.";
+      } else {
+        eventType = "correction";
+        stopId = next.id;
+        replacementEventId = next.arrivalEventId;
+      }
+      break;
     case "complete":
       if (trip.rows[0].status !== "active" ||
           !finalStop?.arrived ||
@@ -148,9 +164,17 @@ export async function applyTripAction(
 
   if (update) await client.query(update, [input.tripId]);
   await client.query(
-    `INSERT INTO trip_events (trip_id, event_type, trip_stop_id, recorded_by, note)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [input.tripId, eventType!, stopId, input.actorId, input.eventNote ?? null]
+    `INSERT INTO trip_events (
+       trip_id, event_type, trip_stop_id, recorded_by, note, replaces_event_id
+     ) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      input.tripId,
+      eventType!,
+      stopId,
+      input.actorId,
+      input.action.type === "undo_arrival" ? "staff:undo-arrival" : input.eventNote ?? null,
+      replacementEventId
+    ]
   );
 
   return {

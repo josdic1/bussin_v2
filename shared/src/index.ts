@@ -156,6 +156,7 @@ export const tripActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("start") }),
   z.strictObject({ type: z.literal("arrive"), stopId: z.string().uuid() }),
   z.strictObject({ type: z.literal("depart"), stopId: z.string().uuid() }),
+  z.strictObject({ type: z.literal("undo_arrival"), stopId: z.string().uuid() }),
   z.strictObject({ type: z.literal("complete") }),
   z.strictObject({ type: z.literal("cancel") })
 ]);
@@ -256,6 +257,13 @@ export const dispatchGpsAuditEntrySchema = z.discriminatedUnion("kind", [
     stopLabel: z.string()
   }),
   z.strictObject({
+    kind: z.literal("correction"),
+    id: z.string().uuid(),
+    occurredAt: z.string(),
+    action: z.literal("arrival_undone"),
+    stopLabel: z.string()
+  }),
+  z.strictObject({
     kind: z.literal("gap"),
     id: z.string(),
     startedAt: z.string(),
@@ -327,6 +335,19 @@ export const staffJourneyTransitionSchema = z.strictObject({
 });
 
 export type StaffJourneyTransition = z.infer<typeof staffJourneyTransitionSchema>;
+
+export const staffJourneyProgressSchema = z.strictObject({
+  phase: z.enum(["approaching", "confirming_arrival", "arrived", "confirming_departure", "rearming"]),
+  stopId: z.string().uuid(),
+  stopLabel: z.string(),
+  distanceM: z.number().nonnegative(),
+  qualifyingFixes: z.number().int().nonnegative(),
+  requiredFixes: z.number().int().positive(),
+  qualifyingSpanSeconds: z.number().nonnegative(),
+  requiredSpanSeconds: z.number().positive()
+});
+
+export type StaffJourneyProgress = z.infer<typeof staffJourneyProgressSchema>;
 
 export const staffLocationSampleResponseSchema = z.union([
   z.strictObject({

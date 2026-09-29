@@ -4,7 +4,9 @@ import test from "node:test";
 import { Pool, type PoolClient } from "pg";
 import {
   createRouteSchema,
+  staffJourneyProgressSchema,
   staffLocationSampleResponseSchema,
+  tripActionSchema,
   updateRouteSchema
 } from "@bussin/shared";
 import { snapshotTripRiders } from "./families/access.js";
@@ -72,6 +74,14 @@ test("route inputs require explicit family and AM/PM", () => {
   }).success, true);
 });
 
+test("staff can request an append-only arrival correction", () => {
+  const parsed = tripActionSchema.parse({
+    type: "undo_arrival",
+    stopId: "11111111-1111-4111-8111-111111111111"
+  });
+  assert.equal(parsed.type, "undo_arrival");
+});
+
 test("accepted GPS responses can report the automatic journey transition", () => {
   const parsed = staffLocationSampleResponseSchema.parse({
     accepted: true,
@@ -87,6 +97,21 @@ test("accepted GPS responses can report the automatic journey transition", () =>
     assert.equal(parsed.journey?.action, "arrived");
     assert.equal(parsed.journey?.stopLabel, "PU2");
   }
+});
+
+test("journey progress reports what auto-arrival is waiting for", () => {
+  const progress = staffJourneyProgressSchema.parse({
+    phase: "confirming_arrival",
+    stopId: "11111111-1111-4111-8111-111111111111",
+    stopLabel: "PU2",
+    distanceM: 7,
+    qualifyingFixes: 2,
+    requiredFixes: 3,
+    qualifyingSpanSeconds: 6,
+    requiredSpanSeconds: 12
+  });
+  assert.equal(progress.phase, "confirming_arrival");
+  assert.equal(progress.qualifyingFixes, 2);
 });
 
 test("GPS quality policy classifies stale, future, and inaccurate fixes", () => {
