@@ -829,3 +829,48 @@ h1 { margin: 12px 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em;
   .board-gps-audit-journey,
   .board-gps-audit-correction { grid-template-columns: 90px 1fr !important; }
 }
+
+.member-schedule-section {
+  margin-top: 24px;
+  border: 1px solid #d7dfd6;
+  background: #fff;
+}
+.member-schedule-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e2e8e1;
+}
+.member-schedule-head h2 { margin: 0; }
+.member-schedule-head p { margin: 5px 0 0; color: #617166; font-size: 13px; }
+.member-schedule-range { display: flex; gap: 6px; }
+.member-schedule-range button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #bdcbbf;
+  background: #fff;
+  color: #52665a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.member-schedule-range button.is-active { border-color: #17382c; background: #17382c; color: #fff; }
+.member-schedule-empty { margin: 0; padding: 24px; color: #617166; }
+.member-schedule-day + .member-schedule-day { border-top: 1px solid #e2e8e1; }
+.member-schedule-day h3 { margin: 0; padding: 14px 24px 8px; color: #52665a; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.member-schedule-table-wrap { overflow-x: auto; }
+.member-schedule-table { width: 100%; min-width: 660px; border-collapse: collapse; text-align: left; }
+.member-schedule-table th { padding: 10px 24px; color: #6a786f; font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
+.member-schedule-table td { padding: 13px 24px; border-top: 1px solid #edf0ec; font-size: 13px; }
+.member-schedule-status { text-transform: capitalize; font-weight: 800; }
+.member-schedule-status-active { color: #17663f; }
+.member-schedule-status-planned { color: #825a0e; }
+.member-schedule-status-completed { color: #52665a; }
+.member-schedule-status-cancelled { color: #9e332b; }
+@media (max-width: 600px) {
+  .member-schedule-head { align-items: flex-start; flex-direction: column; padding: 16px; }
+  .member-schedule-day h3 { padding-left: 16px; padding-right: 16px; }
+}

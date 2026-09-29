@@ -2,7 +2,8 @@ import { Router } from "express";
 import {
   createStaffMemberSchema,
   staffMemberSchema,
-  staffMembersResponseSchema
+  staffMembersResponseSchema,
+  staffScheduleResponseSchema
 } from "@bussin/shared";
 import { requireRole, requireSameOrigin } from "../auth/guard.js";
 import { hashPassword } from "../auth/sessions.js";
@@ -37,6 +38,61 @@ memberRoutes.get("/", requireRole("admin"), async (_request, response) => {
   );
 
   response.json(staffMembersResponseSchema.parse({ staff: result.rows }));
+});
+
+
+memberRoutes.get("/schedule", requireRole("admin"), async (request, response) => {
+  const from = typeof request.query.from === "string" ? new Date(request.query.from) : null;
+  const to = typeof request.query.to === "string" ? new Date(request.query.to) : null;
+
+  if (!from || !to || !Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) ||
+      to.getTime() <= from.getTime() || to.getTime() - from.getTime() > 8 * 24 * 60 * 60 * 1000) {
+    response.status(400).json({ error: "Choose a schedule window of up to eight days." });
+    return;
+  }
+
+  const result = await pool.query<{
+    memberId: string;
+    displayName: string;
+    tripId: string;
+    routeName: string;
+    servicePeriod: "AM" | "PM";
+    busLabel: string;
+    departureAt: Date;
+    status: "planned" | "active" | "completed" | "cancelled";
+  }>(
+    `WITH chosen_assignment AS (
+       SELECT DISTINCT ON (a.trip_id)
+              a.trip_id, a.member_id
+         FROM staff_assignments a
+         JOIN trips t ON t.id = a.trip_id
+        WHERE t.departure_at >= $1
+          AND t.departure_at < $2
+        ORDER BY a.trip_id, (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
+     )
+     SELECT m.id AS "memberId",
+            m.display_name AS "displayName",
+            t.id AS "tripId",
+            r.name AS "routeName",
+            r.service_period AS "servicePeriod",
+            b.label AS "busLabel",
+            t.departure_at AS "departureAt",
+            t.status
+       FROM chosen_assignment ca
+       JOIN members m ON m.id = ca.member_id
+       JOIN trips t ON t.id = ca.trip_id
+       JOIN routes r ON r.id = t.route_id
+       JOIN buses b ON b.id = t.bus_id
+      ORDER BY t.departure_at, m.display_name, t.id`,
+    [from, to]
+  );
+
+  response.json(staffScheduleResponseSchema.parse({
+    entries: result.rows.map((row) => ({
+      ...row,
+      departureAt: row.departureAt.toISOString()
+    }))
+  }));
 });
 
 memberRoutes.post(

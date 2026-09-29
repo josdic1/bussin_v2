@@ -57,6 +57,23 @@ export const createStaffMemberSchema = z.strictObject({
 
 export type StaffMember = z.infer<typeof staffMemberSchema>;
 
+export const staffScheduleEntrySchema = z.strictObject({
+  memberId: z.string().uuid(),
+  displayName: z.string(),
+  tripId: z.string().uuid(),
+  routeName: z.string(),
+  servicePeriod: z.enum(["AM", "PM"]),
+  busLabel: z.string(),
+  departureAt: z.string(),
+  status: z.enum(["planned", "active", "completed", "cancelled"])
+});
+
+export const staffScheduleResponseSchema = z.strictObject({
+  entries: z.array(staffScheduleEntrySchema)
+});
+
+export type StaffScheduleEntry = z.infer<typeof staffScheduleEntrySchema>;
+
 export const tripStaffSchema = z.strictObject({
   id: z.string().uuid(),
   displayName: z.string()

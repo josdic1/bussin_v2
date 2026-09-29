@@ -99,8 +99,27 @@ export async function applyTripAction(
       else if (!trip.rows[0].hasAssignedStaff) problem = "Assign an active staff member before starting the trip.";
       else if (!stops.rowCount) problem = "This trip has no stops.";
       else {
-        eventType = "started";
-        update = "UPDATE trips SET status = 'active', started_at = now() WHERE id = $1";
+        const concurrent = await client.query(
+          `SELECT 1
+             FROM staff_assignments target
+             JOIN staff_assignments other
+               ON other.member_id = target.member_id
+              AND other.ended_at IS NULL
+              AND other.trip_id <> target.trip_id
+             JOIN trips other_trip
+               ON other_trip.id = other.trip_id
+              AND other_trip.status = 'active'
+            WHERE target.trip_id = $1
+              AND target.ended_at IS NULL
+            LIMIT 1`,
+          [input.tripId]
+        );
+        if (concurrent.rowCount) {
+          problem = "Assigned staff member is already running another trip.";
+        } else {
+          eventType = "started";
+          update = "UPDATE trips SET status = 'active', started_at = now() WHERE id = $1";
+        }
       }
       break;
     case "cancel":

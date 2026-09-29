@@ -337,7 +337,7 @@ test("database protects Bussin product truth", async (t) => {
       ));
     });
 
-    await t.test("staff assignment is one active staff member per planned trip", async () => {
+    await t.test("staff can hold multiple planned assignments but only one active trip", async () => {
       const staff = await client.query<{ id: string }>(
         `INSERT INTO members (email, display_name)
          VALUES ($1, 'Test Staff') RETURNING id`,
@@ -360,10 +360,14 @@ test("database protects Bussin product truth", async (t) => {
          VALUES ($1, $2, now() + interval '2 days') RETURNING id`,
         [pmRouteId, busId]
       );
+      const secondBus = await client.query<{ id: string }>(
+        `INSERT INTO buses (label) VALUES ($1) RETURNING id`,
+        [`Assignment Bus ${token}`]
+      );
       const secondTrip = await client.query<{ id: string }>(
         `INSERT INTO trips (route_id, bus_id, departure_at)
          VALUES ($1, $2, now() + interval '3 days') RETURNING id`,
-        [pmRouteId, busId]
+        [pmRouteId, secondBus.rows[0].id]
       );
 
       await expectDatabaseError(client, "P0001", () => client.query(
@@ -383,10 +387,10 @@ test("database protects Bussin product truth", async (t) => {
         [firstTrip.rows[0].id, staffId]
       );
 
-      await expectDatabaseError(client, "23505", () => client.query(
+      await client.query(
         "INSERT INTO staff_assignments (trip_id, member_id) VALUES ($1, $2)",
         [secondTrip.rows[0].id, staffId]
-      ));
+      );
 
       await client.query(
         `UPDATE trips
@@ -394,6 +398,13 @@ test("database protects Bussin product truth", async (t) => {
           WHERE id = $1`,
         [firstTrip.rows[0].id]
       );
+
+      await expectDatabaseError(client, "P0001", () => client.query(
+        `UPDATE trips
+            SET status = 'active', started_at = now()
+          WHERE id = $1`,
+        [secondTrip.rows[0].id]
+      ));
 
       await expectDatabaseError(client, "P0001", () => client.query(
         "INSERT INTO staff_assignments (trip_id, member_id) VALUES ($1, $2)",
@@ -414,11 +425,6 @@ test("database protects Bussin product truth", async (t) => {
         [firstTrip.rows[0].id, staffId]
       );
       assert.equal(ended.rows[0].ended, true);
-
-      await client.query(
-        "INSERT INTO staff_assignments (trip_id, member_id) VALUES ($1, $2)",
-        [secondTrip.rows[0].id, staffId]
-      );
 
       const otherStaff = await client.query<{ id: string }>(
         `INSERT INTO members (email, display_name)

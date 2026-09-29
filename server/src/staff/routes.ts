@@ -131,8 +131,19 @@ staffRoutes.get("/trip", requireRole("staff"), async (request, response) => {
             departed.occurred_at AS "departedAt",
             arrived.note AS "arrivalNote",
             departed.note AS "departureNote"
-       FROM staff_assignments a
-       JOIN trips t ON t.id = a.trip_id
+       FROM (
+         SELECT a.trip_id
+           FROM staff_assignments a
+           JOIN trips selected_trip ON selected_trip.id = a.trip_id
+          WHERE a.member_id = $1
+            AND a.ended_at IS NULL
+            AND selected_trip.status IN ('planned', 'active')
+          ORDER BY (selected_trip.status = 'active') DESC,
+                   selected_trip.departure_at ASC,
+                   selected_trip.id
+          LIMIT 1
+       ) chosen
+       JOIN trips t ON t.id = chosen.trip_id
        JOIN routes r ON r.id = t.route_id
        JOIN buses b ON b.id = t.bus_id
        LEFT JOIN trip_stops ts ON ts.trip_id = t.id
@@ -156,9 +167,6 @@ staffRoutes.get("/trip", requireRole("staff"), async (request, response) => {
           ORDER BY e.occurred_at DESC
           LIMIT 1
        ) departed ON true
-      WHERE a.member_id = $1
-        AND a.ended_at IS NULL
-        AND t.status IN ('planned', 'active')
       ORDER BY ts.position`,
     [member.id]
   );
@@ -230,6 +238,7 @@ staffRoutes.post(
         WHERE a.member_id = $1
           AND a.ended_at IS NULL
           AND t.status IN ('planned', 'active')
+        ORDER BY (t.status = 'active') DESC, t.departure_at ASC, t.id
         LIMIT 1`,
       [member.id]
     );
