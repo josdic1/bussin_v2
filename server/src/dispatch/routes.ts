@@ -6,6 +6,7 @@ import {
   createPlannedTripSchema,
   dispatchStaffResponseSchema,
   dispatchGpsAuditResponseSchema,
+  historyResponseSchema,
   plannedTripSchema,
   plannedTripsResponseSchema,
   tripActionResponseSchema,
@@ -713,3 +714,174 @@ dispatchRoutes.post(
     }
   }
 );
+
+const historyQuerySchema = z.strictObject({
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true })
+});
+
+type HistoryTripRow = {
+  id: string; busId: string; busLabel: string; routeName: string;
+  servicePeriod: "AM" | "PM"; departureAt: Date;
+  status: "planned" | "active" | "completed" | "cancelled";
+  startedAt: Date | null; endedAt: Date | null; cancelledAt: Date | null;
+  staffId: string | null; staffName: string | null;
+};
+
+type HistoryEventRow = {
+  id: string; tripId: string;
+  type: "started" | "arrived_stop" | "departed_stop" | "completed" | "cancelled" | "correction" | "note";
+  occurredAt: Date; stopId: string | null; stopLabel: string | null;
+  note: string | null; replaced: boolean; recordedBy: string;
+};
+
+type HistoryStopRow = { tripId: string; id: string; position: number; label: string };
+
+type GpsSummaryRow = { tripId: string; samples: number; lastObservedAt: Date | null };
+type GpsGapRow = { tripId: string; startedAt: Date; resumedAt: Date; durationSeconds: number };
+
+/** GPS silence longer than this between accepted fixes counts as a gap. */
+const HISTORY_GAP_SECONDS = 60;
+
+dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request, response) => {
+  const parsed = historyQuerySchema.safeParse(request.query);
+  if (!parsed.success) {
+    response.status(400).json({ error: "Choose a valid date range." });
+    return;
+  }
+  const from = new Date(parsed.data.from);
+  const to = new Date(parsed.data.to);
+  if (to.getTime() <= from.getTime() || to.getTime() - from.getTime() > 8 * 24 * 60 * 60 * 1000) {
+    response.status(400).json({ error: "Choose up to 8 days." });
+    return;
+  }
+
+  const trips = await pool.query<HistoryTripRow>(
+    `SELECT t.id, t.bus_id AS "busId", b.label AS "busLabel", r.name AS "routeName",
+            r.service_period AS "servicePeriod", t.departure_at AS "departureAt", t.status,
+            t.started_at AS "startedAt", t.ended_at AS "endedAt", t.cancelled_at AS "cancelledAt",
+            staff.id AS "staffId", staff.display_name AS "staffName"
+       FROM trips t
+       JOIN routes r ON r.id = t.route_id
+       JOIN buses b ON b.id = t.bus_id
+       LEFT JOIN LATERAL (
+         SELECT m.id, m.display_name
+           FROM staff_assignments a
+           JOIN members m ON m.id = a.member_id
+          WHERE a.trip_id = t.id
+          ORDER BY (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
+          LIMIT 1
+       ) staff ON true
+      WHERE t.departure_at >= $1 AND t.departure_at < $2
+      ORDER BY t.departure_at DESC, t.id
+      LIMIT 300`,
+    [from, to]
+  );
+  const ids = trips.rows.map((trip) => trip.id);
+  if (!ids.length) {
+    response.json(historyResponseSchema.parse({ trips: [] }));
+    return;
+  }
+
+  const [stops, events, gpsSummary, gpsGaps] = await Promise.all([
+    pool.query<HistoryStopRow>(
+      `SELECT trip_id AS "tripId", id, position, label
+         FROM trip_stops WHERE trip_id = ANY($1::uuid[])
+        ORDER BY trip_id, position`,
+      [ids]
+    ),
+    pool.query<HistoryEventRow>(
+      `SELECT e.id, e.trip_id AS "tripId", e.event_type AS type,
+              e.occurred_at AS "occurredAt", e.trip_stop_id AS "stopId",
+              s.label AS "stopLabel", e.note,
+              EXISTS (SELECT 1 FROM trip_events c WHERE c.replaces_event_id = e.id) AS replaced,
+              m.display_name AS "recordedBy"
+         FROM trip_events e
+         JOIN members m ON m.id = e.recorded_by
+         LEFT JOIN trip_stops s ON s.trip_id = e.trip_id AND s.id = e.trip_stop_id
+        WHERE e.trip_id = ANY($1::uuid[])
+        ORDER BY e.occurred_at, e.recorded_at, e.id`,
+      [ids]
+    ),
+    pool.query<GpsSummaryRow>(
+      `SELECT trip_id AS "tripId", count(*)::integer AS samples,
+              max(observed_at) AS "lastObservedAt"
+         FROM trip_location_samples
+        WHERE trip_id = ANY($1::uuid[])
+        GROUP BY trip_id`,
+      [ids]
+    ),
+    pool.query<GpsGapRow>(
+      `SELECT "tripId", "startedAt", "resumedAt",
+              round(extract(epoch FROM "resumedAt" - "startedAt"))::integer AS "durationSeconds"
+         FROM (
+           SELECT trip_id AS "tripId",
+                  lag(observed_at) OVER (PARTITION BY trip_id ORDER BY observed_at) AS "startedAt",
+                  observed_at AS "resumedAt"
+             FROM trip_location_samples
+            WHERE trip_id = ANY($1::uuid[])
+         ) spans
+        WHERE "startedAt" IS NOT NULL
+          AND "resumedAt" - "startedAt" > make_interval(secs => $2)
+        ORDER BY "tripId", "startedAt"`,
+      [ids, HISTORY_GAP_SECONDS]
+    )
+  ]);
+
+  const method = (note: string | null) => note === "journey:gps" ? "automatic" as const : "manual" as const;
+
+  const result = trips.rows.map((trip) => {
+    const tripEvents = events.rows.filter((event) => event.tripId === trip.id);
+    const live = tripEvents.filter((event) => !event.replaced);
+    const summary = gpsSummary.rows.find((row) => row.tripId === trip.id);
+    return {
+      id: trip.id,
+      busId: trip.busId,
+      busLabel: trip.busLabel,
+      routeName: trip.routeName,
+      servicePeriod: trip.servicePeriod,
+      departureAt: trip.departureAt.toISOString(),
+      status: trip.status,
+      startedAt: trip.startedAt?.toISOString() ?? null,
+      endedAt: trip.endedAt?.toISOString() ?? null,
+      cancelledAt: trip.cancelledAt?.toISOString() ?? null,
+      assignedStaff: trip.staffId && trip.staffName
+        ? { id: trip.staffId, displayName: trip.staffName }
+        : null,
+      stops: stops.rows.filter((stop) => stop.tripId === trip.id).map((stop) => {
+        const arrived = live.filter((event) => event.stopId === stop.id && event.type === "arrived_stop").at(-1);
+        const departed = live.filter((event) => event.stopId === stop.id && event.type === "departed_stop").at(-1);
+        return {
+          id: stop.id,
+          position: stop.position,
+          label: stop.label,
+          arrivedAt: arrived?.occurredAt.toISOString() ?? null,
+          departedAt: departed?.occurredAt.toISOString() ?? null,
+          arrivalMethod: arrived ? method(arrived.note) : null,
+          departureMethod: departed ? method(departed.note) : null
+        };
+      }),
+      events: tripEvents.map((event) => ({
+        id: event.id,
+        type: event.type,
+        occurredAt: event.occurredAt.toISOString(),
+        stopLabel: event.stopLabel,
+        method: event.type === "arrived_stop" || event.type === "departed_stop"
+          ? method(event.note) : null,
+        replaced: event.replaced,
+        recordedBy: event.recordedBy
+      })),
+      gps: {
+        samples: summary?.samples ?? 0,
+        lastObservedAt: summary?.lastObservedAt?.toISOString() ?? null,
+        gaps: gpsGaps.rows.filter((gap) => gap.tripId === trip.id).map((gap) => ({
+          startedAt: gap.startedAt.toISOString(),
+          resumedAt: gap.resumedAt.toISOString(),
+          durationSeconds: gap.durationSeconds
+        }))
+      }
+    };
+  });
+
+  response.json(historyResponseSchema.parse({ trips: result }));
+});

@@ -31,6 +31,8 @@ export async function syncPlannedTripRiders(client: PoolClient) {
        JOIN trip_stops ts
          ON ts.trip_id = t.id
         AND ts.route_stop_id = a.route_stop_id
-      WHERE t.status = 'planned'`
+      WHERE t.status = 'planned'
+     ON CONFLICT (trip_id, rider_id)
+     DO UPDATE SET trip_stop_id = EXCLUDED.trip_stop_id`
   );
 }

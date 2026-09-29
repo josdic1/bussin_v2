@@ -1,542 +1,401 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
-  guardianInputSchema, guardiansResponseSchema, riderInputSchema, rosterResponseSchema,
-  routesResponseSchema, type Guardian, type Rider, type Route
+  guardianInputSchema, guardiansResponseSchema, riderInputSchema, rosterResponseSchema, routesResponseSchema,
+  type Guardian, type Rider, type Route
 } from "@bussin/shared";
+import { getJson, message, send } from "../ops/api";
+import { PALETTE, plural } from "../ops/format";
+import { Overlay, useOps } from "../ops/OpsShell";
+import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, Seg, SRow, Tile } from "../ops/ui";
 
-type View = "roster" | "guardians" | "trips" | "signins";
-type Direction = "am" | "pm";
-type Draft = {
-  givenName: string; familyName: string; guardianIds: string[];
-  amRoute: string; amStop: string; pmRoute: string; pmStop: string;
-};
+type AccountStatus = Guardian["accountStatus"];
+type OverlayState =
+  | { type: "rider"; id: string } | { type: "guardian"; id: string }
+  | { type: "riderForm"; id: string | null } | { type: "guardianForm"; id: string | null }
+  | { type: "links"; id: string } | null;
 
-const blankDraft: Draft = {
-  givenName: "", familyName: "", guardianIds: [],
-  amRoute: "", amStop: "", pmRoute: "", pmStop: ""
-};
-const views: { id: View; label: string }[] = [
-  { id: "roster", label: "Rider roster" },
-  { id: "guardians", label: "Guardians" },
-  { id: "trips", label: "Trip history" },
-  { id: "signins", label: "Sign-in history" }
-];
+const RIDER_LABEL: Record<AccountStatus, string> = { active: "ACCOUNT ACTIVE", pending: "SETUP NEEDED", none: "NO ACCOUNT" };
+const GUARDIAN_LABEL: Record<AccountStatus, string> = { active: "ACTIVE", pending: "SETUP NEEDED", none: "NO ACCOUNT" };
 
-function Metric({ label, value, detail }: { label: string; value: string | number; detail: string }) {
-  return <div className="family-metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
+function riderStatus(rider: Rider): AccountStatus {
+  if (rider.guardians.some((guardian) => guardian.accountStatus === "pending")) return "pending";
+  if (rider.guardians.some((guardian) => guardian.accountStatus === "active")) return "active";
+  return "none";
 }
 
-function EmptyDetail({ title, description }: { title: string; description: string }) {
-  return <aside className="family-detail"><span className="family-overline">DETAIL</span><h2>{title}</h2><p>{description}</p></aside>;
+function Pill({ status, guardian }: { status: AccountStatus; guardian?: boolean }) {
+  return <span className={`st st-r-${status}`}>{(guardian ? GUARDIAN_LABEL : RIDER_LABEL)[status]}</span>;
 }
 
-function stopDescription(assignment: Rider["am"]) {
-  return assignment ? `${assignment.stopLabel} · ${assignment.routeName}` : "Not assigned";
+function signedIn(value: string | null) {
+  if (!value) return "Never";
+  const days = Math.floor((Date.now() - Date.parse(value)) / 86_400_000);
+  return days <= 0 ? "Today" : days === 1 ? "Yesterday" : `${days} days ago`;
 }
 
-async function errorFrom(response: Response) {
-  const body: unknown = await response.json().catch(() => null);
-  return new Error(body && typeof body === "object" && "error" in body &&
-    typeof body.error === "string" ? body.error : `Request failed (${response.status})`);
+type GuardianAction = "activate" | "reset-password" | "deactivate";
+
+function actionsFor(guardian: Guardian): { key: GuardianAction; label: string; primary?: boolean; disabled?: string }[] {
+  if (guardian.accountStatus === "none") return [{ key: "activate", label: "Activate account", primary: true, disabled: guardian.email ? undefined : "Add an email first" }];
+  if (guardian.accountStatus === "pending") return [{ key: "activate", label: "Reactivate account", primary: true }];
+  return [{ key: "reset-password", label: "Reset password" }, { key: "deactivate", label: "Deactivate" }];
 }
 
-function AssignmentFields({
-  direction, draft, routes, change
-}: {
-  direction: Direction;
-  draft: Draft;
-  routes: Route[];
-  change: (next: Partial<Draft>) => void;
+type Draft = { givenName: string; familyName: string; guardianIds: string[]; amRoute: string; amStop: string; pmRoute: string; pmStop: string };
+
+function RiderForm({ rider, guardians, routes, onSaved }: {
+  rider: Rider | null; guardians: Guardian[]; routes: Route[]; onSaved: (id: string) => void;
 }) {
-  const routeKey = direction === "am" ? "amRoute" : "pmRoute";
-  const stopKey = direction === "am" ? "amStop" : "pmStop";
-  const servicePeriod = direction.toUpperCase() as Route["servicePeriod"];
-  const selectedRoute = routes.find((route) => route.id === draft[routeKey] &&
-    route.servicePeriod === servicePeriod);
-  return (
-    <div className="family-assignment-fields">
-      <label>{direction.toUpperCase()} route
-        <select
-          value={draft[routeKey]}
-          onChange={(event) => change({ [routeKey]: event.target.value, [stopKey]: "" })}
-        >
-          <option value="">No {direction.toUpperCase()} assignment</option>
-          {routes.filter((route) => route.servicePeriod === servicePeriod &&
-            (route.active || route.id === draft[routeKey])).map((route) => (
-            <option key={route.id} value={route.id}>
-              {route.name}{route.active ? "" : " (inactive)"}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>{direction.toUpperCase()} stop
-        <select
-          value={draft[stopKey]}
-          disabled={!selectedRoute}
-          onChange={(event) => change({ [stopKey]: event.target.value })}
-        >
-          <option value="">Choose a stop</option>
-          {selectedRoute?.stops.map((stop) => (
-            <option key={stop.id} value={stop.id}>{stop.position}. {stop.label}</option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
-}
-
-export function FamiliesPage() {
-  const [view, setView] = useState<View>("roster");
-  const [riders, setRiders] = useState<Rider[]>([]);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [guardians, setGuardians] = useState<Guardian[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<Draft>(() => rider ? {
+    givenName: rider.givenName, familyName: rider.familyName, guardianIds: rider.guardians.map((guardian) => guardian.id),
+    amRoute: rider.am?.routeId ?? "", amStop: rider.am?.stopId ?? "", pmRoute: rider.pm?.routeId ?? "", pmStop: rider.pm?.stopId ?? ""
+  } : { givenName: "", familyName: "", guardianIds: [], amRoute: "", amStop: "", pmRoute: "", pmStop: "" });
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [routeFilter, setRouteFilter] = useState("");
-  const [needsAttention, setNeedsAttention] = useState(false);
-  const [editingId, setEditingId] = useState<string | null | undefined>(undefined);
-  const [draft, setDraft] = useState<Draft>(blankDraft);
   const [saving, setSaving] = useState(false);
-  const [guardianName, setGuardianName] = useState("");
-  const [guardianEmail, setGuardianEmail] = useState("");
-  const [linkRiderId, setLinkRiderId] = useState("");
-  const [linkGuardianIds, setLinkGuardianIds] = useState<string[]>([]);
-  const [linking, setLinking] = useState(false);
-  const [guardianPhone, setGuardianPhone] = useState("");
-  const [guardianError, setGuardianError] = useState("");
-  const [editingGuardianId, setEditingGuardianId] = useState<string | null>(null);
-  const [addingGuardian, setAddingGuardian] = useState(false);
-  const [accountActionId, setAccountActionId] = useState<string | null>(null);
+  const change = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
 
-  function editGuardian(guardian: Rider["guardians"][number]) {
-    setEditingGuardianId(guardian.id);
-    setGuardianName(guardian.name);
-    setGuardianEmail(guardian.email ?? "");
-    setView("guardians");
-    setGuardianPhone(guardian.phone ?? "");
-    setGuardianError("");
-    setNotice("");
-  }
-
-  function resetGuardianForm() {
-    setEditingGuardianId(null);
-    setGuardianName("");
-    setGuardianEmail("");
-    setGuardianPhone("");
-    setGuardianError("");
-  }
-
-  async function refresh(signal?: AbortSignal) {
-    const response = await fetch("/api/families/roster", { credentials: "same-origin", signal });
-    if (!response.ok) throw await errorFrom(response);
-    setRiders(rosterResponseSchema.parse(await response.json()).riders);
-    const contacts = await fetch("/api/families/guardians", { credentials: "same-origin", signal });
-    if (!contacts.ok) throw await errorFrom(contacts);
-    setGuardians(guardiansResponseSchema.parse(await contacts.json()).guardians);
-  }
-
-  useEffect(() => {
-    const controller = new AbortController();
-    async function load() {
-      try {
-        const [roster, routeResponse, contacts] = await Promise.all([
-          fetch("/api/families/roster", { credentials: "same-origin", signal: controller.signal }),
-          fetch("/api/routes", { credentials: "same-origin", signal: controller.signal }),
-          fetch("/api/families/guardians", { credentials: "same-origin", signal: controller.signal })
-        ]);
-        if (!roster.ok) throw await errorFrom(roster);
-        if (!routeResponse.ok) throw await errorFrom(routeResponse);
-        if (!contacts.ok) throw await errorFrom(contacts);
-        const [riderData, routeData, guardianData] = await Promise.all([roster.json(), routeResponse.json(), contacts.json()]);
-        if (!controller.signal.aborted) {
-          setRiders(rosterResponseSchema.parse(riderData).riders);
-          setRoutes(routesResponseSchema.parse(routeData).routes);
-          setGuardians(guardiansResponseSchema.parse(guardianData).guardians);
-        }
-      } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load roster.");
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }
-    void load();
-    return () => controller.abort();
-  }, []);
-
-  function startEditing(rider?: Rider) {
-    setEditingId(rider?.id ?? null);
-    setDraft(rider ? {
-      givenName: rider.givenName, familyName: rider.familyName,
-      guardianIds: rider.guardians.map((guardian) => guardian.id),
-      amRoute: rider.am?.routeId ?? "", amStop: rider.am?.stopId ?? "",
-      pmRoute: rider.pm?.routeId ?? "", pmStop: rider.pm?.stopId ?? ""
-    } : blankDraft);
-    setError("");
-    setNotice("");
-  }
-
-  async function saveRider(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if ((draft.amRoute && !draft.amStop) || (draft.pmRoute && !draft.pmStop)) {
-      setError("Choose a stop for each selected route.");
-      return;
-    }
+    if ((draft.amRoute && !draft.amStop) || (draft.pmRoute && !draft.pmStop)) { setError("Choose a stop for each selected route."); return; }
     const input = riderInputSchema.safeParse({
       givenName: draft.givenName, familyName: draft.familyName,
       am: draft.amRoute ? { routeId: draft.amRoute, stopId: draft.amStop } : null,
       pm: draft.pmRoute ? { routeId: draft.pmRoute, stopId: draft.pmStop } : null,
       guardianIds: draft.guardianIds
     });
-    if (!input.success) {
-      setError("Enter the rider's name, at least one guardian, and valid stops.");
-      return;
-    }
-    setSaving(true); setError(""); setNotice("");
+    if (!input.success) { setError("Enter the rider's name, at least one guardian, and valid stops."); return; }
+    setSaving(true);
+    setError("");
     try {
-      const response = await fetch(editingId ? `/api/families/riders/${editingId}` : "/api/families/riders", {
-        method: editingId ? "PUT" : "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify(input.data)
-      });
-      if (!response.ok) throw await errorFrom(response);
-      const saved: unknown = await response.json();
-      if (!saved || typeof saved !== "object" || !("id" in saved) || typeof saved.id !== "string") {
-        throw new Error("Rider was saved, but the response was incomplete. Refresh the roster.");
-      }
-      await refresh();
-      setSelectedId(saved.id);
-      setEditingId(undefined);
-      setGuardianError("");
-      setNotice(editingId ? "Rider updated." : "Rider added.");
+      const saved = await send(rider ? "PUT" : "POST", rider ? `/api/families/riders/${rider.id}` : "/api/families/riders", input.data, "Could not save rider.");
+      const id = saved && typeof saved === "object" && "id" in saved && typeof saved.id === "string" ? saved.id : rider?.id ?? "";
+      onSaved(id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save rider.");
+      setError(message(cause, "Could not save rider."));
     } finally { setSaving(false); }
   }
 
-  async function addGuardian(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const parsed = guardianInputSchema.safeParse({
-      name: guardianName, email: guardianEmail.trim() || null, phone: guardianPhone.trim() || null
-    });
-    if (!parsed.success) { setGuardianError("Enter a guardian name, or correct the optional email and phone."); return; }
-    setAddingGuardian(true); setGuardianError(""); setNotice("");
-    try {
-      const response = await fetch(editingGuardianId
-        ? `/api/families/guardians/${editingGuardianId}` : "/api/families/guardians", {
-        method: editingGuardianId ? "PUT" : "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify(editingGuardianId ? parsed.data : { ...parsed.data, riderId: linkRiderId || null })
-      });
-      if (!response.ok) throw await errorFrom(response);
-      await refresh();
-      setNotice(editingGuardianId ? "Guardian updated." : "Guardian added to the roster.");
-      resetGuardianForm();
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "Could not save guardian.";
-      setGuardianError(message);
-    } finally { setAddingGuardian(false); }
-  }
+  const assignment = (period: "AM" | "PM") => {
+    const routeKey = period === "AM" ? "amRoute" : "pmRoute";
+    const stopKey = period === "AM" ? "amStop" : "pmStop";
+    const chosen = routes.find((route) => route.id === draft[routeKey]);
+    return <div className="rf2">
+      <label><b className="lt">{period} route</b><select value={draft[routeKey]} onChange={(event) => change({ [routeKey]: event.target.value, [stopKey]: "" })}>
+        <option value="">No {period} assignment</option>
+        {routes.filter((route) => route.servicePeriod === period && (route.active || route.id === draft[routeKey])).map((route) =>
+          <option key={route.id} value={route.id}>{route.name}{route.active ? "" : " (inactive)"}</option>)}
+      </select></label>
+      <label><b className="lt">{period} stop</b><select value={draft[stopKey]} disabled={!chosen} onChange={(event) => change({ [stopKey]: event.target.value })}>
+        <option value="">Choose a stop</option>
+        {chosen?.stops.map((stop) => <option key={stop.id} value={stop.id}>{stop.position}. {stop.label}</option>)}
+      </select></label>
+    </div>;
+  };
 
-  async function runGuardianAccountAction(
-    guardian: Guardian,
-    action: "activate" | "deactivate" | "reset-password"
-  ) {
-    setAccountActionId(guardian.id);
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await fetch(
-        `/api/families/guardians/${guardian.id}/account/${action}`,
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-
-      if (!response.ok) throw await errorFrom(response);
-
-      const body: unknown = await response.json();
-
-      await refresh();
-
-      if (action === "activate" || action === "reset-password") {
-        if (
-          typeof body !== "object" ||
-          body === null ||
-          !("temporaryPassword" in body) ||
-          typeof body.temporaryPassword !== "string"
-        ) {
-          throw new Error("Server did not return a temporary password.");
-        }
-
-        if (action === "activate") {
-          setNotice(
-            `${guardian.name} activated. Temporary password: ${body.temporaryPassword}`
-          );
-        } else {
-          setNotice(
-            `${guardian.name}'s password reset to ${body.temporaryPassword}. They must change it at next login.`
-          );
-        }
-      } else {
-        setNotice(`${guardian.name}'s login deactivated.`);
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Account action failed.");
-    } finally {
-      setAccountActionId(null);
-    }
-  }
-
-  async function saveGuardianLinks(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!linkRiderId) return;
-    setLinking(true); setError(""); setNotice("");
-    try {
-      const response = await fetch(`/api/families/riders/${linkRiderId}/guardians`, {
-        method: "PUT", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guardianIds: linkGuardianIds })
-      });
-      if (!response.ok) throw await errorFrom(response);
-      await refresh();
-      setNotice("Rider's guardians updated.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update guardian links.");
-    } finally { setLinking(false); }
-  }
-
-  const matching = riders.filter((rider) => {
-    const terms = [rider.givenName, rider.familyName,
-      ...rider.guardians.map((guardian) => `${guardian.name} ${guardian.email ?? ""}`),
-      rider.am?.routeName ?? "", rider.pm?.routeName ?? ""].join(" ").toLowerCase();
-    return terms.includes(search.toLowerCase()) &&
-      (!routeFilter || rider.am?.routeId === routeFilter || rider.pm?.routeId === routeFilter) &&
-      (!needsAttention || rider.guardians.some((guardian) => guardian.accountStatus === "pending"));
-  });
-  const selected = matching.find((rider) => rider.id === selectedId) ?? matching[0];
-  const guardianCount = guardians.length;
-  const pendingCount = guardians.filter((guardian) => guardian.accountStatus === "pending").length;
-
-  return (
-    <div className="families-page">
-      <div className="family-heading"><p className="eyebrow">FAMILIES / OPERATIONS</p>
-        <h1>Riders &amp; guardians</h1>
-        <p className="description">Assignments and family access in one place.</p>
-      </div>
-      <div className="family-metrics" aria-label="Operations summary">
-        <Metric label="Riders listed" value={loading || error && !riders.length ? "—" : riders.length} detail="Riders in the roster" />
-        <Metric label="Guardians listed" value={loading || error && !riders.length ? "—" : guardianCount} detail="Unique roster contacts" />
-        <Metric label="Needs attention" value={loading || error && !riders.length ? "—" : pendingCount} detail="Accounts awaiting setup" />
-        <Metric label="Trips shown" value="—" detail="History not connected here yet" />
-      </div>
-
-      {error && <p className="auth-error" role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
-
-      <section className="family-surface" aria-label="Rider and guardian operations">
-        <div className="family-surface-header"><div className="family-tabs" role="tablist" aria-label="Operations views">
-          {views.map(({ id, label }) => <button key={id} id={`family-tab-${id}`} type="button" role="tab"
-            aria-controls="family-panel" aria-selected={view === id} tabIndex={view === id ? 0 : -1}
-            onClick={() => setView(id)} onKeyDown={(event) => {
-              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-              event.preventDefault();
-              const index = views.findIndex((option) => option.id === view);
-              const next = views[(index + (event.key === "ArrowRight" ? 1 : views.length - 1)) % views.length];
-              setView(next.id);
-              document.getElementById(`family-tab-${next.id}`)?.focus();
-            }}>{label}</button>)}
-        </div></div>
-        <div id="family-panel" role="tabpanel" aria-labelledby={`family-tab-${view}`} tabIndex={0}>
-          {view === "roster" && <>
-            <div className="family-controls">
-              <label htmlFor="family-search">Find a rider or guardian
-                <input id="family-search" type="search" placeholder="Search names or route"
-                  value={search} onChange={(event) => setSearch(event.target.value)} disabled={loading || !!error && !riders.length} />
-              </label>
-              <label htmlFor="family-route">Route
-                <select id="family-route" value={routeFilter} onChange={(event) => setRouteFilter(event.target.value)}>
-                  <option value="">All routes</option>
-                  {routes.map((route) => <option key={route.id} value={route.id}>{route.name}</option>)}
-                </select>
-              </label>
-              <label className="family-check"><input type="checkbox" checked={needsAttention}
-                onChange={(event) => setNeedsAttention(event.target.checked)} /> Needs attention only</label>
-              <button type="button" className="family-action" onClick={() => {
-                startEditing();
-                requestAnimationFrame(() =>
-                  document.getElementById("family-rider-editor")?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "start"
-                  })
-                );
-              }}>Add rider</button>
-              <span className="family-count">{loading ? "Loading…" : `${matching.length} of ${riders.length} riders`}</span>
-            </div>
-            <div className="family-layout"><div className="family-table-scroll"><table className="family-table">
-              <thead><tr><th scope="col">Child</th><th scope="col">AM pickup / PM drop-off</th>
-                <th scope="col">Routes</th><th scope="col">Guardians &amp; access</th><th scope="col">Account status</th></tr></thead>
-              <tbody>{matching.map((rider) => <tr key={rider.id} className={selected?.id === rider.id ? "family-selected" : ""}>
-                <td><button className="family-row-button" type="button" onClick={() => setSelectedId(rider.id)}>
-                  {rider.givenName} {rider.familyName}</button></td>
-                <td>AM: {rider.am?.stopLabel ?? "Not assigned"}<br />PM: {rider.pm?.stopLabel ?? "Not assigned"}</td>
-                <td>{rider.am?.routeName ?? "—"}<br />{rider.pm?.routeName ?? "—"}</td>
-                <td>{rider.guardians.length} linked {rider.guardians.length === 1 ? "guardian" : "guardians"}</td>
-                <td>{rider.guardians.some((guardian) => guardian.accountStatus === "pending") ? "Setup needed" : rider.guardians.some((guardian) => guardian.accountStatus === "active") ? "Account active" : "No account linked"}</td>
-              </tr>)}
-              {!matching.length && <tr><td colSpan={5} className="family-empty-cell">
-                {loading ? "Loading riders…" : error && !riders.length ? "Roster unavailable." :
-                  riders.length ? "No riders match these filters." : "No roster has been imported yet."}
-              </td></tr>}</tbody>
-            </table></div>
-              {selected ? <aside className="family-detail"><span className="family-overline">RIDER DETAIL</span>
-                <h2>{selected.givenName} {selected.familyName}</h2>
-                <p>AM pickup: {stopDescription(selected.am)}</p>
-                <p>PM drop-off: {stopDescription(selected.pm)}</p>
-                <div className="family-divider" /><span className="family-overline">GUARDIANS</span>
-                {selected.guardians.map((guardian) => <div className="family-guardian" key={guardian.id}>
-                  <strong>{guardian.name}</strong><p>{guardian.email ?? "No email on roster"}</p>
-                  {guardian.phone && <p>{guardian.phone}</p>}
-                  <p>{guardian.accountStatus === "active" ? "Account active" : guardian.accountStatus === "pending" ? "Account setup needed" : "No login account linked"}</p>
-                  <p>Last signed in: {guardian.lastSignedIn ? new Date(guardian.lastSignedIn).toLocaleString() : "Never"}</p>
-                  <button type="button" className="family-edit-guardian" onClick={() => editGuardian(guardian)}>Edit guardian</button>
-                </div>)}
-                {!selected.imported && <button type="button" className="family-action" onClick={() => startEditing(selected)}>Edit rider</button>}
-                <button type="button" className="family-edit-guardian" onClick={() => { setLinkRiderId(selected.id); setLinkGuardianIds(selected.guardians.map((g) => g.id)); setView("guardians"); }}>Manage guardians</button>
-              </aside> : <EmptyDetail title="Choose a rider" description="Assigned stops and guardian accounts will appear here." />}
-            </div>
-            <p className="family-footnote">Buses are assigned to trips, not permanently to children or routes. Alert delivery is not connected to this roster yet.</p>
-          </>}
-          {view === "guardians" && <>
-            <div className="family-controls"><strong>Guardian contacts</strong>
-              <button type="button" className="family-action" onClick={() => {
-                resetGuardianForm();
-                document.getElementById("family-add-guardian")?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}>Add guardian</button>
-              <span className="family-count">{guardians.length} contacts</span>
-            </div>
-            <div className="family-table-scroll"><table className="family-table">
-              <thead><tr><th scope="col">Name</th><th scope="col">Email</th>
-                <th scope="col">Phone</th><th scope="col">Account</th><th scope="col">Action</th></tr></thead>
-              <tbody>{guardians.map((guardian) => <tr key={guardian.id}>
-                <td>{guardian.name}</td><td>{guardian.email ?? "—"}</td>
-                <td>{guardian.phone ?? "—"}</td>
-                <td>{guardian.accountStatus === "active" ? "Active" : guardian.accountStatus === "pending" ? "Setup needed" : "No account linked"}</td>
-                <td>
-                  <button type="button" className="family-edit-guardian"
-                    onClick={() => editGuardian(guardian)}>Edit</button>
-                  {guardian.accountStatus === "none" && <button
-                    type="button"
-                    className="family-action"
-                    disabled={accountActionId === guardian.id || !guardian.email}
-                    onClick={() => void runGuardianAccountAction(guardian, "activate")}
-                  >{accountActionId === guardian.id ? "Activating…" : "Activate account"}</button>}
-                  {guardian.accountStatus === "active" && <>
-                    <button
-                      type="button"
-                      className="family-edit-guardian"
-                      disabled={accountActionId === guardian.id}
-                      onClick={() => void runGuardianAccountAction(guardian, "reset-password")}
-                    >Reset password</button>
-                    <button
-                      type="button"
-                      className="family-edit-guardian"
-                      disabled={accountActionId === guardian.id}
-                      onClick={() => void runGuardianAccountAction(guardian, "deactivate")}
-                    >Deactivate</button>
-                  </>}
-                  {guardian.accountStatus === "pending" && <button
-                    type="button"
-                    className="family-action"
-                    disabled={accountActionId === guardian.id}
-                    onClick={() => void runGuardianAccountAction(guardian, "activate")}
-                  >Reactivate account</button>}
-                </td>
-              </tr>)}
-              {!guardians.length && <tr><td colSpan={5} className="family-empty-cell">No guardian contacts yet. Add one below or import a roster.</td></tr>}</tbody>
-            </table></div>
-            <p className="family-footnote">A contact record does not create a login or subscribe anyone to alerts.</p>
-          </>}
-          {view === "trips" && <><div className="family-layout"><div className="family-table-scroll">
-            <table className="family-table"><thead><tr><th scope="col">Date</th><th scope="col">Bus</th>
-              <th scope="col">Route</th><th scope="col">Departure</th><th scope="col">Status</th></tr></thead>
-              <tbody><tr><td colSpan={5} className="family-empty-cell">Trip history is not connected to this screen yet. Use Dispatch for planned trips.</td></tr></tbody></table>
-          </div><EmptyDetail title="Trip history" description="Recorded stop events will appear here when connected." /></div>
-            <p className="family-footnote">Scheduled, estimated and actual times are separate facts.</p></>}
-          {view === "signins" && <><div className="family-layout"><div className="family-table-scroll">
-            <table className="family-table"><thead><tr><th scope="col">Account</th><th scope="col">Event</th>
-              <th scope="col">When</th><th scope="col">Type</th></tr></thead>
-              <tbody><tr><td colSpan={4} className="family-empty-cell">Sign-in event history is not recorded yet. The roster shows the last successful sign-in for linked guardians.</td></tr></tbody></table>
-          </div><EmptyDetail title="Sign-in history" description="An audit event log will appear here when the app records one." /></div>
-            <p className="family-footnote">A recent sign-in does not mean someone is viewing the app now.</p></>}
-        </div>
-      </section>
-
-      <section className="family-management" aria-label="Roster source">
-        <div className="family-management-head"><h2>Roster source</h2></div>
-        <p>Load the roster before testing. Use the Guardians tab to add or correct contacts. Reimporting updates imported contact details from the source file.</p>
-        {editingId !== undefined && <form id="family-rider-editor" className="family-editor" onSubmit={(event) => void saveRider(event)}>
-          <h3>{editingId ? "Edit rider" : "Add rider"}</h3>
-          <div className="family-editor-grid">
-            <label>Child's first name<input value={draft.givenName} maxLength={80} required
-              onChange={(event) => setDraft((current) => ({ ...current, givenName: event.target.value }))} /></label>
-            <label>Child's last name<input value={draft.familyName} maxLength={80} required
-              onChange={(event) => setDraft((current) => ({ ...current, familyName: event.target.value }))} /></label>
-          </div>
-          <label>Guardians
-            <select multiple value={draft.guardianIds} onChange={(event) => setDraft((current) => ({ ...current, guardianIds: Array.from(event.target.selectedOptions, (option) => option.value) }))}>
-              {guardians.map((guardian) => <option key={guardian.id} value={guardian.id}>{guardian.name}</option>)}
-            </select>
-          </label>
-          <AssignmentFields direction="am" draft={draft} routes={routes}
-            change={(next) => setDraft((current) => ({ ...current, ...next }))} />
-          <AssignmentFields direction="pm" draft={draft} routes={routes}
-            change={(next) => setDraft((current) => ({ ...current, ...next }))} />
-          <div className="family-form-actions"><button className="family-action" type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save rider"}</button><button type="button" onClick={() => setEditingId(undefined)}>Cancel</button></div>
-        </form>}
-        {view === "guardians" && <form id="family-add-guardian" className="family-editor family-guardian-form" onSubmit={(event) => void addGuardian(event)}>
-          <h3>{editingGuardianId ? "Edit guardian" : "Add guardian"}</h3>
-          {guardianError && <p className="auth-error" role="alert">{guardianError}</p>}
-          <p className="family-hint">A guardian contact is separate from a login account. Imported contact edits may be replaced by a later import.</p>
-          <div className="family-editor-grid">
-            <label>Guardian name<input value={guardianName} maxLength={120} required
-              onChange={(event) => setGuardianName(event.target.value)} /></label>
-            <label>Email (optional)<input type="email" value={guardianEmail}
-              onChange={(event) => setGuardianEmail(event.target.value)} /></label>
-            <label>Phone (optional)
-              <input type="tel" placeholder="Phone number" value={guardianPhone}
-                onChange={(event) => setGuardianPhone(event.target.value)} /></label>
-          </div>
-          {!editingGuardianId && <label>Link to rider (optional)<select value={linkRiderId} onChange={(event) => setLinkRiderId(event.target.value)}>
-            <option value="">No rider yet</option>{riders.map((rider) => <option key={rider.id} value={rider.id}>{rider.givenName} {rider.familyName}</option>)}
-          </select></label>}
-          <button className="family-action" type="submit" disabled={addingGuardian}>
-            {addingGuardian ? "Saving…" : editingGuardianId ? "Save guardian" : "Add guardian"}</button>
-          {editingGuardianId && <button type="button" onClick={resetGuardianForm}>Cancel</button>}
-        </form>}
-        {view === "guardians" && <form className="family-editor family-guardian-form" onSubmit={(event) => void saveGuardianLinks(event)}>
-          <h3>Link existing guardians to a rider</h3>
-          <label>Rider<select value={linkRiderId} onChange={(event) => {
-            const id = event.target.value;
-            setLinkRiderId(id);
-            setLinkGuardianIds(riders.find((rider) => rider.id === id)?.guardians.map((guardian) => guardian.id) ?? []);
-          }}><option value="">Choose a rider</option>
-            {riders.map((rider) => <option key={rider.id} value={rider.id}>{rider.givenName} {rider.familyName}</option>)}
-          </select></label>
-          {linkRiderId && <fieldset className="family-guardian-choices"><legend>Guardian contacts</legend>
-            {guardians.map((guardian) => <label key={guardian.id}><input type="checkbox"
-              checked={linkGuardianIds.includes(guardian.id)}
-              onChange={(event) => setLinkGuardianIds((current) => event.target.checked
-                ? [...current, guardian.id] : current.filter((id) => id !== guardian.id))} /> {guardian.name}</label>)}
-          </fieldset>}
-          <p className="family-hint">Imported links come from the roster file and cannot be removed here. Additional links you make here survive reimport.</p>
-          <button className="family-action" type="submit" disabled={!linkRiderId || linking}>{linking ? "Saving…" : "Save guardians"}</button>
-        </form>}
-      </section>
+  return <form className="rf" onSubmit={(event) => void submit(event)} noValidate>
+    <div className="rf2">
+      <label><b className="lt">Child&rsquo;s first name</b><input value={draft.givenName} maxLength={80} autoComplete="off" onChange={(event) => change({ givenName: event.target.value })} /></label>
+      <label><b className="lt">Child&rsquo;s last name</b><input value={draft.familyName} maxLength={80} autoComplete="off" onChange={(event) => change({ familyName: event.target.value })} /></label>
     </div>
-  );
+    <fieldset className="gch"><legend>Guardians</legend>
+      {!guardians.length && <span className="hint">Add a guardian first.</span>}
+      {guardians.map((guardian) => <label key={guardian.id}><input type="checkbox" checked={draft.guardianIds.includes(guardian.id)}
+        onChange={(event) => change({ guardianIds: event.target.checked ? [...draft.guardianIds, guardian.id] : draft.guardianIds.filter((id) => id !== guardian.id) })} /> {guardian.name}</label>)}
+    </fieldset>
+    {assignment("AM")}
+    {assignment("PM")}
+    <p className="rf-err" role="alert">{error}</p>
+    <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save rider"}</button>
+  </form>;
+}
+
+function GuardianForm({ guardian, riders, onSaved }: { guardian: Guardian | null; riders: Rider[]; onSaved: () => void }) {
+  const [name, setName] = useState(guardian?.name ?? "");
+  const [email, setEmail] = useState(guardian?.email ?? "");
+  const [phone, setPhone] = useState(guardian?.phone ?? "");
+  const [riderId, setRiderId] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const parsed = guardianInputSchema.safeParse({ name, email: email.trim() || null, phone: phone.trim() || null });
+    if (!parsed.success) { setError("Enter a guardian name, or correct the optional email and phone."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      await send(guardian ? "PUT" : "POST", guardian ? `/api/families/guardians/${guardian.id}` : "/api/families/guardians",
+        guardian ? parsed.data : { ...parsed.data, riderId: riderId || null }, "Could not save guardian.");
+      onSaved();
+    } catch (cause) {
+      setError(message(cause, "Could not save guardian."));
+    } finally { setSaving(false); }
+  }
+
+  return <form className="rf" onSubmit={(event) => void submit(event)} noValidate>
+    <p className="rf-hint">A guardian contact is separate from a login account.{guardian?.importDataset ? " Imported contact edits may be replaced by a later import." : ""}</p>
+    <label><b className="lt">Guardian name</b><input value={name} maxLength={120} autoComplete="off" onChange={(event) => setName(event.target.value)} /></label>
+    <div className="rf2">
+      <label><b className="lt">Email <span>(optional)</span></b><input type="email" value={email} autoCapitalize="none" autoComplete="off" onChange={(event) => setEmail(event.target.value)} /></label>
+      <label><b className="lt">Phone <span>(optional)</span></b><input type="tel" value={phone} autoComplete="off" onChange={(event) => setPhone(event.target.value)} /></label>
+    </div>
+    {!guardian && <label><b className="lt">Link to rider <span>(optional)</span></b><select value={riderId} onChange={(event) => setRiderId(event.target.value)}>
+      <option value="">No rider yet</option>
+      {riders.map((rider) => <option key={rider.id} value={rider.id}>{rider.givenName} {rider.familyName}</option>)}
+    </select></label>}
+    <p className="rf-err" role="alert">{error}</p>
+    <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving…" : guardian ? "Save guardian" : "Add guardian"}</button>
+  </form>;
+}
+
+function LinksForm({ rider, guardians, onSaved }: { rider: Rider; guardians: Guardian[]; onSaved: () => void }) {
+  const [ids, setIds] = useState(rider.guardians.map((guardian) => guardian.id));
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await send("PUT", `/api/families/riders/${rider.id}/guardians`, { guardianIds: ids }, "Could not update guardian links.");
+      onSaved();
+    } catch (cause) { setError(message(cause, "Could not update guardian links.")); } finally { setSaving(false); }
+  }
+  return <form className="rf" onSubmit={(event) => void submit(event)}>
+    <fieldset className="gch"><legend>Guardian contacts</legend>
+      {guardians.map((guardian) => <label key={guardian.id}><input type="checkbox" checked={ids.includes(guardian.id)}
+        onChange={(event) => setIds(event.target.checked ? [...ids, guardian.id] : ids.filter((id) => id !== guardian.id))} /> {guardian.name}</label>)}
+    </fieldset>
+    <p className="rf-hint">Imported links come from the roster file and cannot be removed here. Links you add here survive reimport.</p>
+    <p className="rf-err" role="alert">{error}</p>
+    <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save guardians"}</button>
+  </form>;
+}
+
+export function FamiliesPage() {
+  const { mode, toast } = useOps();
+  const [riders, setRiders] = useState<Rider[]>([]);
+  const [guardians, setGuardians] = useState<Guardian[]>([]);
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [view, setView] = useState<"riders" | "guardians">("riders");
+  const [query, setQuery] = useState("");
+  const [family, setFamily] = useState("");
+  const [attention, setAttention] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [overlay, setOverlay] = useState<OverlayState>(null);
+  const [busyGuardian, setBusyGuardian] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      getJson("/api/families/roster", rosterResponseSchema, controller.signal),
+      getJson("/api/families/guardians", guardiansResponseSchema, controller.signal),
+      getJson("/api/routes", routesResponseSchema, controller.signal)
+    ]).then(([roster, contacts, routeData]) => {
+      setRiders(roster.riders);
+      setGuardians(contacts.guardians);
+      setRoutes(routeData.routes);
+      setError("");
+    }).catch((cause) => { if (!controller.signal.aborted) setError(message(cause, "Could not load the roster.")); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [revision]);
+  const refresh = () => setRevision((value) => value + 1);
+
+  const families = useMemo(() => [...new Set(routes.map((route) => route.routeFamilyName))].sort(), [routes]);
+  const familyOf = (routeId: string, routeName: string) =>
+    routes.find((route) => route.id === routeId)?.routeFamilyName ?? routeName.replace(/\s*(AM|PM)$/i, "");
+  const riderColor = (rider: Rider) => {
+    const assignment = rider.am ?? rider.pm;
+    if (!assignment) return "#a9b3ab";
+    const index = families.indexOf(familyOf(assignment.routeId, assignment.routeName));
+    return index < 0 ? "#a9b3ab" : PALETTE[index % PALETTE.length];
+  };
+  const kidsOf = (guardianId: string) => riders.filter((rider) => rider.guardians.some((guardian) => guardian.id === guardianId));
+
+  const needle = query.trim().toLowerCase();
+  const visible = riders.filter((rider) => {
+    const text = [rider.givenName, rider.familyName, ...rider.guardians.map((guardian) => `${guardian.name} ${guardian.email ?? ""}`),
+      rider.am?.routeName ?? "", rider.pm?.routeName ?? ""].join(" ").toLowerCase();
+    const inFamily = !family || [rider.am, rider.pm].some((assignment) => assignment && familyOf(assignment.routeId, assignment.routeName) === family);
+    return text.includes(needle) && inFamily && (!attention || riderStatus(rider) === "pending");
+  }).sort((a, b) => a.familyName.localeCompare(b.familyName) || a.givenName.localeCompare(b.givenName));
+  const selected = visible.find((rider) => rider.id === selectedId) ?? visible[0] ?? null;
+  const pending = guardians.filter((guardian) => guardian.accountStatus === "pending").length;
+  const sortedGuardians = [...guardians].sort((a, b) => a.name.localeCompare(b.name));
+
+  async function accountAction(guardian: Guardian, action: GuardianAction) {
+    setBusyGuardian(guardian.id);
+    setError("");
+    try {
+      const body = await send("POST", `/api/families/guardians/${guardian.id}/account/${action}`, undefined, "Account action failed.");
+      const password = body && typeof body === "object" && "temporaryPassword" in body && typeof body.temporaryPassword === "string" ? body.temporaryPassword : null;
+      if (action !== "deactivate" && !password) throw new Error("Server did not return a temporary password.");
+      setNotice(action === "activate" ? `${guardian.name} activated. Temporary password: ${password}`
+        : action === "reset-password" ? `${guardian.name}'s password reset to ${password}. They must change it at next login.`
+          : `${guardian.name}'s login deactivated.`);
+      refresh();
+    } catch (cause) {
+      setError(message(cause, "Account action failed."));
+    } finally { setBusyGuardian(null); }
+  }
+
+  const accountButtons = (guardian: Guardian) => actionsFor(guardian).map((action) =>
+    <button key={action.key} type="button" className={`btn sm${action.primary ? " btn-primary" : ""}`}
+      disabled={!!action.disabled || busyGuardian === guardian.id} title={action.disabled}
+      onClick={() => void accountAction(guardian, action.key)}>{action.label}</button>);
+
+  const guardianCard = (guardian: Guardian) => <div key={guardian.id} className="gcard">
+    <div className="t"><strong>{guardian.name}</strong><Pill status={guardian.accountStatus} guardian /></div>
+    <p>{guardian.email ?? "No email on roster"}</p>
+    {guardian.phone && <p><a href={`tel:${guardian.phone}`}>{guardian.phone}</a></p>}
+    <p>Last signed in: {signedIn(guardian.lastSignedIn)}</p>
+    <div className="acts">{accountButtons(guardian)}
+      <button type="button" className="btn sm" onClick={() => setOverlay({ type: "guardianForm", id: guardian.id })}>Edit</button></div>
+  </div>;
+
+  const assignLine = (assignment: Rider["am"], period: string) => <div><b>{period}</b>{assignment
+    ? <><span className="rdot" style={{ "--c": PALETTE[families.indexOf(familyOf(assignment.routeId, assignment.routeName)) % PALETTE.length] ?? "#a9b3ab" } as CSSProperties} />{assignment.stopLabel}</>
+    : <span className="dim">Not assigned</span>}</div>;
+
+  const riderDetail = (rider: Rider) => <>
+    <span className="ov">RIDER DETAIL</span>
+    <h2 className="dt"><Avatar name={`${rider.givenName} ${rider.familyName}`} color={riderColor(rider)} size={44} />{rider.givenName} {rider.familyName}</h2>
+    <div className="asg">
+      <div><b>AM</b>{rider.am ? <>{rider.am.stopLabel} <span className="dim">{rider.am.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
+      <div><b>PM</b>{rider.pm ? <>{rider.pm.stopLabel} <span className="dim">{rider.pm.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
+    </div>
+    <div className="acts">
+      {!rider.imported && <button type="button" className="btn sm" onClick={() => setOverlay({ type: "riderForm", id: rider.id })}>Edit rider</button>}
+      <button type="button" className="btn sm" onClick={() => setOverlay({ type: "links", id: rider.id })}>Manage guardians</button>
+    </div>
+    <div className="dv" /><span className="ov">GUARDIANS</span>
+    {rider.guardians.map((guardian) => guardianCard(guardians.find((item) => item.id === guardian.id) ?? guardian))}
+    {rider.imported && <p className="muted">Imported rider. Assignments come from the roster file.</p>}
+  </>;
+
+  const overlayRider = overlay && "id" in overlay && overlay.id ? riders.find((rider) => rider.id === overlay.id) ?? null : null;
+  const overlayGuardian = overlay && "id" in overlay && overlay.id ? guardians.find((guardian) => guardian.id === overlay.id) ?? null : null;
+  const overlayView = overlay && <Overlay onClose={() => setOverlay(null)}>
+    {overlay.type === "rider" && (overlayRider ? riderDetail(overlayRider) : <NoMatch>Not found.</NoMatch>)}
+    {overlay.type === "guardian" && (overlayGuardian ? <><span className="ov">GUARDIAN</span><h2 className="dt">{overlayGuardian.name}</h2>
+      <p className="muted">Children: {kidsOf(overlayGuardian.id).map((rider) => `${rider.givenName} ${rider.familyName}`).join(", ") || "None linked"}</p>
+      {guardianCard(overlayGuardian)}</> : <NoMatch>Not found.</NoMatch>)}
+    {overlay.type === "riderForm" && <><span className="ov">ROSTER</span><h2 className="dt">{overlay.id ? "Edit rider" : "Add rider"}</h2>
+      <RiderForm rider={overlayRider} guardians={sortedGuardians} routes={routes} onSaved={(id) => {
+        setOverlay(null); setSelectedId(id); toast(overlay.id ? "Rider updated." : "Rider added."); refresh();
+      }} /></>}
+    {overlay.type === "guardianForm" && <><span className="ov">CONTACTS</span><h2 className="dt">{overlay.id ? "Edit guardian" : "Add guardian"}</h2>
+      <GuardianForm guardian={overlayGuardian} riders={riders} onSaved={() => {
+        setOverlay(null); toast(overlay.id ? "Guardian updated." : "Guardian added to the roster."); refresh();
+      }} /></>}
+    {overlay.type === "links" && overlayRider && <><span className="ov">GUARDIANS</span><h2 className="dt">{overlayRider.givenName} {overlayRider.familyName}</h2>
+      <LinksForm rider={overlayRider} guardians={sortedGuardians} onSaved={() => { setOverlay(null); toast("Rider's guardians updated."); refresh(); }} /></>}
+  </Overlay>;
+
+  const status = <>
+    <ErrorNote text={error} />
+    {notice && <div className="ok-note" role="status"><b>{notice}</b><button type="button" className="btn sm" style={{ marginTop: 8 }} onClick={() => setNotice("")}>Dismiss</button></div>}
+    {loading && <p className="hint">Loading roster…</p>}
+  </>;
+  const emptyText = loading ? "Loading riders…" : riders.length ? "No riders match these filters." : "No roster has been imported yet.";
+
+  if (mode === "desktop") {
+    return <>
+      <Head eyebrow="FAMILIES" title="Riders & guardians" sub="Assignments and family access in one place." actions={<>
+        <button type="button" className="btn" onClick={() => setOverlay({ type: "guardianForm", id: null })}>Add guardian</button>
+        <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "riderForm", id: null })}>Add rider</button></>} />
+      {status}
+      <div className="tiles">
+        <Tile label="Riders listed" value={riders.length} sub="Riders in the roster" />
+        <Tile label="Guardians listed" value={guardians.length} sub="Unique roster contacts" />
+        <Tile label="Needs attention" value={pending} sub="Accounts awaiting setup" className={`bad${attention ? " on" : ""}`}
+          pressed={attention} onClick={() => { setAttention(!attention); setView("riders"); }} />
+      </div>
+      <div className="tabs2" role="tablist">{([["riders", "Rider roster"], ["guardians", "Guardians"]] as const).map(([key, label]) =>
+        <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? "on" : ""} onClick={() => setView(key)}>{label}</button>)}</div>
+      {view === "riders" ? <>
+        <div className="filters" style={{ marginTop: 16 }}>
+          <Search label="Find a rider or guardian" value={query} onChange={setQuery} placeholder="Search names or route" />
+          <label>Route<select value={family} onChange={(event) => setFamily(event.target.value)}>
+            <option value="">All routes</option>{families.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+          <label className="ck"><input type="checkbox" checked={attention} onChange={(event) => setAttention(event.target.checked)} /> Needs attention only</label>
+          <span className="cnt">{visible.length} of {riders.length} riders</span>
+        </div>
+        <div className="split">
+          <div className="scr"><table className="tbl"><thead><tr><th>Child</th><th>AM pickup / PM drop-off</th><th>Guardians &amp; access</th><th>Account status</th></tr></thead>
+            <tbody>{visible.length ? visible.map((rider) => <tr key={rider.id} data-set="" tabIndex={0} className={rider.id === selected?.id ? "sel" : ""}
+              onClick={() => setSelectedId(rider.id)} onKeyDown={(event) => { if (event.key === "Enter") setSelectedId(rider.id); }}>
+              <td><div className="who"><Avatar name={`${rider.givenName} ${rider.familyName}`} color={riderColor(rider)} size={36} /><strong>{rider.givenName} {rider.familyName}</strong></div></td>
+              <td><div className="st2">{assignLine(rider.am, "AM")}{assignLine(rider.pm, "PM")}</div></td>
+              <td>{rider.guardians.length} linked {plural(rider.guardians.length, "guardian", "guardians")}</td>
+              <td><Pill status={riderStatus(rider)} /></td></tr>)
+              : <tr><td colSpan={4} className="nomatch">{emptyText}</td></tr>}</tbody></table></div>
+          <aside className="rdetail">{selected ? riderDetail(selected) : <><span className="ov">DETAIL</span><h2 className="dt">Choose a rider</h2></>}</aside>
+        </div>
+        <p className="hint" style={{ marginTop: 12 }}>Buses are assigned to trips, not permanently to children or routes.</p>
+      </> : <>
+        <div style={{ marginTop: 16 }}><table className="tbl"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Children</th><th>Account</th><th>Action</th></tr></thead>
+          <tbody>{sortedGuardians.length ? sortedGuardians.map((guardian) => <tr key={guardian.id}>
+            <td><strong>{guardian.name}</strong></td>
+            <td>{guardian.email ?? <span className="dim">&mdash;</span>}</td>
+            <td>{guardian.phone ?? <span className="dim">&mdash;</span>}</td>
+            <td>{kidsOf(guardian.id).map((rider) => rider.givenName).join(", ") || <span className="dim">None</span>}</td>
+            <td><Pill status={guardian.accountStatus} guardian /></td>
+            <td><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{accountButtons(guardian)}
+              <button type="button" className="btn sm" onClick={() => setOverlay({ type: "guardianForm", id: guardian.id })}>Edit</button></div></td>
+          </tr>) : <tr><td colSpan={6} className="nomatch">No guardian contacts yet.</td></tr>}</tbody></table></div>
+        <p className="hint" style={{ marginTop: 12 }}>A contact record does not create a login or subscribe anyone to alerts.</p>
+      </>}
+      {overlayView}
+    </>;
+  }
+
+  if (mode === "adv") {
+    return <>
+      <Head eyebrow="FAMILIES" title="Riders" sub={<>{riders.length} riders &middot; {guardians.length} guardians</>}
+        actions={<Plus label="Add" onClick={() => setOverlay(view === "riders" ? { type: "riderForm", id: null } : { type: "guardianForm", id: null })} />} />
+      <Seg label="View" value={view} onChange={setView} items={[["riders", "Riders"], ["guardians", "Guardians"]]} />
+      {status}
+      {view === "riders" ? <>
+        <Search value={query} onChange={setQuery} placeholder="Search names or route" />
+        <div className="chips"><button type="button" className={`chip${attention ? " on" : ""}`} aria-pressed={attention} onClick={() => setAttention(!attention)}>NEEDS ATTENTION <b>{pending}</b></button></div>
+        <div className="cards">{visible.length ? visible.map((rider) => <button key={rider.id} type="button" className="bc" style={{ "--c": riderColor(rider) } as CSSProperties}
+          onClick={() => setOverlay({ type: "rider", id: rider.id })}>
+          <div className="h"><strong>{rider.givenName} {rider.familyName}</strong><Pill status={riderStatus(rider)} /></div>
+          <div className="st2">{assignLine(rider.am, "AM")}{assignLine(rider.pm, "PM")}</div>
+          <div className="tm"><span>{rider.guardians.length} linked {plural(rider.guardians.length, "guardian", "guardians")}</span></div>
+        </button>) : <NoMatch>{emptyText}</NoMatch>}</div>
+      </> : <div className="cards" style={{ marginTop: 12 }}>{sortedGuardians.map((guardian) =>
+        <button key={guardian.id} type="button" className="bc" style={{ "--c": "#a9b3ab" } as CSSProperties} onClick={() => setOverlay({ type: "guardian", id: guardian.id })}>
+          <div className="h"><strong>{guardian.name}</strong><Pill status={guardian.accountStatus} guardian /></div>
+          <div className="tm"><span>{kidsOf(guardian.id).map((rider) => rider.givenName).join(", ") || "No children linked"}</span></div>
+        </button>)}</div>}
+      {overlayView}
+    </>;
+  }
+
+  return <>
+    <h1 className="sh1">Find a child</h1>
+    {status}
+    {pending ? <p className="sline bad">{pending} {plural(pending, "family still needs", "families still need")} to be set up.</p>
+      : !loading && <p className="sline ok">Every family is set up.</p>}
+    <Search value={query} onChange={setQuery} placeholder="Type a name" />
+    <div className="sl" style={{ marginTop: 8 }}>{visible.length ? visible.map((rider) => {
+      const first = rider.guardians[0];
+      const state = riderStatus(rider);
+      const route = rider.am ?? rider.pm;
+      return <SRow key={rider.id} tone={state === "active" ? "ok" : state === "pending" ? "warn" : ""} smallTone={state === "pending" ? "bad" : ""}
+        onClick={() => setOverlay({ type: "rider", id: rider.id })}
+        small={<>{rider.am ? `Picked up at ${rider.am.stopLabel}. ` : ""}{first ? `${first.name}: ${{ active: "has a login", pending: "login needs setup", none: "no login yet" }[first.accountStatus]}.` : ""}</>}>
+        <b>{rider.givenName} {rider.familyName}</b> {route ? `rides ${familyOf(route.routeId, route.routeName)}.` : "has no route yet."}
+      </SRow>;
+    }) : <NoMatch>{loading ? "Loading riders…" : "No child by that name."}</NoMatch>}</div>
+    <div className="pin"><button type="button" className="bigbtn out" onClick={() => setOverlay({ type: "riderForm", id: null })}>Add a rider</button></div>
+    {overlayView}
+  </>;
 }

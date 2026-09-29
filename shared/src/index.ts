@@ -483,3 +483,153 @@ export const familyPortalResponseSchema = z.strictObject({
 });
 
 export type FamilyPortalRide = z.infer<typeof familyPortalRideSchema>;
+
+// ---------------------------------------------------------------------------
+// Ride Check: per-rider check events layered on the trip_riders snapshot.
+// ---------------------------------------------------------------------------
+
+export const riderCheckStateSchema = z.enum([
+  "expected",
+  "aboard",
+  "dropped",
+  "no_show",
+  "not_riding"
+]);
+
+export type RiderCheckState = z.infer<typeof riderCheckStateSchema>;
+
+export const riderCheckEventTypeSchema = z.enum([
+  "boarded",
+  "dropped_off",
+  "no_show",
+  "not_riding",
+  "undone",
+  "handled"
+]);
+
+export type RiderCheckEventType = z.infer<typeof riderCheckEventTypeSchema>;
+
+export const riderCheckActionSchema = z.strictObject({
+  type: z.enum(["board", "drop", "no_show", "not_riding", "undo", "handled"])
+});
+
+export type RiderCheckAction = z.infer<typeof riderCheckActionSchema>;
+
+export const bulkCheckActionSchema = z.strictObject({
+  type: z.enum(["board_waiting", "drop_aboard"])
+});
+
+export const checkRiderSchema = z.strictObject({
+  riderId: z.string().uuid(),
+  givenName: z.string(),
+  familyName: z.string(),
+  stopId: z.string().uuid(),
+  state: riderCheckStateSchema,
+  stateAt: z.string().nullable(),
+  stateBy: z.string().nullable(),
+  boardedAt: z.string().nullable(),
+  handled: z.boolean(),
+  guardians: z.array(z.strictObject({
+    name: z.string(),
+    phone: z.string().nullable()
+  }))
+});
+
+export type CheckRider = z.infer<typeof checkRiderSchema>;
+
+export const checkEventSchema = z.strictObject({
+  id: z.string().uuid(),
+  riderId: z.string().uuid().nullable(),
+  riderName: z.string().nullable(),
+  kind: z.union([riderCheckEventTypeSchema, z.literal("bus_checked_empty")]),
+  occurredAt: z.string(),
+  recordedBy: z.string()
+});
+
+export type CheckEvent = z.infer<typeof checkEventSchema>;
+
+export const checkTripSchema = z.strictObject({
+  id: z.string().uuid(),
+  busId: z.string().uuid(),
+  busLabel: z.string(),
+  routeName: z.string(),
+  servicePeriod: routeServicePeriodSchema,
+  departureAt: z.string(),
+  status: z.enum(["planned", "active", "completed", "cancelled"]),
+  assignedStaff: tripStaffSchema.nullable(),
+  staffLastSeenAt: z.string().nullable(),
+  stops: z.array(z.strictObject({
+    id: z.string().uuid(),
+    position: z.number().int().positive(),
+    label: z.string(),
+    arrivedAt: z.string().nullable(),
+    departedAt: z.string().nullable()
+  })),
+  sweep: z.strictObject({
+    confirmedAt: z.string(),
+    confirmedBy: z.string()
+  }).nullable(),
+  riders: z.array(checkRiderSchema),
+  events: z.array(checkEventSchema)
+});
+
+export type CheckTrip = z.infer<typeof checkTripSchema>;
+
+export const checkBoardResponseSchema = z.strictObject({
+  trips: z.array(checkTripSchema)
+});
+
+// ---------------------------------------------------------------------------
+// Transit: recorded trip history for review.
+// ---------------------------------------------------------------------------
+
+export const historyEventSchema = z.strictObject({
+  id: z.string().uuid(),
+  type: z.enum(["started", "arrived_stop", "departed_stop", "completed", "cancelled", "correction", "note"]),
+  occurredAt: z.string(),
+  stopLabel: z.string().nullable(),
+  method: z.enum(["automatic", "manual"]).nullable(),
+  replaced: z.boolean(),
+  recordedBy: z.string()
+});
+
+export type HistoryEvent = z.infer<typeof historyEventSchema>;
+
+export const historyTripSchema = z.strictObject({
+  id: z.string().uuid(),
+  busId: z.string().uuid(),
+  busLabel: z.string(),
+  routeName: z.string(),
+  servicePeriod: routeServicePeriodSchema,
+  departureAt: z.string(),
+  status: z.enum(["planned", "active", "completed", "cancelled"]),
+  startedAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+  cancelledAt: z.string().nullable(),
+  assignedStaff: tripStaffSchema.nullable(),
+  stops: z.array(z.strictObject({
+    id: z.string().uuid(),
+    position: z.number().int().positive(),
+    label: z.string(),
+    arrivedAt: z.string().nullable(),
+    departedAt: z.string().nullable(),
+    arrivalMethod: z.enum(["automatic", "manual"]).nullable(),
+    departureMethod: z.enum(["automatic", "manual"]).nullable()
+  })),
+  events: z.array(historyEventSchema),
+  gps: z.strictObject({
+    samples: z.number().int().nonnegative(),
+    lastObservedAt: z.string().nullable(),
+    gaps: z.array(z.strictObject({
+      startedAt: z.string(),
+      resumedAt: z.string(),
+      durationSeconds: z.number().int().positive()
+    }))
+  })
+});
+
+export type HistoryTrip = z.infer<typeof historyTripSchema>;
+
+export const historyResponseSchema = z.strictObject({
+  trips: z.array(historyTripSchema)
+});

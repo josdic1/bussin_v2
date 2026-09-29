@@ -1,690 +1,317 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router";
+import { lazy, Suspense, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useSearchParams } from "react-router";
+import { createPlannedTripSchema, type BoardTrip, type Bus, type Route } from "@bussin/shared";
+import { message, send } from "../ops/api";
+import { dateLabel, dayName, localDate, plural, shiftDay, time, ageShort, routeWithPeriod } from "../ops/format";
 import {
-  assignTripStaffSchema,
-  boardResponseSchema,
-  busesResponseSchema,
-  createPlannedTripSchema,
-  dispatchStaffResponseSchema,
-  dispatchLocationUpdateSchema,
-  dispatchGpsAuditResponseSchema,
-  plannedTripSchema,
-  routesResponseSchema,
-  tripActionSchema,
-  tripStaffAssignmentResponseSchema,
-  type BoardTrip,
-  type DispatchGpsAuditEntry,
-  type Bus,
-  type Route,
-  type TripStaff
-} from "@bussin/shared";
+  busColors, currentStopIndex, etaText, fleetRows, gpsStale, nextAction, plainState, presence,
+  severityRank, stopsDone, trackingText, type BusRow
+} from "../ops/fleetModel";
+import { Overlay, useOps } from "../ops/OpsShell";
+import { Dot, ErrorNote, Head, LivePill, NoMatch, Plus, Seg, SRow, type Tone } from "../ops/ui";
+import { useBoard, useNow } from "../ops/useBoard";
+import { useTripActions, type TripActions } from "../ops/useTripActions";
+import { ConfirmFor, StopMiniLine, TripDetail, TripPill } from "./TripDetail";
 
-const DispatchMap = lazy(async () => {
-  const module = await import("./DispatchMap");
-  return { default: module.DispatchMap };
-});
+const DispatchMap = lazy(async () => ({ default: (await import("./DispatchMap")).DispatchMap }));
 
-const colors = ["#c14345", "#20834e", "#d88412", "#2065b5", "#8442a1", "#148783"];
+type OverlayState = { type: "plan" } | { type: "trip"; id: string } | null;
 
-function localDate(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+function AlertChips({ row }: { row: BusRow }) {
+  return <>{row.alerts.map((alert) => <span key={alert.short} className={`od${alert.sev === "med" ? " med" : ""}`}>
+    {alert.short.toUpperCase()}</span>)}</>;
 }
 
-function dayBounds(day: string) {
-  const start = new Date(`${day}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { from: start.toISOString(), to: end.toISOString() };
-}
-
-function dateTime(value: string) {
-  return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-}
-
-function time(value: string) {
-  return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-const EARLY_START_WARNING_MS = 10 * 60_000;
-
-function plannedTripTiming(departureAt: string, now: number) {
-  const departure = Date.parse(departureAt);
-  if (!Number.isFinite(departure)) return null;
-  const lateBy = now - departure;
-  if (lateBy >= 60_000) {
-    return { kind: "overdue" as const, minutesLate: Math.floor(lateBy / 60_000) };
-  }
-  if (lateBy >= 0) {
-    return { kind: "due" as const, minutesLate: 0 };
+function rowForTrip(rows: BusRow[], tripId: string | null) {
+  if (!tripId) return null;
+  for (const row of rows) {
+    const trip = row.trips.find((item) => item.id === tripId);
+    if (trip) return { row, trip };
   }
   return null;
 }
 
-function confirmEarlyStart(trip: BoardTrip) {
-  const earlyBy = Date.parse(trip.departureAt) - Date.now();
-  if (earlyBy <= EARLY_START_WARNING_MS) return true;
-  const minutesEarly = Math.ceil(earlyBy / 60_000);
-  return window.confirm(
-    `This trip is scheduled for ${time(trip.departureAt)}. Start ${minutesEarly} minutes early?`
-  );
-}
-
- function etaText(trip: BoardTrip) {
-  if (trip.status !== "active") return null;
-
-  if (!trip.eta || trip.eta.status === "calculating") {
-    return "ETA calculating";
-  }
-
-  if (trip.eta.status === "stale") {
-    return "ETA unavailable · location stale";
-  }
-
-  if (trip.eta.status === "off-route") {
-    return "ETA unavailable · bus off route";
-  }
-
-  if (trip.eta.status === "unavailable") {
-    return "ETA unavailable";
-  }
-
-  const nextStop =
-    trip.eta.stops.find((stop) => !stop.actualArrival) ??
-    trip.eta.stops[0];
-
-  if (!nextStop) return "ETA unavailable";
-
-  const source =
-    trip.eta.source === "mapbox-traffic"
-      ? "traffic"
-      : "live GPS pace";
-
-  const freshness =
-    trip.eta.status === "aging"
-      ? " · location aging"
-      : "";
-
-  return `${nextStop.label} · ETA ${time(nextStop.etaAt)} · ${source}${freshness}`;
-}
-
-function stopEtaText(trip: BoardTrip, stopId: string) {
-  if (
-    trip.status !== "active" ||
-    !trip.eta ||
-    !["live", "aging"].includes(trip.eta.status)
-  ) {
-    return null;
-  }
-
-  const eta = trip.eta.stops.find((stop) => stop.stopId === stopId);
-
-  if (!eta || eta.actualArrival) return null;
-
-  return `ETA ${time(eta.etaAt)}`;
-}
-
-function trackingText(trip: BoardTrip, now: number) {
-  if (trip.status !== "active") {
-    if (trip.status === "planned") {
-      return Date.parse(trip.departureAt) < now
-        ? "Departure time passed · trip not started"
-        : "Tracking has not started";
-    }
-    return "No live tracking";
-  }
-  if (!trip.location) return "No live location yet";
-  const age = now - Date.parse(trip.location.observedAt);
-  if (age > 60_000 || age < -60_000) {
-    return `Location stale · last update ${time(trip.location.observedAt)}`;
-  }
-  return `Live location · updated ${time(trip.location.observedAt)}`;
-}
-
-function presenceAge(value: string, now: number) {
-  const ageMs = Math.max(0, now - Date.parse(value));
-  if (ageMs < 10_000) return "just now";
-  if (ageMs < 60_000) return `${Math.floor(ageMs / 1_000)} sec ago`;
-  const minutes = Math.floor(ageMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
-}
-
-function staffPresenceText(trip: BoardTrip, now: number) {
-  if (!trip.assignedStaff || !["planned", "active"].includes(trip.status)) return null;
-  if (!trip.staffLastSeenAt) return "Phone: NOT REPORTING · staff app not seen";
-  const age = now - Date.parse(trip.staffLastSeenAt);
-  if (age >= -5_000 && age <= 30_000) {
-    return `Phone: ONLINE · seen ${presenceAge(trip.staffLastSeenAt, now)}`;
-  }
-  return `Phone: NOT REPORTING · last seen ${presenceAge(trip.staffLastSeenAt, now)}`;
-}
-
-function staffPresenceClass(trip: BoardTrip, now: number) {
-  if (!trip.staffLastSeenAt) return "board-staff-presence-missing";
-  const age = now - Date.parse(trip.staffLastSeenAt);
-  return age >= -5_000 && age <= 30_000
-    ? "board-staff-presence-online"
-    : "board-staff-presence-missing";
-}
-
-function chooseTrip(trips: BoardTrip[], now: number) {
-  return [...trips].sort((a, b) => {
-    const rank = (trip: BoardTrip) => trip.status === "active" ? 0
-      : trip.status === "planned" && Date.parse(trip.departureAt) >= now ? 1
-      : trip.status === "planned" ? 2 : trip.status === "completed" ? 3 : 4;
-    return rank(a) - rank(b) ||
-      (rank(a) <= 1 ? Date.parse(a.departureAt) - Date.parse(b.departureAt)
-        : Date.parse(b.departureAt) - Date.parse(a.departureAt));
-  })[0];
-}
-
-async function readError(response: Response, fallback: string) {
-  const body: unknown = await response.json().catch(() => null);
-  return body && typeof body === "object" && "error" in body &&
-    typeof body.error === "string" ? body.error : fallback;
-}
-
-function StopLine({ trip, color }: { trip: BoardTrip; color: string }) {
-  return <ol className="board-stop-line" style={{ "--bus-color": color } as CSSProperties}>
-    {trip.stops.map((stop, index) => <li key={stop.id}
-      className={stop.departedAt || (index === trip.stops.length - 1 && stop.arrivedAt)
-        ? "board-stop-done" : ""}>
-      <span className="board-stop-dot" />
-      <span className="board-stop-label">{stop.label}</span>
-    </li>)}
-  </ol>;
-}
-
-export function DispatchPage() {
-  const [buses, setBuses] = useState<Bus[]>([]);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [trips, setTrips] = useState<BoardTrip[]>([]);
-  const [staff, setStaff] = useState<TripStaff[]>([]);
-  const [date, setDate] = useState(() => localDate(new Date()));
-  const [busQuery, setBusQuery] = useState("");
-  const [routeQuery, setRouteQuery] = useState("");
-  const [routeId, setRouteId] = useState("");
+export function PlanTripForm({ buses, routes, day, onPlanned }: {
+  buses: Bus[]; routes: Route[]; day: string; onPlanned: (trip: { busLabel: string; day: string }) => void;
+}) {
+  const today = localDate(new Date());
   const [busId, setBusId] = useState("");
-  const [departure, setDeparture] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [staffSaving, setStaffSaving] = useState(false);
-  const [staffId, setStaffId] = useState("");
-  const [actionPending, setActionPending] = useState(false);
+  const [routeId, setRouteId] = useState("");
+  const [date, setDate] = useState(day < today ? today : day);
+  const [clock, setClock] = useState("");
   const [error, setError] = useState("");
-  const [now, setNow] = useState(() => Date.now());
-  const [revision, setRevision] = useState(0);
-  const [liveStreamState, setLiveStreamState] = useState<"connecting" | "live" | "reconnecting">("connecting");
-  const [gpsAudit, setGpsAudit] = useState<DispatchGpsAuditEntry[]>([]);
-  const [gpsAuditError, setGpsAuditError] = useState("");
-  const [params, setParams] = useSearchParams();
-  const selectedTripId = params.get("trip");
-  const selectedTrip = trips.find((trip) => trip.id === selectedTripId);
+  const [saving, setSaving] = useState(false);
+  const activeBuses = buses.filter((bus) => bus.active);
+  const usableRoutes = routes.filter((route) => route.active && route.stops.length);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const source = new EventSource("/api/dispatch/live");
-    source.onopen = () => setLiveStreamState("live");
-    source.onerror = () => setLiveStreamState("reconnecting");
-
-    const receiveLocation = (event: MessageEvent<string>) => {
-      try {
-        const update = dispatchLocationUpdateSchema.parse(JSON.parse(event.data));
-        setTrips((current) => current.map((trip) =>
-          trip.id === update.tripId ? { ...trip, location: update.location } : trip
-        ));
-        setNow(Date.now());
-      } catch {
-        // Ignore malformed live events; the normal board refresh remains the fallback.
-      }
-    };
-
-    const receiveReady = () => setLiveStreamState("live");
-    source.addEventListener("ready", receiveReady);
-    source.addEventListener("location", receiveLocation as EventListener);
-    return () => {
-      source.removeEventListener("ready", receiveReady);
-      source.removeEventListener("location", receiveLocation as EventListener);
-      source.close();
-    };
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const bounds = dayBounds(date);
-    const url = `/api/dispatch/board?${new URLSearchParams(bounds)}`;
-    async function load() {
-      try {
-        const [busResponse, routeResponse, boardResponse, staffResponse] = await Promise.all([
-          fetch("/api/fleet/buses", { signal: controller.signal }),
-          fetch("/api/routes", { signal: controller.signal }),
-          fetch(url, { signal: controller.signal }),
-          fetch("/api/dispatch/staff", { signal: controller.signal })
-        ]);
-        if (!busResponse.ok || !routeResponse.ok || !boardResponse.ok || !staffResponse.ok) {
-          throw new Error("Could not load dispatch.");
-        }
-        const [busData, routeData, boardData, staffData] = await Promise.all([
-          busResponse.json(), routeResponse.json(), boardResponse.json(), staffResponse.json()
-        ]);
-        if (controller.signal.aborted) return;
-        setBuses(busesResponseSchema.parse(busData).buses);
-        setRoutes(routesResponseSchema.parse(routeData).routes);
-        setTrips(boardResponseSchema.parse(boardData).trips);
-        setStaff(dispatchStaffResponseSchema.parse(staffData).staff);
-        setError("");
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : "Could not load dispatch.");
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }
-    void load();
-    const timer = window.setInterval(() => void load(), 15_000);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [date, revision]);
-
-  useEffect(() => {
-    setStaffId(selectedTrip?.assignedStaff?.id ?? "");
-  }, [selectedTrip?.id, selectedTrip?.assignedStaff?.id]);
-
-  useEffect(() => {
-    if (!selectedTripId) {
-      setGpsAudit([]);
-      setGpsAuditError("");
-      return;
-    }
-
-    const controller = new AbortController();
-    async function loadGpsAudit() {
-      try {
-        const response = await fetch(`/api/dispatch/trips/${selectedTripId}/gps-audit`, {
-          signal: controller.signal
-        });
-        if (!response.ok) throw new Error("Could not load GPS capture log.");
-        const data = dispatchGpsAuditResponseSchema.parse(await response.json());
-        if (controller.signal.aborted) return;
-        setGpsAudit(data.entries);
-        setGpsAuditError("");
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setGpsAuditError(cause instanceof Error ? cause.message : "Could not load GPS capture log.");
-        }
-      }
-    }
-
-    void loadGpsAudit();
-    const timer = window.setInterval(() => void loadGpsAudit(), 5_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [selectedTripId]);
-
-  async function planTrip(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    const when = new Date(departure);
+    const when = new Date(`${date}T${clock}`);
     const parsed = createPlannedTripSchema.safeParse({
-      routeId, busId,
-      departureAt: departure && Number.isFinite(when.getTime()) ? when.toISOString() : ""
+      busId, routeId, departureAt: date && clock && Number.isFinite(when.getTime()) ? when.toISOString() : ""
     });
-    if (!parsed.success) {
-      setError("Select a route, bus and departure time.");
-      return;
-    }
+    if (!parsed.success) { setError("Select a bus, route and departure time."); return; }
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/dispatch/trips", {
-        method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed.data)
-      });
-      if (!response.ok) throw new Error(await readError(response, "Could not plan trip."));
-      const trip = plannedTripSchema.parse(await response.json());
-      setDate(localDate(new Date(trip.departureAt)));
-      setRevision((value) => value + 1);
-      setDeparture("");
+      await send("POST", "/api/dispatch/trips", parsed.data, "Could not plan trip.");
+      onPlanned({ busLabel: activeBuses.find((bus) => bus.id === busId)?.label ?? "the bus", day: date });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not plan trip.");
+      setError(message(cause, "Could not plan trip."));
     } finally {
       setSaving(false);
     }
   }
 
-  async function saveStaffAssignment(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedTrip || selectedTrip.status !== "planned" || staffSaving) return;
-    const parsed = assignTripStaffSchema.safeParse({ memberId: staffId || null });
-    if (!parsed.success) return;
+  return <form className="planf" onSubmit={(event) => void submit(event)} noValidate>
+    {!activeBuses.length && <p className="hint">Add a bus in Fleet first.</p>}
+    {!usableRoutes.length && <p className="hint">Add a route with stops in Fleet &rsaquo; Routes first.</p>}
+    <div className="ctl-row"><label htmlFor="plan-bus">Bus</label>
+      <select id="plan-bus" value={busId} onChange={(event) => setBusId(event.target.value)}>
+        <option value="">Choose a bus</option>
+        {activeBuses.map((bus) => <option key={bus.id} value={bus.id}>{bus.label}</option>)}
+      </select></div>
+    <div className="ctl-row"><label htmlFor="plan-route">Route</label>
+      <select id="plan-route" value={routeId} onChange={(event) => setRouteId(event.target.value)}>
+        <option value="">Choose a route</option>
+        {usableRoutes.map((route) => <option key={route.id} value={route.id}>
+          {route.name} · {route.servicePeriod} ({route.stops.length} stops)</option>)}
+      </select></div>
+    <div className="rf2">
+      <div className="ctl-row"><label htmlFor="plan-date">Date</label>
+        <input id="plan-date" type="date" value={date} min={today} onChange={(event) => setDate(event.target.value)} /></div>
+      <div className="ctl-row"><label htmlFor="plan-time">Departure time</label>
+        <input id="plan-time" type="time" value={clock} onChange={(event) => setClock(event.target.value)} /></div>
+    </div>
+    <ErrorNote text={error} />
+    <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Planning…" : "Plan trip"}</button>
+  </form>;
+}
 
-    setStaffSaving(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/dispatch/trips/${selectedTrip.id}/staff`, {
-        method: "PUT",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed.data)
-      });
-      if (!response.ok) {
-        throw new Error(await readError(response, "Could not save staff assignment."));
-      }
-      tripStaffAssignmentResponseSchema.parse(await response.json());
-      setRevision((value) => value + 1);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save staff assignment.");
-    } finally {
-      setStaffSaving(false);
-    }
+function DaySeg({ day, setDay }: { day: string; setDay: (day: string) => void }) {
+  const today = localDate(new Date());
+  return <Seg label="Day" value={day} onChange={setDay} items={[
+    [shiftDay(today, -1), "Yesterday"], [today, "Today"], [shiftDay(today, 1), "Tomorrow"]]} />;
+}
+
+function AdvCard({ row, trip, now, onOpen }: { row: BusRow; trip: BoardTrip; now: number; onOpen: () => void }) {
+  const phone = presence(trip, now);
+  const eta = etaText(trip);
+  return <button type="button" className={`bc${row.alerts.length ? " attn" : ""}`} style={{ "--c": row.color } as CSSProperties} onClick={onOpen}>
+    <div className="h"><strong>{row.bus.label}<span className="per">{trip.servicePeriod}</span></strong><TripPill status={trip.status} /></div>
+    <div className="rt2">{trip.routeName}</div>
+    <div className="tm"><span>{time(trip.departureAt)} · {trip.assignedStaff?.displayName ?? "Unassigned"}</span></div>
+    {row.alerts.length > 0 && <div className="ch"><AlertChips row={row} /></div>}
+    {phone && <p className={`pres ${phone.ok ? "ok" : "no"}`}>{phone.text}</p>}
+    {eta && <p className="tk"><b>{eta}</b></p>}
+    <StopMiniLine trip={trip} color={row.color} />
+  </button>;
+}
+
+function SimpleCard({ row, now, actions, onDetails }: {
+  row: BusRow; now: number; actions: TripActions; onDetails: () => void;
+}) {
+  const trip = row.trip!;
+  const state = plainState(row, now);
+  const index = trip.status === "active" ? currentStopIndex(trip) : -1;
+  const stop = index >= 0 ? trip.stops[index] : null;
+  const next = nextAction(trip);
+  const phone = presence(trip, now);
+  const actionLabel = next && {
+    start: `Start ${row.bus.label}`,
+    assign: "Assign a driver",
+    arrive: `${row.bus.label} reached ${stop?.label ?? ""}`,
+    depart: `${row.bus.label} left ${stop?.label ?? ""}`,
+    complete: "Finish trip"
+  }[next.kind];
+
+  return <div className="scard">
+    <h2><Dot tone="bad" />{row.bus.label}: {state.word}</h2>
+    {trip.status === "active"
+      ? <><p>{row.bus.label} is driving <b>{trip.routeName}</b>. It has reached {stopsDone(trip)} of {trip.stops.length} stops.</p>
+        {stop && <p>Next stop: <b>{stop.label}</b>.</p>}</>
+      : <p>{row.bus.label} is set for <b>{trip.routeName}</b>. It was due at {time(trip.departureAt)}.</p>}
+    {row.alerts.map((alert) => <p key={alert.short} className="bad">{
+      alert.kind === "gps" ? (row.latestGps ? `No GPS for ${ageShort(row.latestGps, now)}. Last seen ${time(row.latestGps)}.` : "No GPS has come in yet.")
+        : alert.kind === "late" ? `It has not started. ${alert.short}.`
+          : alert.kind === "due" ? "It is due to leave now." : "No driver is assigned."}</p>)}
+    {phone && !phone.ok && <p className="bad">Driver&rsquo;s phone is not connected.</p>}
+    {trip.assignedStaff && <p>Driver: <b>{trip.assignedStaff.displayName}</b>.</p>}
+    {next && actionLabel && (next.kind === "assign"
+      ? <button type="button" className="bigbtn" onClick={onDetails}>{actionLabel}</button>
+      : <button type="button" className="bigbtn" disabled={actions.busy} onClick={() =>
+        actions.request(trip, next.kind === "complete" ? "complete" : next.kind === "start" ? "start" : next.kind,
+          "stopId" in next ? next.stopId : undefined)}>{actionLabel}</button>)}
+    {(trip.status === "planned" || trip.status === "active") &&
+      <button type="button" className="bigbtn red slim" onClick={() => actions.request(trip, "cancel")}>Cancel trip</button>}
+    <button type="button" className="bigbtn out slim" onClick={onDetails}>See full details</button>
+    <ConfirmFor trip={trip} actions={actions} />
+  </div>;
+}
+
+function simpleRow(row: BusRow, now: number, open: (id: string) => void) {
+  const trip = row.trip;
+  const state = plainState(row, now);
+  const tone: Tone = state.tone;
+  if (!trip) return <SRow key={row.bus.id} tone=""><b>{row.bus.label}</b> has no trip today.</SRow>;
+  const onClick = () => open(trip.id);
+  if (trip.status === "active") return <SRow key={row.bus.id} tone={tone} onClick={onClick} small={etaText(trip) ?? ""}>
+    <b>{row.bus.label}</b> is running {trip.routeName}.</SRow>;
+  if (trip.status === "planned") return <SRow key={row.bus.id} tone={tone} onClick={onClick}
+    small={`${trip.routeName}, ${trip.assignedStaff?.displayName ?? "no driver yet"}`}>
+    <b>{row.bus.label}</b> leaves at {time(trip.departureAt)}.</SRow>;
+  if (trip.status === "cancelled") return <SRow key={row.bus.id} tone="bad" onClick={onClick} small={trip.routeName}>
+    <b>{row.bus.label}</b> was cancelled.</SRow>;
+  return <SRow key={row.bus.id} tone="" onClick={onClick}><b>{row.bus.label}</b> finished {trip.routeName}.</SRow>;
+}
+
+export function DispatchPage() {
+  const { mode, toast } = useOps();
+  const today = localDate(new Date());
+  const [chosenDay, setChosenDay] = useState(today);
+  const day = mode === "simple" ? today : chosenDay;
+  const board = useBoard(day, { routes: true, staff: true });
+  const now = useNow();
+  const actions = useTripActions(board.reload, toast);
+  const [params, setParams] = useSearchParams();
+  const [overlay, setOverlay] = useState<OverlayState>(null);
+  const [phoneView, setPhoneView] = useState<"board" | "map">("board");
+
+  const rows = useMemo(() => fleetRows(board.buses, board.trips, now)
+    .sort((a, b) => severityRank(a) - severityRank(b)), [board.buses, board.trips, now]);
+  const colorOf = useMemo(() => busColors(board.buses), [board.buses]);
+  const withTrips = rows.filter((row) => row.trip);
+
+  const paramTrip = params.get("trip");
+  const selected = rowForTrip(rows, paramTrip) ?? (withTrips[0] ? { row: withTrips[0], trip: withTrips[0].trip! } : null);
+
+  function select(id: string) {
+    setParams((current) => { const next = new URLSearchParams(current); next.set("trip", id); return next; }, { replace: true });
   }
-
-  async function recordAction(type: "start" | "arrive" | "depart" | "complete" | "cancel",
-    stopId?: string) {
-    if (!selectedTrip || actionPending) return;
-    if (type === "start" && !confirmEarlyStart(selectedTrip)) return;
-    const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}) });
-    if (!action.success) return;
-    setActionPending(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/dispatch/trips/${selectedTrip.id}/actions`, {
-        method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(action.data)
-      });
-      if (!response.ok) throw new Error(await readError(response, "Could not update trip."));
-      setRevision((value) => value + 1);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update trip.");
-    } finally {
-      setActionPending(false);
-    }
-  }
-
-  const visibleBuses = buses.filter((bus) => bus.active || trips.some((trip) => trip.busId === bus.id));
-  const filteredBuses = visibleBuses.filter((bus) => {
-    const busTrips = trips.filter((trip) => trip.busId === bus.id);
-    return bus.label.toLowerCase().includes(busQuery.trim().toLowerCase()) &&
-      (!routeQuery.trim() || busTrips.some((trip) =>
-        trip.routeName.toLowerCase().includes(routeQuery.trim().toLowerCase())));
-  });
-  const colorForBus = useCallback((id: string) => {
-    const index = visibleBuses.findIndex((bus) => bus.id === id);
-    return colors[(index < 0 ? 0 : index) % colors.length];
-  }, [buses, trips]);
-  const featured = filteredBuses.flatMap((bus) => {
-    const trip = chooseTrip(trips.filter((item) => item.busId === bus.id), now);
-    return trip ? [trip] : [];
-  });
-
   function openTrip(id: string) {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      next.set("trip", id);
-      return next;
-    });
-  }
-  function showAll() {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      next.delete("trip");
-      return next;
-    });
+    select(id);
+    if (mode !== "desktop") setOverlay({ type: "trip", id });
   }
 
-  const map = (shown: BoardTrip[]) => <Suspense fallback={<p>Loading map…</p>}>
-    <DispatchMap trips={shown} colorForBus={colorForBus} onSelect={openTrip} now={now} />
+  const counts = {
+    attention: rows.filter((row) => row.alerts.length).length,
+    running: rows.filter((row) => row.trip?.status === "active").length
+  };
+  const mapTrips = rows.flatMap((row) => row.trip && (row.trip.status === "active" || row.trip.status === "planned") ? [row.trip] : []);
+  if (selected && !mapTrips.some((trip) => trip.id === selected.trip.id)) mapTrips.push(selected.trip);
+
+  const detail = (id: string, withGps = true) => {
+    const found = rowForTrip(rows, id);
+    return found ? <TripDetail row={found.row} trip={found.trip} staff={board.staff} now={now} actions={actions}
+      editable onOpenTrip={openTrip} onChanged={board.reload} toast={toast} withGps={withGps} /> : <NoMatch>That trip is not on this day.</NoMatch>;
+  };
+
+  const overlayView = overlay && <Overlay onClose={() => setOverlay(null)}>
+    {overlay.type === "plan"
+      ? <><p className="eyebrow">DISPATCH</p><h2 className="dt">Plan a trip</h2>
+        <PlanTripForm buses={board.buses} routes={board.routes} day={day} onPlanned={(planned) => {
+          setOverlay(null);
+          toast(`Trip planned on ${planned.busLabel}.`);
+          if (mode !== "simple") setChosenDay(planned.day);
+          board.reload();
+        }} /></>
+      : detail(overlay.id)}
+  </Overlay>;
+
+  const map = <Suspense fallback={<div className="mapfill" />}>
+    <DispatchMap trips={mapTrips} colorForBus={colorOf} selectedTripId={selected?.trip.id ?? null}
+      onSelect={select} now={now} />
   </Suspense>;
 
+  const status = <>
+    <ErrorNote text={board.error} />
+    {board.loading && <p className="hint">Loading buses…</p>}
+  </>;
+
+  if (mode === "desktop") {
+    const groups: [string, (row: BusRow) => boolean][] = [
+      ["Needs attention", (row) => row.alerts.length > 0],
+      ["Running", (row) => !row.alerts.length && row.trip?.status === "active"],
+      ["Upcoming", (row) => !row.alerts.length && row.trip?.status === "planned"],
+      ["Finished", (row) => !row.alerts.length && (!row.trip || row.trip.status === "completed" || row.trip.status === "cancelled")]
+    ];
+    return <>
+      <Head eyebrow="DISPATCH" title="All buses" actions={<>
+        <LivePill state={board.live} />
+        <DaySeg day={day} setDay={setChosenDay} />
+        <input type="date" aria-label="Pick a day" className="daypick" value={day}
+          onChange={(event) => { if (event.target.value) setChosenDay(event.target.value); }} />
+        <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "plan" })}>Plan trip</button>
+      </>} />
+      {status}
+      <div className="room">
+        <div className="pane l">
+          {!board.loading && !rows.length && <NoMatch>No buses yet. Add one in Fleet.</NoMatch>}
+          {groups.map(([label, test]) => {
+            const members = rows.filter(test);
+            if (!members.length) return null;
+            return <div key={label}>
+              <div className="grp">{label} &middot; {members.length}</div>
+              {members.map((row) => {
+                const trip = row.trip;
+                return <button key={row.bus.id} type="button" disabled={!trip}
+                  className={`li2${trip && selected?.trip.id === trip.id ? " sel" : ""}`}
+                  style={{ "--c": row.color } as CSSProperties} onClick={() => trip && select(trip.id)}>
+                  <span className="bar" />
+                  <span><strong>{row.bus.label}</strong> <small>{trip ? routeWithPeriod(trip.routeName, trip.servicePeriod) : "No trip"}</small></span>
+                  {trip ? <TripPill status={trip.status} /> : <span />}
+                  <small style={{ gridColumn: "2/span 2" }}>{trip ? `${time(trip.departureAt)} · ${trackingText(trip, now)}` : ""}</small>
+                  {row.alerts.length > 0 && <span className="ch"><AlertChips row={row} /></span>}
+                </button>;
+              })}
+            </div>;
+          })}
+        </div>
+        <div className="pane c">
+          {map}
+          <div className="mapmsg">{selected ? `${selected.row.bus.label} selected. Click any route to switch.` : "Select a bus"}</div>
+        </div>
+        <div className="pane r">{selected ? detail(selected.trip.id) : <NoMatch>Select a bus.</NoMatch>}</div>
+      </div>
+      {overlayView}
+    </>;
+  }
+
+  if (mode === "adv") {
+    return <>
+      <Head eyebrow="DISPATCH" title="All buses"
+        sub={<>{dateLabel(day)} &middot; {counts.attention} need attention &middot; {counts.running} running</>}
+        actions={<><LivePill state={board.live} /><Plus label="Plan trip" onClick={() => setOverlay({ type: "plan" })} /></>} />
+      <DaySeg day={day} setDay={setChosenDay} />
+      <Seg label="View" value={phoneView} onChange={setPhoneView} items={[["board", "Board"], ["map", "Map"]]} />
+      {status}
+      {phoneView === "map" ? <>
+        <div className="mapbox">{map}</div>
+        {selected && <AdvCard row={selected.row} trip={selected.trip} now={now} onOpen={() => openTrip(selected.trip.id)} />}
+        <p className="hint">Tap a route on the map to switch bus.</p>
+      </> : <>
+        <div className="cards">{withTrips.map((row) =>
+          <AdvCard key={row.bus.id} row={row} trip={row.trip!} now={now} onOpen={() => openTrip(row.trip!.id)} />)}</div>
+        {!board.loading && !withTrips.length && <NoMatch>No trips on {dayName(day).toLowerCase()}.</NoMatch>}
+        {rows.length > withTrips.length && <p className="hint">{rows.length - withTrips.length} {plural(rows.length - withTrips.length, "bus has", "buses have")} no trip on this day.</p>}
+      </>}
+      {overlayView}
+    </>;
+  }
+
+  const need = rows.filter((row) => row.alerts.length && row.trip && (row.trip.status === "planned" || row.trip.status === "active" || gpsStale(row.trip, now)));
+  const rest = rows.filter((row) => !need.includes(row));
   return <>
-    <p className="eyebrow">OPERATIONS / DISPATCH</p>
-    {error && <p className="auth-error" role="alert">{error}</p>}
-    {liveStreamState !== "live" && (
-      <p className="board-live-warning" role="status">
-        {liveStreamState === "reconnecting"
-          ? "Live location connection interrupted · reconnecting. 15-second refresh is still active."
-          : "Starting live location connection · 15-second refresh is active."}
-      </p>
-    )}
-    {selectedTrip ? <>
-      <button className="board-back" type="button" onClick={showAll}>← Show all buses</button>
-      <div className="board-detail-head">
-        <div>
-          <h1>{selectedTrip.busLabel}</h1>
-          <p className="description">{selectedTrip.routeName} {
-            <span className="board-period">{selectedTrip.servicePeriod}</span>}</p>
-          <p>Scheduled departure: {dateTime(selectedTrip.departureAt)}</p>
-        </div>
-        <span className="board-status">{selectedTrip.status}</span>
-      </div>
-      <p className="board-tracking" role="status">{trackingText(selectedTrip, now)}</p>
-      {etaText(selectedTrip) && (
-        <p className="board-tracking" role="status">
-          <strong>{etaText(selectedTrip)}</strong>
-        </p>
-      )}
-      {selectedTrip.status === "planned" && (() => {
-        const timing = plannedTripTiming(selectedTrip.departureAt, now);
-        return timing ? <p className={`board-trip-alert board-trip-alert-${timing.kind}`} role="alert">
-          <strong>{timing.kind === "due" ? "DUE NOW" : "TRIP OVERDUE"}</strong>
-          <span>Scheduled {time(selectedTrip.departureAt)}{
-            timing.kind === "overdue" ? ` · ${timing.minutesLate} min late` : ""
-          }</span>
-        </p> : null;
-      })()}
-      {selectedTrip.status === "planned" ? <form className="board-staff-form"
-        onSubmit={(event) => void saveStaffAssignment(event)}>
-        <label htmlFor="dispatch-staff">Assigned staff</label>
-        <select id="dispatch-staff" value={staffId}
-          onChange={(event) => setStaffId(event.target.value)} disabled={staffSaving}>
-          <option value="">Unassigned</option>
-          {staff.map((person) => <option value={person.id} key={person.id}>
-            {person.displayName}
-          </option>)}
-        </select>
-        <button type="submit" disabled={staffSaving ||
-          staffId === (selectedTrip.assignedStaff?.id ?? "")}>
-          {staffSaving ? "Saving…" : "Save staff"}
-        </button>
-        {!selectedTrip.assignedStaff && <span>Assign staff before starting this trip.</span>}
-      </form> : <p className="board-assigned-staff">
-        Staff: <strong>{selectedTrip.assignedStaff?.displayName ?? "Not recorded"}</strong>
-      </p>}
-      {staffPresenceText(selectedTrip, now) && <p
-        className={`board-staff-presence ${staffPresenceClass(selectedTrip, now)}`}
-        role="status">
-        {staffPresenceText(selectedTrip, now)}
-      </p>}
-      <div className="board-trip-actions" aria-label="Trip controls">
-        {selectedTrip.status === "planned" && <>
-          <button type="button" disabled={actionPending || !selectedTrip.assignedStaff}
-            onClick={() => void recordAction("start")}>Start trip</button>
-          <button type="button" disabled={actionPending}
-            onClick={() => void recordAction("cancel")}>Cancel trip</button>
-        </>}
-        {selectedTrip.status === "active" && <>
-          <button type="button" disabled={actionPending}
-            onClick={() => void recordAction("cancel")}>Cancel trip</button>
-          <button type="button" disabled={actionPending ||
-            !selectedTrip.stops.at(-1)?.arrivedAt ||
-            selectedTrip.stops.slice(0, -1).some((stop) => !stop.departedAt)}
-            onClick={() => void recordAction("complete")}>Complete trip</button>
-        </>}
-      </div>
-      {trips.filter((trip) => trip.busId === selectedTrip.busId).length > 1 &&
-        <div className="board-other-trips">
-          <span>Other trips for {selectedTrip.busLabel}: </span>
-          {trips.filter((trip) => trip.busId === selectedTrip.busId && trip.id !== selectedTrip.id)
-            .map((trip) => <button key={trip.id} type="button" onClick={() => openTrip(trip.id)}>
-              {trip.routeName} · {time(trip.departureAt)}
-            </button>)}
-        </div>}
-      <section className="board-detail-timeline" aria-label="Stops in route order">
-        <StopLine trip={selectedTrip} color={colorForBus(selectedTrip.busId)} />
-      </section>
-      <section className="dispatch-card board-gps-audit" aria-label="GPS capture log">
-        <div className="board-gps-audit-head">
-          <div>
-            <h2>GPS capture log</h2>
-            <p>What Dispatch actually received from the staff phone. Newest first.</p>
-          </div>
-          <span>{gpsAudit.filter((entry) => entry.kind === "sample").length} captured</span>
-        </div>
-        {gpsAuditError && <p className="auth-error" role="alert">{gpsAuditError}</p>}
-        {!gpsAuditError && gpsAudit.length === 0 ? <p>No GPS captures yet.</p> :
-          <ol className="board-gps-audit-list">
-            {gpsAudit.map((entry) => entry.kind === "sample" ? <li key={entry.id}>
-              <time dateTime={entry.observedAt}>{new Date(entry.observedAt).toLocaleTimeString()}</time>
-              <strong>GPS CAPTURE</strong>
-              <span>±{Math.round(entry.accuracyM)} m</span>
-              <span>{entry.latitude.toFixed(6)}, {entry.longitude.toFixed(6)}</span>
-              <span>{entry.speedMps === null ? "speed —" : `${(entry.speedMps * 2.23694).toFixed(1)} mph`}</span>
-              <span className="board-gps-audit-received">server +{Math.max(0, Math.round((Date.parse(entry.receivedAt) - Date.parse(entry.observedAt)) / 1000))}s</span>
-            </li> : entry.kind === "journey" ? <li key={entry.id} className="board-gps-audit-journey">
-              <time dateTime={entry.occurredAt}>{new Date(entry.occurredAt).toLocaleTimeString()}</time>
-              <strong>{entry.action === "arrived_stop" ? "AUTO ARRIVED" : "AUTO DEPARTED"}</strong>
-              <span>{entry.stopLabel}</span>
-            </li> : entry.kind === "correction" ? <li key={entry.id} className="board-gps-audit-correction">
-              <time dateTime={entry.occurredAt}>{new Date(entry.occurredAt).toLocaleTimeString()}</time>
-              <strong>ARRIVAL UNDONE</strong>
-              <span>{entry.stopLabel}</span>
-            </li> : <li key={entry.id} className="board-gps-audit-gap">
-              <time dateTime={entry.resumedAt}>{new Date(entry.resumedAt).toLocaleTimeString()}</time>
-              <strong>GPS RESUMED</strong>
-              <span>No accepted captures for {entry.durationSeconds >= 60
-                ? `${Math.floor(entry.durationSeconds / 60)}m ${entry.durationSeconds % 60}s`
-                : `${entry.durationSeconds}s`}</span>
-            </li>)}
-          </ol>}
-      </section>
-      <div className="board-detail-grid">
-        <section className="dispatch-card board-timetable">
-          <h2>Stops</h2>
-          <p>Scheduled departure: {time(selectedTrip.departureAt)}</p>
-          <ol>{selectedTrip.stops.map((stop) => <li key={stop.id}>
-            <strong>{stop.position}. {stop.label}</strong>
-            <span>{stop.arrivedAt ? `Arrived ${time(stop.arrivedAt)}` : "Arrival not recorded"}</span>
-            {stopEtaText(selectedTrip, stop.id) && (
-              <span><strong>{stopEtaText(selectedTrip, stop.id)}</strong></span>
-            )}
-            <span>{stop.id === selectedTrip.stops.at(-1)?.id
-              ? "Final destination"
-              : stop.departedAt ? `Departed ${time(stop.departedAt)}` : "Departure not recorded"}</span>
-            {selectedTrip.status === "active" &&
-              selectedTrip.stops.find((item) => !item.departedAt)?.id === stop.id &&
-              (!stop.arrivedAt || stop.id !== selectedTrip.stops.at(-1)?.id) &&
-              <button type="button" disabled={actionPending}
-                onClick={() => void recordAction(stop.arrivedAt ? "depart" : "arrive", stop.id)}>
-                {stop.arrivedAt ? "Record departure" : "Record arrival"}
-              </button>}
-          </li>)}</ol>
-        </section>
-        <section className="dispatch-card board-map-panel">
-          <h2>Route stops</h2>
-          <p>Numbered pins are stops. A bus marker appears only with a recent GPS update.</p>
-          {map([selectedTrip])}
-        </section>
-      </div>
-    </> : <>
-      {selectedTripId && <p role="status">That trip is not shown for this date. <button
-        type="button" onClick={showAll}>Show all buses</button></p>}
-      <h1>All buses</h1>
-      <p className="description">Today's bus trips in one view.</p>
-      <div className="board-filters">
-        <label htmlFor="board-date">Day<input id="board-date" type="date" value={date}
-          onChange={(event) => { if (event.target.value) setDate(event.target.value); }} /></label>
-        <label htmlFor="board-bus-search">Bus<input id="board-bus-search" type="search"
-          value={busQuery} onChange={(event) => setBusQuery(event.target.value)}
-          placeholder="Find a bus" /></label>
-        <label htmlFor="board-route-search">Route<input id="board-route-search" type="search"
-          value={routeQuery} onChange={(event) => setRouteQuery(event.target.value)}
-          placeholder="Find a route" /></label>
-      </div>
-      {loading ? <p>Loading buses…</p> : filteredBuses.length === 0 ?
-        <p>{visibleBuses.length ? "No buses match those filters." :
-          <>No buses added. <Link to="/fleet">Add a bus in Fleet</Link>.</>}</p> :
-        <div className="board-bus-grid">{filteredBuses.map((bus) => {
-          const dailyTrips = trips.filter((trip) => trip.busId === bus.id);
-          const trip = chooseTrip(dailyTrips, now);
-          const color = colorForBus(bus.id);
-          return trip ? <button type="button" className="board-bus-card" key={bus.id}
-            style={{ "--bus-color": color } as CSSProperties}
-            onClick={() => openTrip(trip.id)}>
-            <span className="board-card-head"><strong>{bus.label}</strong>
-              <span className="board-period">{trip.servicePeriod}</span></span>
-            <span className="board-card-route">{trip.routeName}</span>
-            <span className="board-card-time">{time(trip.departureAt)} · {trip.status}</span>
-            <span className="board-card-staff">Staff: {trip.assignedStaff?.displayName ?? "Unassigned"}</span>
-            {trip.status === "planned" && (() => {
-              const timing = plannedTripTiming(trip.departureAt, now);
-              return timing ? <span className={`board-card-alert board-card-alert-${timing.kind}`}>
-                {timing.kind === "due"
-                  ? "DUE NOW"
-                  : `TRIP OVERDUE · ${timing.minutesLate} min late`}
-              </span> : null;
-            })()}
-            {staffPresenceText(trip, now) && <span
-              className={`board-staff-presence ${staffPresenceClass(trip, now)}`}>
-              {staffPresenceText(trip, now)}
-            </span>}
-            <span className="board-card-tracking">{trackingText(trip, now)}</span>
-            {etaText(trip) && (
-              <span className="board-card-tracking">
-                <strong>{etaText(trip)}</strong>
-              </span>
-            )}
-            <span className="board-mini-line" aria-label={`${trip.stops.length} stops`}>
-              {trip.stops.map((stop) => <span key={stop.id} title={stop.label} />)}
-            </span>
-            {dailyTrips.length > 1 && <small>{dailyTrips.length} trips on this day</small>}
-          </button> : <div className="board-bus-card board-bus-empty" key={bus.id}
-            style={{ "--bus-color": color } as CSSProperties}>
-            <span className="board-card-head"><strong>{bus.label}</strong></span>
-            <p>No trip scheduled for this day.</p>
-          </div>;
-        })}</div>}
-      <section className="dispatch-card board-overview-map">
-        <h2>Shared map</h2>
-        <p>Numbered pins show stops in each bus's color. Only fresh GPS appears as a bus marker.</p>
-        {featured.length ? map(featured) : <p>No trips to show on this map.</p>}
-      </section>
-    </>}
-    <details className="dispatch-card board-plan">
-      <summary>Plan another trip</summary>
-      {buses.every((bus) => !bus.active) && <p>Add a bus in <Link to="/fleet">Fleet</Link> first.</p>}
-      {routes.every((route) => !route.active || !route.stops.length) &&
-        <p>Add a route in <Link to="/routes">Routes</Link> first.</p>}
-      <form className="dispatch-form" onSubmit={(event) => void planTrip(event)}>
-        <label htmlFor="dispatch-bus">Bus</label>
-        <select id="dispatch-bus" value={busId} onChange={(event) => setBusId(event.target.value)}
-          required disabled={saving}>
-          <option value="">Choose a bus</option>
-          {buses.filter((bus) => bus.active).map((bus) =>
-            <option value={bus.id} key={bus.id}>{bus.label}</option>)}
-        </select>
-        <label htmlFor="dispatch-route">Route</label>
-        <select id="dispatch-route" value={routeId}
-          onChange={(event) => setRouteId(event.target.value)} required disabled={saving}>
-          <option value="">Choose a route</option>
-          {routes.filter((route) => route.active && route.stops.length).map((route) =>
-            <option value={route.id} key={route.id}>{route.name} · {route.servicePeriod} ({route.stops.length} stops)</option>)}
-        </select>
-        <label htmlFor="dispatch-departure">Departure date and time</label>
-        <input id="dispatch-departure" type="datetime-local" value={departure}
-          onChange={(event) => setDeparture(event.target.value)} required disabled={saving} />
-        <button className="auth-button" disabled={saving || loading ||
-          !buses.some((bus) => bus.active) || !routes.some((route) => route.active && route.stops.length)}>
-          {saving ? "Planning…" : "Plan trip"}
-        </button>
-      </form>
-    </details>
+    <h1 className="sh1">What needs me</h1>
+    {status}
+    {need.length
+      ? <p className="sline bad">{need.length} {plural(need.length, "thing needs you.", "things need you.")}</p>
+      : !board.loading && <p className="sline ok">Nothing needs you right now. Every bus is fine.</p>}
+    {need.map((row) => <SimpleCard key={row.bus.id} row={row} now={now} actions={actions}
+      onDetails={() => openTrip(row.trip!.id)} />)}
+    {rest.length > 0 && <><h2 className="sh2">Everything else</h2>
+      <div className="sl">{rest.map((row) => simpleRow(row, now, openTrip))}</div></>}
+    <div className="pin"><button type="button" className="bigbtn" onClick={() => setOverlay({ type: "plan" })}>Add a trip</button></div>
+    {overlayView}
   </>;
 }

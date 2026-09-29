@@ -1,26 +1,20 @@
 import { lazy, Suspense, useState, type FormEvent } from "react";
-import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-router";
+import { Navigate, Outlet, Route, Routes } from "react-router";
 import { useAuth } from "./auth/AuthProvider";
 import { FleetPage } from "./fleet/FleetPage";
-import { FamiliesPage } from "./families/FamiliesPage";
 import { DispatchPage } from "./dispatch/DispatchPage";
-import { MembersPage } from "./members/MembersPage";
 import { StaffTripPage } from "./staff/StaffTripPage";
 import { FamilyPortalPage } from "./families/FamilyPortalPage";
-import { TransitPage } from "./transit/TransitPage";
-
+import { OpsShell } from "./ops/OpsShell";
+const MembersPage = lazy(async () => ({ default: (await import("./members/MembersPage")).MembersPage }));
+const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
+const CheckPage = lazy(async () => ({ default: (await import("./check/CheckPage")).CheckPage }));
+const MyBusPage = lazy(async () => ({ default: (await import("./mybus/MyBusPage")).MyBusPage }));
+const TransitPage = lazy(async () => ({ default: (await import("./transit/TransitPage")).TransitPage }));
 const RoutesPage = lazy(async () => {
   const module = await import("./routes/RoutesPage");
   return { default: module.RoutesPage };
 });
-
-const pages = [
-  { path: "/", label: "Dispatch", mark: "D" },
-  { path: "/fleet", label: "Fleet", mark: "F" },
-  { path: "/members", label: "Members", mark: "M", adminOnly: true },
-  { path: "/families", label: "Riders", mark: "R", adminOnly: true },
-  { path: "/transit", label: "Transit", mark: "T" }
-];
 
 function AuthScreen({
   title,
@@ -55,6 +49,7 @@ function Login() {
     event.preventDefault();
     setError("");
     setBusy(true);
+
     try {
       await login(identity, password);
     } catch (cause) {
@@ -65,7 +60,10 @@ function Login() {
   }
 
   return (
-    <AuthScreen title="Sign in" description="Enter your Bussin username or email.">
+    <AuthScreen
+      title="Sign in"
+      description="Enter your Bussin username or email."
+    >
       <form className="auth-form" onSubmit={submit}>
         <label htmlFor="login-identity">Username or email</label>
         <input
@@ -75,6 +73,7 @@ function Login() {
           value={identity}
           onChange={(event) => setIdentity(event.target.value)}
         />
+
         <label htmlFor="login-password">Password</label>
         <input
           id="login-password"
@@ -84,6 +83,7 @@ function Login() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
+
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="auth-button" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
@@ -104,6 +104,7 @@ function ChangePassword() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+
     if (newPassword !== confirmation) {
       setError("New passwords do not match.");
       return;
@@ -120,7 +121,10 @@ function ChangePassword() {
   }
 
   return (
-    <AuthScreen title="Set your password" description="Change the starter password before using Bussin.">
+    <AuthScreen
+      title="Set your password"
+      description="Change the starter password before using Bussin."
+    >
       <form className="auth-form" onSubmit={submit}>
         <label htmlFor="current-password">Current password</label>
         <input
@@ -131,6 +135,7 @@ function ChangePassword() {
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
         />
+
         <label htmlFor="new-password">New password</label>
         <input
           id="new-password"
@@ -141,6 +146,7 @@ function ChangePassword() {
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
         />
+
         <label htmlFor="confirm-password">Confirm new password</label>
         <input
           id="confirm-password"
@@ -150,6 +156,7 @@ function ChangePassword() {
           value={confirmation}
           onChange={(event) => setConfirmation(event.target.value)}
         />
+
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="auth-button" disabled={busy}>
           {busy ? "Saving…" : "Change password"}
@@ -168,7 +175,9 @@ function AuthGate() {
   if (loadError) {
     return (
       <AuthScreen title="Connection unavailable" description={loadError}>
-        <button className="auth-button" onClick={() => location.reload()}>Retry</button>
+        <button className="auth-button" onClick={() => location.reload()}>
+          Retry
+        </button>
       </AuthScreen>
     );
   }
@@ -184,8 +193,13 @@ function AuthGate() {
     return <Outlet />;
   }
 
-  if (member.roles.includes("staff")) return <StaffTripPage />;
-  if (member.roles.includes("family")) return <FamilyPortalPage />;
+  if (member.roles.includes("staff")) {
+    return <StaffTripPage />;
+  }
+
+  if (member.roles.includes("family")) {
+    return <FamilyPortalPage />;
+  }
 
   return (
     <AuthScreen
@@ -211,60 +225,11 @@ function SignOut() {
 
   return (
     <>
-      <button className="auth-text-button" onClick={() => void signOut()}>Sign out</button>
+      <button className="auth-text-button" onClick={() => void signOut()}>
+        Sign out
+      </button>
       {error && <span role="alert">{error}</span>}
     </>
-  );
-}
-
-function AppShell() {
-  const { member, tenant } = useAuth();
-  const location = useLocation();
-  const visiblePages = pages.filter((page) => !page.adminOnly || member?.roles.includes("admin"));
-  const currentPage = visiblePages.find((page) =>
-    page.path === "/" ? location.pathname === "/" : location.pathname.startsWith(page.path)
-  ) ?? visiblePages[0];
-
-  const nav = (
-    <>
-      {visiblePages.map((page) => (
-        <NavLink
-          key={page.path}
-          to={page.path}
-          end={page.path === "/"}
-          className={({ isActive }) => `rail-link${isActive ? " rail-link-active" : ""}`}
-          aria-label={page.label}
-          title={page.label}
-        >
-          <span aria-hidden="true">{page.mark}</span>
-          <small>{page.label}</small>
-        </NavLink>
-      ))}
-    </>
-  );
-
-  return (
-    <div className="app bussin-shell">
-      <aside className="rail">
-        <NavLink className="brand" to="/" aria-label="Bussin home">B</NavLink>
-        <nav aria-label="Main navigation">{nav}</nav>
-      </aside>
-
-      <div className="workspace">
-        <header className="topbar">
-          <span className="topbar-path">OPERATIONS / {currentPage.label.toUpperCase()}</span>
-          <div className="topbar-actions">
-            <span>{tenant?.name ?? "Bussin"}</span>
-            <SignOut />
-          </div>
-        </header>
-        <main className="content">
-          <Outlet />
-        </main>
-      </div>
-
-      <nav className="mobile-tabs" aria-label="Main navigation">{nav}</nav>
-    </div>
   );
 }
 
@@ -277,15 +242,15 @@ export function App() {
   return (
     <Routes>
       <Route element={<AuthGate />}>
-        <Route element={<AppShell />}>
+        <Route element={<OpsShell />}>
           <Route index element={<DispatchPage />} />
+          <Route path="check" element={<CheckPage />} />
+          <Route path="mybus" element={<MyBusPage />} />
           <Route path="fleet" element={<FleetPage />} />
-          <Route
-            path="routes"
-            element={<Suspense fallback={<p>Loading routes…</p>}><RoutesPage /></Suspense>}
-          />
+          <Route path="routes" element={<Suspense fallback={<p className="hint">Loading routes…</p>}><RoutesPage /></Suspense>} />
           <Route path="members" element={<AdminOnly><MembersPage /></AdminOnly>} />
           <Route path="families" element={<AdminOnly><FamiliesPage /></AdminOnly>} />
+          <Route path="riders" element={<Navigate to="/families" replace />} />
           <Route path="transit" element={<TransitPage />} />
         </Route>
       </Route>

@@ -8,6 +8,7 @@ import { dispatchRoutes } from "./dispatch/routes.js";
 import { familyRoutes } from "./families/routes.js";
 import { memberRoutes } from "./members/routes.js";
 import { staffRoutes } from "./staff/routes.js";
+import { checkRoutes } from "./check/routes.js";
 import { readTenant } from "./db/tenant.js";
 
 const tenant = await readTenant();
@@ -23,6 +24,7 @@ app.use("/api/dispatch", dispatchRoutes);
 app.use("/api/families", familyRoutes);
 app.use("/api/members", memberRoutes);
 app.use("/api/staff", staffRoutes);
+app.use("/api/check", checkRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });
