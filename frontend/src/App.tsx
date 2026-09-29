@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, type FormEvent } from "react";
-import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
+import { Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-router";
 import { useAuth } from "./auth/AuthProvider";
 import { FleetPage } from "./fleet/FleetPage";
 import { FamiliesPage } from "./families/FamiliesPage";
@@ -7,6 +7,8 @@ import { DispatchPage } from "./dispatch/DispatchPage";
 import { MembersPage } from "./members/MembersPage";
 import { StaffTripPage } from "./staff/StaffTripPage";
 import { FamilyPortalPage } from "./families/FamilyPortalPage";
+import { TransitPage } from "./transit/TransitPage";
+
 const RoutesPage = lazy(async () => {
   const module = await import("./routes/RoutesPage");
   return { default: module.RoutesPage };
@@ -16,7 +18,7 @@ const pages = [
   { path: "/", label: "Dispatch", mark: "D" },
   { path: "/fleet", label: "Fleet", mark: "F" },
   { path: "/members", label: "Members", mark: "M", adminOnly: true },
-  { path: "/families", label: "Riders and guardians", mark: "R", adminOnly: true },
+  { path: "/families", label: "Riders", mark: "R", adminOnly: true },
   { path: "/transit", label: "Transit", mark: "T" }
 ];
 
@@ -53,7 +55,6 @@ function Login() {
     event.preventDefault();
     setError("");
     setBusy(true);
-
     try {
       await login(identity, password);
     } catch (cause) {
@@ -64,10 +65,7 @@ function Login() {
   }
 
   return (
-    <AuthScreen
-      title="Sign in"
-      description="Enter your Bussin username or email."
-    >
+    <AuthScreen title="Sign in" description="Enter your Bussin username or email.">
       <form className="auth-form" onSubmit={submit}>
         <label htmlFor="login-identity">Username or email</label>
         <input
@@ -77,7 +75,6 @@ function Login() {
           value={identity}
           onChange={(event) => setIdentity(event.target.value)}
         />
-
         <label htmlFor="login-password">Password</label>
         <input
           id="login-password"
@@ -87,7 +84,6 @@ function Login() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="auth-button" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
@@ -108,7 +104,6 @@ function ChangePassword() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-
     if (newPassword !== confirmation) {
       setError("New passwords do not match.");
       return;
@@ -125,10 +120,7 @@ function ChangePassword() {
   }
 
   return (
-    <AuthScreen
-      title="Set your password"
-      description="Change the starter password before using Bussin."
-    >
+    <AuthScreen title="Set your password" description="Change the starter password before using Bussin.">
       <form className="auth-form" onSubmit={submit}>
         <label htmlFor="current-password">Current password</label>
         <input
@@ -139,7 +131,6 @@ function ChangePassword() {
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
         />
-
         <label htmlFor="new-password">New password</label>
         <input
           id="new-password"
@@ -150,7 +141,6 @@ function ChangePassword() {
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
         />
-
         <label htmlFor="confirm-password">Confirm new password</label>
         <input
           id="confirm-password"
@@ -160,7 +150,6 @@ function ChangePassword() {
           value={confirmation}
           onChange={(event) => setConfirmation(event.target.value)}
         />
-
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="auth-button" disabled={busy}>
           {busy ? "Saving…" : "Change password"}
@@ -179,9 +168,7 @@ function AuthGate() {
   if (loadError) {
     return (
       <AuthScreen title="Connection unavailable" description={loadError}>
-        <button className="auth-button" onClick={() => location.reload()}>
-          Retry
-        </button>
+        <button className="auth-button" onClick={() => location.reload()}>Retry</button>
       </AuthScreen>
     );
   }
@@ -197,13 +184,8 @@ function AuthGate() {
     return <Outlet />;
   }
 
-  if (member.roles.includes("staff")) {
-    return <StaffTripPage />;
-  }
-
-  if (member.roles.includes("family")) {
-    return <FamilyPortalPage />;
-  }
+  if (member.roles.includes("staff")) return <StaffTripPage />;
+  if (member.roles.includes("family")) return <FamilyPortalPage />;
 
   return (
     <AuthScreen
@@ -229,9 +211,7 @@ function SignOut() {
 
   return (
     <>
-      <button className="auth-text-button" onClick={() => void signOut()}>
-        Sign out
-      </button>
+      <button className="auth-text-button" onClick={() => void signOut()}>Sign out</button>
       {error && <span role="alert">{error}</span>}
     </>
   );
@@ -239,31 +219,40 @@ function SignOut() {
 
 function AppShell() {
   const { member, tenant } = useAuth();
+  const location = useLocation();
+  const visiblePages = pages.filter((page) => !page.adminOnly || member?.roles.includes("admin"));
+  const currentPage = visiblePages.find((page) =>
+    page.path === "/" ? location.pathname === "/" : location.pathname.startsWith(page.path)
+  ) ?? visiblePages[0];
+
+  const nav = (
+    <>
+      {visiblePages.map((page) => (
+        <NavLink
+          key={page.path}
+          to={page.path}
+          end={page.path === "/"}
+          className={({ isActive }) => `rail-link${isActive ? " rail-link-active" : ""}`}
+          aria-label={page.label}
+          title={page.label}
+        >
+          <span aria-hidden="true">{page.mark}</span>
+          <small>{page.label}</small>
+        </NavLink>
+      ))}
+    </>
+  );
+
   return (
-    <div className="app">
+    <div className="app bussin-shell">
       <aside className="rail">
-        <div className="brand" aria-label="Bussin">B</div>
-        <nav aria-label="Main navigation">
-          {pages.filter((page) => !page.adminOnly || member?.roles.includes("admin")).map((page) => (
-            <NavLink
-              key={page.path}
-              to={page.path}
-              end={page.path === "/"}
-              className={({ isActive }) =>
-                `rail-link${isActive ? " rail-link-active" : ""}`
-              }
-              aria-label={page.label}
-              title={page.label}
-            >
-              {page.mark}
-            </NavLink>
-          ))}
-        </nav>
+        <NavLink className="brand" to="/" aria-label="Bussin home">B</NavLink>
+        <nav aria-label="Main navigation">{nav}</nav>
       </aside>
 
       <div className="workspace">
         <header className="topbar">
-          <span>BUSSIN / OPERATIONS</span>
+          <span className="topbar-path">OPERATIONS / {currentPage.label.toUpperCase()}</span>
           <div className="topbar-actions">
             <span>{tenant?.name ?? "Bussin"}</span>
             <SignOut />
@@ -273,6 +262,8 @@ function AppShell() {
           <Outlet />
         </main>
       </div>
+
+      <nav className="mobile-tabs" aria-label="Main navigation">{nav}</nav>
     </div>
   );
 }
@@ -282,21 +273,6 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
   return member?.roles.includes("admin") ? <>{children}</> : <Navigate to="/" replace />;
 }
 
-function Page({ title, description }: { title: string; description: string }) {
-  return (
-    <>
-      <p className="eyebrow">OPERATIONS</p>
-      <h1>{title}</h1>
-      <p className="description">{description}</p>
-      <section className="empty-state">
-        <span className="empty-mark" aria-hidden="true">○</span>
-        <h2>No data yet</h2>
-        <p>This page will show information from the new Bussin system.</p>
-      </section>
-    </>
-  );
-}
-
 export function App() {
   return (
     <Routes>
@@ -304,10 +280,13 @@ export function App() {
         <Route element={<AppShell />}>
           <Route index element={<DispatchPage />} />
           <Route path="fleet" element={<FleetPage />} />
-          <Route path="routes" element={<Suspense fallback={<p>Loading routes…</p>}><RoutesPage /></Suspense>} />
+          <Route
+            path="routes"
+            element={<Suspense fallback={<p>Loading routes…</p>}><RoutesPage /></Suspense>}
+          />
           <Route path="members" element={<AdminOnly><MembersPage /></AdminOnly>} />
           <Route path="families" element={<AdminOnly><FamiliesPage /></AdminOnly>} />
-          <Route path="transit" element={<Page title="Transit" description="See each trip and every recorded event." />} />
+          <Route path="transit" element={<TransitPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

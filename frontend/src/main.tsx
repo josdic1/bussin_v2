@@ -5,9 +5,9 @@ import { App } from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
 import "./styles.css";
 import "./fleet-v2.css";
+import "./final-ui.css";
 
 const root = document.getElementById("root");
-
 if (!root) throw new Error("Missing root element");
 
 createRoot(root).render(
