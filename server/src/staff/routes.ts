@@ -6,10 +6,10 @@ import {
   tripActionResponseSchema,
   tripActionSchema
 } from "@bussin/shared";
-import { requireRole, requireSameOrigin } from "../auth/guard.js";
-import { readSession } from "../auth/sessions.js";
+import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { applyTripAction } from "../trips/actions.js";
+import { openStream } from "../sse.js";
 import { subscribeToStaffTrips } from "./live.js";
 import { applyJourneyFromGps } from "./journey.js";
 import {
@@ -37,65 +37,30 @@ type StaffTripRow = {
   departureNote: string | null;
 };
 
-function sessionToken(cookieHeader: string | undefined): string | undefined {
-  return cookieHeader?.split(/;\s*/)
-    .find((part) => part.startsWith("bussin_session="))
-    ?.slice("bussin_session=".length);
-}
+staffRoutes.get("/live", requireRole("staff"), async (_request, response) => {
+  const member = currentMember(response);
+  const stream = openStream(response);
 
-staffRoutes.get("/live", requireRole("staff"), async (request, response) => {
-  const member = await readSession(sessionToken(request.headers.cookie));
-  if (!member) {
-    response.status(401).json({ error: "Session expired." });
-    return;
-  }
-
-  response.set({
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive"
-  });
-  response.flushHeaders();
-
-  let closed = false;
+  // Trip, stop-event and assignment triggers publish the affected member id.
+  // Only real changes reach the phone; it reconciles on its own every 30s.
   const unsubscribe = await subscribeToStaffTrips((payload) => {
-    if (closed || response.writableEnded) return;
     try {
       const event = JSON.parse(payload) as { memberId?: unknown };
-      if (event.memberId === member.id) {
-        response.write("event: trip\ndata: {}\n\n");
-      }
+      if (event.memberId === member.id) stream.send("trip", "{}");
     } catch {
       // Ignore malformed database notifications.
     }
   });
-
-  response.write("event: ready\ndata: {}\n\n");
-  const reconciliation = setInterval(() => {
-    if (!closed && !response.writableEnded) {
-      response.write("event: sync\ndata: {}\n\n");
-    }
-  }, 5_000);
-  reconciliation.unref();
-
-  response.on("close", () => {
-    closed = true;
-    clearInterval(reconciliation);
-    unsubscribe();
-  });
+  stream.onClose(unsubscribe);
+  stream.send("ready", "{}");
 });
 
 staffRoutes.post(
   "/presence",
   requireSameOrigin,
   requireRole("staff"),
-  async (request, response) => {
-    const member = await readSession(sessionToken(request.headers.cookie));
-    if (!member) {
-      response.status(401).json({ error: "Session expired." });
-      return;
-    }
-
+  async (_request, response) => {
+    const member = currentMember(response);
     await pool.query(
       `INSERT INTO staff_presence (member_id, last_seen_at)
        VALUES ($1, now())
@@ -108,12 +73,8 @@ staffRoutes.post(
   }
 );
 
-staffRoutes.get("/trip", requireRole("staff"), async (request, response) => {
-  const member = await readSession(sessionToken(request.headers.cookie));
-  if (!member) {
-    response.status(401).json({ error: "Session expired." });
-    return;
-  }
+staffRoutes.get("/trip", requireRole("staff"), async (_request, response) => {
+  const member = currentMember(response);
 
   const result = await pool.query<StaffTripRow>(
     `SELECT t.id,
@@ -225,11 +186,7 @@ staffRoutes.post(
       return;
     }
 
-    const member = await readSession(sessionToken(request.headers.cookie));
-    if (!member) {
-      response.status(401).json({ error: "Session expired." });
-      return;
-    }
+    const member = currentMember(response);
 
     const assignment = await pool.query<{ tripId: string }>(
       `SELECT a.trip_id AS "tripId"
@@ -294,39 +251,42 @@ staffRoutes.post(
       return;
     }
 
-    const member = await readSession(sessionToken(request.headers.cookie));
-    if (!member) {
-      response.status(401).json({ error: "Session expired." });
-      return;
-    }
+    const member = currentMember(response);
 
-    const assignment = await pool.query<{ tripId: string }>(
-      `SELECT a.trip_id AS "tripId"
-         FROM staff_assignments a
-         JOIN trips t ON t.id = a.trip_id
-        WHERE a.member_id = $1
-          AND a.trip_id = $2
-          AND a.ended_at IS NULL
-          AND t.status = 'active'
-        LIMIT 1`,
-      [member.id, input.data.tripId]
+    // One round trip: confirms the assignment, detects a duplicate sample, and
+    // records presence (an uploading phone is by definition reporting).
+    const check = await pool.query<{ assigned: boolean; duplicate: boolean }>(
+      `WITH presence AS (
+         INSERT INTO staff_presence (member_id, last_seen_at)
+         VALUES ($1, now())
+         ON CONFLICT (member_id) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+         RETURNING 1
+       )
+       SELECT EXISTS (
+                SELECT 1
+                  FROM staff_assignments a
+                  JOIN trips t ON t.id = a.trip_id
+                 WHERE a.member_id = $1
+                   AND a.trip_id = $2
+                   AND a.ended_at IS NULL
+                   AND t.status = 'active'
+              ) AS assigned,
+              EXISTS (
+                SELECT 1
+                  FROM trip_location_samples
+                 WHERE trip_id = $2
+                   AND (client_sample_id = $3 OR observed_at = $4::timestamptz)
+              ) AS duplicate,
+              (SELECT count(*) FROM presence) AS touched`,
+      [member.id, input.data.tripId, input.data.clientSampleId, input.data.observedAt]
     );
 
-    if (!assignment.rowCount) {
+    if (!check.rows[0]?.assigned) {
       response.status(409).json({ error: "This active trip is no longer assigned to you." });
       return;
     }
 
-    const duplicate = await pool.query(
-      `SELECT 1
-         FROM trip_location_samples
-        WHERE trip_id = $1
-          AND (client_sample_id = $2 OR observed_at = $3::timestamptz)
-        LIMIT 1`,
-      [assignment.rows[0].tripId, input.data.clientSampleId, input.data.observedAt]
-    );
-
-    if (duplicate.rowCount) {
+    if (check.rows[0].duplicate) {
       response.status(200).json(staffLocationSampleResponseSchema.parse({
         accepted: false,
         reason: "duplicate"
@@ -350,7 +310,7 @@ staffRoutes.post(
            latitude, longitude, accuracy_m, speed_mps, heading_degrees
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
-          assignment.rows[0].tripId,
+          input.data.tripId,
           member.id,
           input.data.clientSampleId,
           input.data.observedAt,
@@ -398,7 +358,7 @@ staffRoutes.post(
     try {
       await journeyClient.query("BEGIN");
       journeyResult = await applyJourneyFromGps(journeyClient, {
-        tripId: assignment.rows[0].tripId,
+        tripId: input.data.tripId,
         actorId: member.id
       });
       await journeyClient.query("COMMIT");

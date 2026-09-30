@@ -2,14 +2,15 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef } from "react";
 import {
+  LngLatBounds,
   Map as MapLibreMap,
   Marker,
   NavigationControl,
   Popup,
-  setWorkerUrl,
-  type StyleSpecification
+  setWorkerUrl
 } from "maplibre-gl";
 import type { Coordinate } from "@bussin/shared";
+import { mapStyle } from "./basemap";
 
 setWorkerUrl(workerUrl);
 
@@ -23,19 +24,6 @@ type Props = {
   onMove: (index: number, coordinate: Coordinate) => void;
 };
 
-const localStyle: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors"
-    }
-  },
-  layers: [{ id: "osm", type: "raster", source: "osm" }]
-};
-
 export function StopPickerMap({ stops, focus, onFocusMove, onPick, onMove }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
@@ -43,7 +31,8 @@ export function StopPickerMap({ stops, focus, onFocusMove, onPick, onMove }: Pro
   const handlers = useRef({ onFocusMove, onPick, onMove });
   handlers.current = { onFocusMove, onPick, onMove };
 
-  const style = import.meta.env.VITE_MAP_STYLE_URL || localStyle;
+  const fitted = useRef(false);
+  const style = mapStyle;
 
   useEffect(() => {
     if (!container.current || !style) return;
@@ -96,6 +85,14 @@ export function StopPickerMap({ stops, focus, onFocusMove, onPick, onMove }: Pro
 
       markers.current.push(marker);
     });
+
+    if (!fitted.current && stops.length) {
+      fitted.current = true;
+      const bounds = new LngLatBounds();
+      stops.forEach((stop) => bounds.extend([stop.longitude, stop.latitude]));
+      map.current.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 0 });
+    }
+    if (!stops.length) fitted.current = false;
 
     return () => {
       markers.current.forEach((marker) => marker.remove());

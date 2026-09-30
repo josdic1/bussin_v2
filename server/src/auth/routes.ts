@@ -2,31 +2,23 @@ import { Router, type Request, type Response } from "express";
 import { changePasswordSchema, loginSchema } from "@bussin/shared";
 import { pool } from "../db/pool.js";
 import { readTenant } from "../db/tenant.js";
+import { clientIp, FailureLimiter } from "../http.js";
+import { clearSessionCookie, sessionToken, setSessionCookie } from "./cookies.js";
 import {
   createSession,
   hashPassword,
   readSession,
+  readSessionDetailed,
   revokeSession,
   verifyPassword
 } from "./sessions.js";
 
 export const authRoutes = Router();
 
-const cookieName = "bussin_session";
-const cookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
-  path: "/"
-};
-
-function sessionToken(request: Request): string | undefined {
-  const cookie = request.headers.cookie
-    ?.split(/;\s*/)
-    .find((part) => part.startsWith(`${cookieName}=`));
-
-  return cookie?.slice(cookieName.length + 1);
-}
+const WINDOW_MS = 15 * 60 * 1000;
+/** 10 wrong passwords for one identity from one address, 30 per address overall. */
+const identityFailures = new FailureLimiter(10, WINDOW_MS);
+const addressFailures = new FailureLimiter(30, WINDOW_MS);
 
 function requireSameOrigin(request: Request, response: Response): boolean {
   const origin = request.get("origin");
@@ -47,12 +39,27 @@ function requireSameOrigin(request: Request, response: Response): boolean {
   return false;
 }
 
+function tooMany(response: Response, seconds: number) {
+  response.set("Retry-After", String(seconds));
+  response.status(429).json({
+    error: `Too many sign-in attempts. Try again in ${Math.ceil(seconds / 60)} min.`
+  });
+}
+
 authRoutes.post("/login", async (request, response) => {
   if (!requireSameOrigin(request, response)) return;
 
   const parsed = loginSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({ error: "Enter a valid email and password" });
+    return;
+  }
+
+  const ip = clientIp(request);
+  const identityKey = `${ip}|${parsed.data.identity}`;
+  const wait = Math.max(identityFailures.retryAfter(identityKey), addressFailures.retryAfter(ip));
+  if (wait) {
+    tooMany(response, wait);
     return;
   }
 
@@ -75,9 +82,12 @@ authRoutes.post("/login", async (request, response) => {
 
   const member = result.rows[0];
   if (!member || !(await verifyPassword(member.password_hash, parsed.data.password))) {
+    identityFailures.fail(identityKey);
+    addressFailures.fail(ip);
     response.status(401).json({ error: "Invalid email or password" });
     return;
   }
+  identityFailures.clear(identityKey);
 
   const token = await createSession(member.id);
   const currentMember = await readSession(token);
@@ -88,29 +98,28 @@ authRoutes.post("/login", async (request, response) => {
     return;
   }
 
-  response.cookie(cookieName, token, {
-    ...cookieOptions,
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  });
+  setSessionCookie(response, token);
   response.json({ member: currentMember, tenant: await readTenant() });
 });
 
 authRoutes.get("/me", async (request, response) => {
-  const member = await readSession(sessionToken(request));
+  const token = sessionToken(request);
+  const session = await readSessionDetailed(token);
 
-  if (!member) {
+  if (!session) {
     response.status(401).json({ error: "Not signed in" });
     return;
   }
 
-  response.json({ member, tenant: await readTenant() });
+  if (session.renewed && token) setSessionCookie(response, token);
+  response.json({ member: session.member, tenant: await readTenant() });
 });
 
 authRoutes.post("/logout", async (request, response) => {
   if (!requireSameOrigin(request, response)) return;
 
   await revokeSession(sessionToken(request));
-  response.clearCookie(cookieName, cookieOptions);
+  clearSessionCookie(response);
   response.status(204).end();
 });
 
@@ -173,7 +182,7 @@ authRoutes.post("/change-password", async (request, response) => {
     );
 
     await client.query("COMMIT");
-    response.clearCookie(cookieName, cookieOptions);
+    clearSessionCookie(response);
     response.status(204).end();
   } catch (error) {
     await client.query("ROLLBACK");

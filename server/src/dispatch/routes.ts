@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   assignTripStaffSchema,
   boardResponseSchema,
+  routeGeometriesResponseSchema,
   createPlannedTripSchema,
   dispatchStaffResponseSchema,
   dispatchGpsAuditResponseSchema,
@@ -13,13 +14,13 @@ import {
   tripActionSchema,
   tripStaffAssignmentResponseSchema
 } from "@bussin/shared";
-import { requireRole, requireSameOrigin } from "../auth/guard.js";
-import { readSession } from "../auth/sessions.js";
+import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { snapshotTripRiders } from "../families/access.js";
 import { applyTripAction } from "../trips/actions.js";
 import { subscribeToDispatchLocations } from "./live.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
+import { openStream } from "../sse.js";
 
 export const dispatchRoutes = Router();
 
@@ -49,32 +50,30 @@ type JourneyCorrectionAuditRow = {
   stopLabel: string;
 };
 
-dispatchRoutes.get("/live", requireRole("admin", "dispatch"), async (request, response) => {
-  response.set({
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive"
-  });
-  response.flushHeaders();
+dispatchRoutes.get("/live", requireRole("admin", "dispatch"), async (_request, response) => {
+  const stream = openStream(response);
+  const unsubscribe = await subscribeToDispatchLocations((payload) => stream.send("location", payload));
+  stream.onClose(unsubscribe);
+  stream.send("ready", "{}");
+});
 
-  let closed = false;
-  const unsubscribe = await subscribeToDispatchLocations((payload) => {
-    if (!closed && !response.writableEnded) {
-      response.write(`event: location\ndata: ${payload}\n\n`);
-    }
-  });
+const routeIdsSchema = z.string().uuid().array().min(1).max(50);
 
-  response.write("event: ready\ndata: {}\n\n");
-  const heartbeat = setInterval(() => {
-    if (!closed && !response.writableEnded) response.write(": keepalive\n\n");
-  }, 25_000);
-  heartbeat.unref();
-
-  response.on("close", () => {
-    closed = true;
-    clearInterval(heartbeat);
-    unsubscribe();
-  });
+/** Stored road paths for routes; the map fetches each route's geometry once. */
+dispatchRoutes.get("/route-geometries", requireRole("admin", "dispatch"), async (request, response) => {
+  const ids = routeIdsSchema.safeParse(String(request.query.ids ?? "").split(",").filter(Boolean));
+  if (!ids.success) {
+    response.status(400).json({ error: "Choose valid routes." });
+    return;
+  }
+  const result = await pool.query<{ routeId: string; coordinates: [number, number][] }>(
+    `SELECT route_id AS "routeId", geometry->'coordinates' AS coordinates
+       FROM route_geometries
+      WHERE route_id = ANY($1::uuid[])`,
+    [ids.data]
+  );
+  response.set("Cache-Control", "private, max-age=300");
+  response.json(routeGeometriesResponseSchema.parse({ geometries: result.rows }));
 });
 
 dispatchRoutes.get(
@@ -341,14 +340,7 @@ dispatchRoutes.post(
       response.status(400).json({ error: "Choose a valid trip action." });
       return;
     }
-    const token = request.headers.cookie?.split(/;\s*/)
-      .find((part) => part.startsWith("bussin_session="))
-      ?.slice("bussin_session=".length);
-    const actor = await readSession(token);
-    if (!actor) {
-      response.status(401).json({ error: "Session expired." });
-      return;
-    }
+    const actor = currentMember(response);
 
     const client = await pool.connect();
     try {
@@ -395,6 +387,8 @@ type BoardRow = TripRow & {
   stopLongitude: number | null;
   arrivedAt: Date | null;
   departedAt: Date | null;
+  arrivalNote: string | null;
+  departureNote: string | null;
   locationLatitude: number | null;
   locationLongitude: number | null;
   observedAt: Date | null;
@@ -436,6 +430,8 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
             ts.longitude::double precision AS "stopLongitude",
             arrived.occurred_at AS "arrivedAt",
             departed.occurred_at AS "departedAt",
+            arrived.note AS "arrivalNote",
+            departed.note AS "departureNote",
             sample.latitude::double precision AS "locationLatitude",
             sample.longitude::double precision AS "locationLongitude",
             sample.observed_at AS "observedAt",
@@ -448,7 +444,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
        JOIN buses b ON b.id = t.bus_id
        LEFT JOIN trip_stops ts ON ts.trip_id = t.id
        LEFT JOIN LATERAL (
-         SELECT e.occurred_at FROM trip_events e
+         SELECT e.occurred_at, e.note FROM trip_events e
           WHERE e.trip_id = t.id AND e.trip_stop_id = ts.id
             AND e.event_type = 'arrived_stop'
             AND NOT EXISTS (
@@ -458,7 +454,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
           ORDER BY e.occurred_at DESC LIMIT 1
        ) arrived ON true
        LEFT JOIN LATERAL (
-         SELECT e.occurred_at FROM trip_events e
+         SELECT e.occurred_at, e.note FROM trip_events e
           WHERE e.trip_id = t.id AND e.trip_stop_id = ts.id
             AND e.event_type = 'departed_stop'
             AND NOT EXISTS (
@@ -489,6 +485,8 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
       id: string; position: number; label: string;
       latitude: number; longitude: number;
       arrivedAt: string | null; departedAt: string | null;
+      arrivalMethod: "automatic" | "manual" | null;
+      departureMethod: "automatic" | "manual" | null;
     }[]; location: {
       latitude: number; longitude: number;
       observedAt: string; accuracyM: number;
@@ -526,7 +524,9 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
         id: row.stopId, position: row.position, label: row.stopLabel,
         latitude: row.stopLatitude, longitude: row.stopLongitude,
         arrivedAt: row.arrivedAt?.toISOString() ?? null,
-        departedAt: row.departedAt?.toISOString() ?? null
+        departedAt: row.departedAt?.toISOString() ?? null,
+        arrivalMethod: row.arrivedAt ? row.arrivalNote === "journey:gps" ? "automatic" : "manual" : null,
+        departureMethod: row.departedAt ? row.departureNote === "journey:gps" ? "automatic" : "manual" : null
       });
     }
   }

@@ -3,11 +3,11 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
   familyPortalResponseSchema,
+  leaveBufferInputSchema,
   guardianInputSchema, guardiansResponseSchema, riderInputSchema,
   rosterResponseSchema, type Guardian, type Rider
 } from "@bussin/shared";
-import { requireRole, requireSameOrigin } from "../auth/guard.js";
-import { readSession } from "../auth/sessions.js";
+import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
 import { pool } from "../db/pool.js";
 import type { PoolClient } from "pg";
@@ -59,18 +59,8 @@ type FamilyPortalRow = {
   leaveBufferMinutes: number;
 };
 
-familyRoutes.get("/portal", requireRole("family"), async (request, response) => {
-  const token = request.headers.cookie
-    ?.split(/;\s*/)
-    .find((part) => part.startsWith("bussin_session="))
-    ?.slice("bussin_session=".length);
-
-  const member = await readSession(token);
-
-  if (!member) {
-    response.status(401).json({ error: "Session expired." });
-    return;
-  }
+familyRoutes.get("/portal", requireRole("family"), async (_request, response) => {
+  const member = currentMember(response);
 
   const result = await pool.query<FamilyPortalRow>(
     `SELECT
@@ -161,6 +151,41 @@ familyRoutes.get("/portal", requireRole("family"), async (request, response) => 
     })
   );
 
+  // Every stop on each trip, with whether the bus is past it, so the portal
+  // can show where the bus is relative to the family's stop.
+  const tripIds = [...new Set(result.rows.map((row) => row.tripId))];
+  const stopRows = tripIds.length ? (await pool.query<{
+    tripId: string; id: string; position: number; label: string;
+    latitude: number; longitude: number; passed: boolean;
+  }>(
+    `SELECT ts.trip_id AS "tripId", ts.id, ts.position, ts.label,
+            ts.latitude::double precision AS latitude,
+            ts.longitude::double precision AS longitude,
+            EXISTS (
+              SELECT 1 FROM trip_events e
+               WHERE e.trip_id = ts.trip_id AND e.trip_stop_id = ts.id
+                 AND (e.event_type = 'departed_stop'
+                      OR (e.event_type = 'arrived_stop'
+                          AND ts.position = (SELECT max(position) FROM trip_stops last WHERE last.trip_id = ts.trip_id)))
+                 AND NOT EXISTS (SELECT 1 FROM trip_events c WHERE c.replaces_event_id = e.id)
+            ) AS passed
+       FROM trip_stops ts
+      WHERE ts.trip_id = ANY($1::uuid[])
+      ORDER BY ts.trip_id, ts.position`,
+    [tripIds]
+  )).rows : [];
+  const stopsByTrip = new Map<string, typeof stopRows>();
+  for (const stop of stopRows) {
+    const list = stopsByTrip.get(stop.tripId) ?? [];
+    list.push(stop);
+    stopsByTrip.set(stop.tripId, list);
+  }
+
+  const buffer = await pool.query<{ minutes: number }>(
+    `SELECT leave_buffer_minutes::integer AS minutes FROM guardians WHERE member_id = $1 ORDER BY id LIMIT 1`,
+    [member.id]
+  );
+
   const rides = result.rows.map((row) => {
     const tripEta = etaByTrip.get(row.tripId) ?? null;
     const stopEta = tripEta?.stops.find((stop) => stop.stopId === row.stopId) ?? null;
@@ -208,6 +233,10 @@ familyRoutes.get("/portal", requireRole("family"), async (request, response) => 
               observedAt: row.observedAt.toISOString()
             }
           : null,
+      routeStops: (stopsByTrip.get(row.tripId) ?? []).map((stop) => ({
+        id: stop.id, position: stop.position, label: stop.label,
+        latitude: stop.latitude, longitude: stop.longitude, passed: stop.passed
+      })),
       eta: row.tripStatus === "active" && tripEta
         ? {
             status: tripEta.status,
@@ -220,7 +249,28 @@ familyRoutes.get("/portal", requireRole("family"), async (request, response) => 
     };
   });
 
-  response.json(familyPortalResponseSchema.parse({ rides }));
+  response.json(familyPortalResponseSchema.parse({
+    rides,
+    leaveBufferMinutes: buffer.rows[0]?.minutes ?? 5
+  }));
+});
+
+/** Guardians choose how many minutes before the bus they want to leave. */
+familyRoutes.put("/me/leave-buffer", requireSameOrigin, requireRole("family"), async (request, response) => {
+  const parsed = leaveBufferInputSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: "Choose 0 to 60 minutes." });
+    return;
+  }
+  const result = await pool.query(
+    `UPDATE guardians SET leave_buffer_minutes = $2 WHERE member_id = $1`,
+    [currentMember(response).id, parsed.data.minutes]
+  );
+  if (!result.rowCount) {
+    response.status(404).json({ error: "No guardian record is linked to this login." });
+    return;
+  }
+  response.json({ leaveBufferMinutes: parsed.data.minutes });
 });
 
 familyRoutes.get("/guardians", requireRole("admin"), async (_request, response) => {

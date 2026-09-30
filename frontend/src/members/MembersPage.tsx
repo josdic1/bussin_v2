@@ -6,7 +6,7 @@ import {
 import { getJson, message, send } from "../ops/api";
 import { hashColor, localDate, plural, time } from "../ops/format";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, SRow, Tile, type Tone } from "../ops/ui";
+import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, Tile, type Tone } from "../ops/ui";
 
 type Status = "ACTIVE" | "SETUP REQUIRED" | "SUSPENDED";
 type Filter = "ALL" | Status;
@@ -183,7 +183,7 @@ export function MembersPage() {
       days.set(key, [...(days.get(key) ?? []), entry]);
     }
     return <>
-      <Head eyebrow="MEMBERS" title="Members" sub="Staff logins for people who run bus trips."
+      <Head eyebrow="Staff" title="Members" sub="Staff logins for people who run bus trips."
         actions={<button type="button" className="btn btn-primary" onClick={openAdd}>Add staff login</button>} />
       {status}
       <div className="tiles">{tiles.map(([key, label, value, sub]) => <Tile key={key} label={label} value={value} sub={sub}
@@ -220,39 +220,18 @@ export function MembersPage() {
   }
 
   const groups: [Status, string, string][] = [["SETUP REQUIRED", "Setup required", "warn"], ["ACTIVE", "Active", ""], ["SUSPENDED", "Suspended", "bad"]];
-  if (mode === "adv") {
-    return <>
-      <Head eyebrow="MEMBERS" title="Members" sub={`${counts.ALL} staff logins`} actions={<Plus label="Add staff login" onClick={openAdd} />} />
-      {status}
-      <Search value={query} onChange={setQuery} placeholder="Search staff" />
-      {groups.map(([key, label, cls]) => {
-        const list = visible.filter((person) => statusOf(person) === key);
-        return list.length > 0 && <div key={key}>
-          <h2 className={`sh2 ${cls === "warn" ? "warn" : ""}`} style={{ display: "flex", justifyContent: "space-between" }}><span>{label}</span><span>{list.length}</span></h2>
-          <div className="surface sl">{list.map((person) => <button key={person.id} type="button" className="srow" style={{ alignItems: "center" }} onClick={() => open(person.id)}>
-            <Avatar name={person.displayName} color={hashColor(person.id)} /><span><b>{person.displayName}</b><small>@{person.username}</small></span><span className="go">&rsaquo;</span></button>)}</div>
-        </div>;
-      })}
-      {overlayView}
-    </>;
-  }
-
-  const setup = counts["SETUP REQUIRED"];
-  const section = (title: string, cls: string, key: Status, tone: Tone, text: (person: StaffMember) => ReactElement) => {
-    const list = visible.filter((person) => statusOf(person) === key);
-    return list.length > 0 && <><h2 className={`sh2 ${cls}`}>{title}</h2><div className="sl">{list.map((person) =>
-      <SRow key={person.id} tone={tone} small={`Username ${person.username}`} onClick={() => open(person.id)}>{text(person)}</SRow>)}</div></>;
-  };
   return <>
-    <h1 className="sh1">Members</h1>
+    <Head eyebrow="Staff" title="Members" sub={`${counts.ALL} staff logins`} actions={<Plus label="Add staff login" onClick={openAdd} />} />
     {status}
-    {setup
-      ? <div className="sbanner warn"><strong>{setup} {plural(setup, "person still needs", "people still need")} to set a password</strong><small>{counts.ALL} staff logins in total</small></div>
-      : <div className="sbanner ok"><strong>Everyone has set a password</strong><small>{counts.ALL} staff logins in total</small></div>}
-    {section("Not set up yet", "warn", "SETUP REQUIRED", "warn", (person) => <><b>{person.displayName}</b> has not changed the temporary password.</>)}
-    {section("Active", "", "ACTIVE", "ok", (person) => <b>{person.displayName}</b>)}
-    {section("Suspended", "bad", "SUSPENDED", "bad", (person) => <><b>{person.displayName}</b> cannot sign in.</>)}
-    <div className="pin"><button type="button" className="bigbtn" onClick={openAdd}>Add staff</button></div>
+    <Search value={query} onChange={setQuery} placeholder="Search staff" />
+    {groups.map(([key, label, cls]) => {
+      const list = visible.filter((person) => statusOf(person) === key);
+      return list.length > 0 && <div key={key}>
+        <h2 className={`sh2 ${cls === "warn" ? "warn" : ""}`} style={{ display: "flex", justifyContent: "space-between" }}><span>{label}</span><span>{list.length}</span></h2>
+        <div className="surface sl">{list.map((person) => <button key={person.id} type="button" className="srow" style={{ alignItems: "center" }} onClick={() => open(person.id)}>
+          <Avatar name={person.displayName} color={hashColor(person.id)} /><span><b>{person.displayName}</b><small>@{person.username}</small></span><span className="go">&rsaquo;</span></button>)}</div>
+      </div>;
+    })}
     {overlayView}
   </>;
 }

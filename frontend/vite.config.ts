@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // MapLibre is one large lazy chunk loaded only by the map screens.
+  build: { chunkSizeWarningLimit: 1200 },
   server: {
     proxy: {
       "/api": {

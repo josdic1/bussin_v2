@@ -1,11 +1,11 @@
-import { useMemo, useState, type CSSProperties, type FormEvent, type ReactElement } from "react";
-import { Link, useNavigate } from "react-router";
+import { useMemo, useState, type CSSProperties, type FormEvent, } from "react";
+import { Link } from "react-router";
 import { createBusSchema } from "@bussin/shared";
 import { message, send } from "../ops/api";
 import { age, ageShort, localDate, PALETTE, plural, routeWithPeriod, time } from "../ops/format";
 import { currentStopIndex, fleetRows, STATUS_SLUG, type BusRow, type FleetStatus } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Bar, ErrorNote, Head, NoMatch, Plus, Search, SRow, Swatch, Tile, type Tone } from "../ops/ui";
+import { Bar, ErrorNote, Head, NoMatch, Plus, Search, Swatch, Tile, type Tone } from "../ops/ui";
 import { useBoard, useNow } from "../ops/useBoard";
 
 
@@ -24,27 +24,6 @@ function GpsCell({ row, now }: { row: BusRow; now: number }) {
 
 function AlertChips({ row }: { row: BusRow }) {
   return <>{row.alerts.map((alert) => <span key={alert.short} className={`od${alert.sev === "med" ? " med" : ""}`}>{alert.short.toUpperCase()}</span>)}</>;
-}
-
-function sentence(row: BusRow, now: number): [ReactElement, string, Tone] {
-  const trip = row.trip;
-  const label = <b>{row.bus.label}</b>;
-  if (row.status === "GPS STALE" && trip) {
-    return [<>{label} {row.latestGps ? `lost GPS ${ageShort(row.latestGps, now)} ago.` : "has sent no GPS yet."}</>,
-      `${trip.routeName}, ${trip.assignedStaff?.displayName ?? "no driver"}`, "bad"];
-  }
-  if (trip?.status === "planned" && row.alerts.some((alert) => alert.kind === "late")) {
-    return [<>{label} has not started. It was due at {time(trip.departureAt)}.</>, trip.assignedStaff?.displayName ?? "No driver assigned", "bad"];
-  }
-  if (row.status === "IN SERVICE" && trip) {
-    return [<>{label} is running {trip.routeName}.</>,
-      `${trip.assignedStaff?.displayName ?? "No driver"}${row.next?.etaAt ? `. Next stop at ${time(row.next.etaAt)}.` : "."}`, "ok"];
-  }
-  if (row.status === "PLANNED" && trip) {
-    return [<>{label} leaves at {time(trip.departureAt)}.</>, `${trip.routeName}, ${trip.assignedStaff?.displayName ?? "no driver yet"}`, "warn"];
-  }
-  if (row.status === "INACTIVE") return [<>{label} is turned off.</>, "Not used for trips", ""];
-  return [<>{label} has no trips right now.</>, "Available", ""];
 }
 
 function BusDetail({ row, now }: { row: BusRow; now: number }) {
@@ -124,7 +103,6 @@ export function FleetPage() {
   const { mode, isAdmin, toast } = useOps();
   const board = useBoard(localDate(new Date()), { routes: true });
   const now = useNow();
-  const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("ALL");
   const [query, setQuery] = useState("");
   const [overlay, setOverlay] = useState<OverlayState>(null);
@@ -156,7 +134,7 @@ export function FleetPage() {
 
   if (mode === "desktop") {
     return <>
-      <Head eyebrow="FLEET" title="Fleet" sub="Buses, current work, assigned staff and GPS freshness." actions={<>
+      <Head eyebrow="Resources" title="Fleet" sub="Buses, current work, assigned staff and GPS freshness." actions={<>
         <button type="button" className="btn" onClick={() => setOverlay({ type: "routes" })}>Routes</button>
         {isAdmin && <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "addbus" })}>Add bus</button>}
       </>} />
@@ -191,59 +169,32 @@ export function FleetPage() {
     </>;
   }
 
-  if (mode === "adv") {
-    return <>
-      <Head eyebrow="FLEET" title="Fleet" sub={<>{all.length} buses &middot; {count("IN SERVICE")} in service</>}
-        actions={isAdmin ? <Plus label="Add bus" onClick={() => setOverlay({ type: "addbus" })} /> : undefined} />
-      {status}
-      {attention.length > 0 && <div className="alertbar"><div><b>{attention.length} NEED ATTENTION</b>
-        <span>{attention.map((row) => row.bus.label).join(", ")}</span></div>
-        <button type="button" onClick={() => setFilter("ALL")}>View</button></div>}
-      <div className="chips">{tiles.map(([key, label, value]) => <button key={key} type="button"
-        className={`chip${filter === key ? " on" : ""}`} aria-pressed={filter === key} onClick={() => setFilter(key)}>
-        {label.toUpperCase()} <b>{value}</b></button>)}</div>
-      <Search value={query} onChange={setQuery} placeholder="Bus, route or driver" />
-      <div className="cards" style={{ marginTop: 12 }}>{rows.length ? rows.map((row) => {
-        const trip = row.trip;
-        return <button key={row.bus.id} type="button" className={`bc${row.alerts.length ? " attn" : ""}`}
-          style={{ "--c": row.color } as CSSProperties} onClick={() => openBus(row.bus.id)}>
-          <div className="h"><strong>{row.bus.label}</strong><StatusPill status={row.status} /></div>
-          {row.alerts.length > 0 && <div className="ch"><AlertChips row={row} /></div>}
-          {trip ? <>
-            <div className="rt2">{routeWithPeriod(trip.routeName, trip.servicePeriod)}</div>
-            <div className="tm"><span>{trip.assignedStaff?.displayName ?? "No driver"}</span><span>Departs {time(trip.departureAt)}</span></div>
-            {row.progress && <Bar done={row.progress.done} total={row.progress.total} color={row.color} />}
-          </> : <div className="rt2 muted">No trip today</div>}
-          <div><GpsCell row={row} now={now} /></div>
-        </button>;
-      }) : <NoMatch>No buses match.</NoMatch>}</div>
-      <div className="acts"><button type="button" className="btn" onClick={() => setOverlay({ type: "routes" })}>Routes</button></div>
-      {overlayView}
-    </>;
-  }
-
-  const need = rows.filter((row) => row.alerts.length);
-  const running = rows.filter((row) => !row.alerts.length && row.status === "IN SERVICE");
-  const others = rows.filter((row) => !need.includes(row) && !running.includes(row));
-  const section = (title: string, cls: string, list: BusRow[]) => list.length > 0 && <>
-    <h2 className={`sh2 ${cls}`}>{title}</h2>
-    <div className="sl">{list.map((row) => {
-      const [main, small, tone] = sentence(row, now);
-      return <SRow key={row.bus.id} tone={tone} small={small} onClick={() => openBus(row.bus.id)}>{main}</SRow>;
-    })}</div></>;
   return <>
-    <h1 className="sh1">Fleet</h1>
+    <Head eyebrow="Resources" title="Fleet" sub={<>{all.length} buses &middot; {count("IN SERVICE")} in service</>}
+      actions={isAdmin ? <Plus label="Add bus" onClick={() => setOverlay({ type: "addbus" })} /> : undefined} />
     {status}
-    {attention.length
-      ? <div className="sbanner bad"><strong>{attention.length} {plural(attention.length, "bus needs attention", "buses need attention")}</strong>
-        <small>{count("IN SERVICE")} running right now</small></div>
-      : <div className="sbanner ok"><strong>All buses are fine</strong><small>{count("IN SERVICE")} running right now</small></div>}
-    {section("Needs attention", "bad", need)}
-    {section("Running", "", running)}
-    {section("Not running", "", others)}
-    <div className="pin">{isAdmin
-      ? <button type="button" className="bigbtn out" onClick={() => setOverlay({ type: "addbus" })}>Add a bus</button>
-      : <button type="button" className="bigbtn out" onClick={() => navigate("/")}>Open Dispatch</button>}</div>
+    {attention.length > 0 && <div className="alertbar"><div><b>{attention.length} NEED ATTENTION</b>
+      <span>{attention.map((row) => row.bus.label).join(", ")}</span></div>
+      <button type="button" onClick={() => setFilter("ALL")}>View</button></div>}
+    <div className="chips">{tiles.map(([key, label, value]) => <button key={key} type="button"
+      className={`chip${filter === key ? " on" : ""}`} aria-pressed={filter === key} onClick={() => setFilter(key)}>
+      {label.toUpperCase()} <b>{value}</b></button>)}</div>
+    <Search value={query} onChange={setQuery} placeholder="Bus, route or driver" />
+    <div className="cards" style={{ marginTop: 12 }}>{rows.length ? rows.map((row) => {
+      const trip = row.trip;
+      return <button key={row.bus.id} type="button" className={`bc${row.alerts.length ? " attn" : ""}`}
+        style={{ "--c": row.color } as CSSProperties} onClick={() => openBus(row.bus.id)}>
+        <div className="h"><strong>{row.bus.label}</strong><StatusPill status={row.status} /></div>
+        {row.alerts.length > 0 && <div className="ch"><AlertChips row={row} /></div>}
+        {trip ? <>
+          <div className="rt2">{routeWithPeriod(trip.routeName, trip.servicePeriod)}</div>
+          <div className="tm"><span>{trip.assignedStaff?.displayName ?? "No driver"}</span><span>Departs {time(trip.departureAt)}</span></div>
+          {row.progress && <Bar done={row.progress.done} total={row.progress.total} color={row.color} />}
+        </> : <div className="rt2 muted">No trip today</div>}
+        <div><GpsCell row={row} now={now} /></div>
+      </button>;
+    }) : <NoMatch>No buses match.</NoMatch>}</div>
+    <div className="acts"><button type="button" className="btn" onClick={() => setOverlay({ type: "routes" })}>Routes</button></div>
     {overlayView}
   </>;
 }

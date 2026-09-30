@@ -1,4 +1,4 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import {
@@ -8,8 +8,7 @@ import {
   type CheckEvent,
   type RiderCheckEventType
 } from "@bussin/shared";
-import { requireRole, requireSameOrigin } from "../auth/guard.js";
-import { readSession } from "../auth/sessions.js";
+import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import {
   checkTransition,
@@ -25,12 +24,6 @@ const boardQuerySchema = z.strictObject({
   from: z.string().datetime({ offset: true }),
   to: z.string().datetime({ offset: true })
 });
-
-function sessionToken(request: Request) {
-  return request.headers.cookie?.split(/;\s*/)
-    .find((part) => part.startsWith("bussin_session="))
-    ?.slice("bussin_session=".length);
-}
 
 type TripRow = {
   id: string;
@@ -260,6 +253,26 @@ async function lockTrip(client: PoolClient, tripId: string) {
   return trip.rows[0]?.status ?? null;
 }
 
+/** Every rider's check log for one trip in a single query, grouped by rider. */
+async function tripRiderEvents(client: PoolClient, tripId: string) {
+  const rows = await client.query<RiderEventRow & { riderId: string }>(
+    `SELECT e.rider_id AS "riderId", e.event_type AS "eventType", e.occurred_at AS "occurredAt",
+            m.display_name AS "recordedByName"
+       FROM trip_rider_events e
+       JOIN members m ON m.id = e.recorded_by
+      WHERE e.trip_id = $1
+      ORDER BY e.occurred_at, e.recorded_at, e.id`,
+    [tripId]
+  );
+  const byRider = new Map<string, RiderEventRow[]>();
+  for (const { riderId, ...event } of rows.rows) {
+    const list = byRider.get(riderId) ?? [];
+    list.push(event);
+    byRider.set(riderId, list);
+  }
+  return byRider;
+}
+
 async function riderEvents(client: PoolClient, tripId: string, riderId: string) {
   const rows = await client.query<RiderEventRow>(
     `SELECT e.event_type AS "eventType", e.occurred_at AS "occurredAt",
@@ -285,11 +298,7 @@ checkRoutes.post(
       response.status(400).json({ error: "Choose a valid rider check." });
       return;
     }
-    const actor = await readSession(sessionToken(request));
-    if (!actor) {
-      response.status(401).json({ error: "Session expired." });
-      return;
-    }
+    const actor = currentMember(response);
 
     const client = await pool.connect();
     try {
@@ -348,11 +357,7 @@ checkRoutes.post(
       response.status(400).json({ error: "Choose a valid check." });
       return;
     }
-    const actor = await readSession(sessionToken(request));
-    if (!actor) {
-      response.status(401).json({ error: "Session expired." });
-      return;
-    }
+    const actor = currentMember(response);
 
     const client = await pool.connect();
     try {
@@ -363,15 +368,35 @@ checkRoutes.post(
         response.status(404).json({ error: "Trip not found." });
         return;
       }
-      const riders = await client.query<{ riderId: string }>(
-        `SELECT rider_id AS "riderId" FROM trip_riders WHERE trip_id = $1`,
+      // Bulk only covers the stop the bus is at: in the morning each child
+      // boards at their own stop and everyone gets off at the last one; in the
+      // afternoon everyone boards at the first stop and gets off at their own.
+      const trip = await client.query<{ servicePeriod: "AM" | "PM"; firstStopId: string; lastStopId: string }>(
+        `SELECT r.service_period AS "servicePeriod",
+                (SELECT id FROM trip_stops WHERE trip_id = t.id ORDER BY position LIMIT 1) AS "firstStopId",
+                (SELECT id FROM trip_stops WHERE trip_id = t.id ORDER BY position DESC LIMIT 1) AS "lastStopId"
+           FROM trips t JOIN routes r ON r.id = t.route_id
+          WHERE t.id = $1`,
         [tripId.data]
       );
-      const wanted = action.data.type === "board_waiting" ? "expected" : "aboard";
-      const single = action.data.type === "board_waiting" ? "board" : "drop";
+      const shape = trip.rows[0];
+      const boarding = action.data.type === "board_waiting";
+      const riders = await client.query<{ riderId: string; stopId: string }>(
+        `SELECT rider_id AS "riderId", trip_stop_id AS "stopId" FROM trip_riders WHERE trip_id = $1`,
+        [tripId.data]
+      );
+      const atThisStop = (riderStopId: string) => {
+        const stop = action.data.stopId;
+        if (shape.servicePeriod === "AM") return boarding ? riderStopId === stop : stop === shape.lastStopId;
+        return boarding ? stop === shape.firstStopId : riderStopId === stop;
+      };
+      const events = await tripRiderEvents(client, tripId.data);
+      const wanted = boarding ? "expected" : "aboard";
+      const single = boarding ? "board" : "drop";
       let changed = 0;
       for (const rider of riders.rows) {
-        const current = deriveRiderState(await riderEvents(client, tripId.data, rider.riderId));
+        if (!atThisStop(rider.stopId)) continue;
+        const current = deriveRiderState(events.get(rider.riderId) ?? []);
         if (current.state !== wanted) continue;
         const transition = checkTransition(current, single, status);
         if (!transition.ok) {
@@ -407,11 +432,7 @@ checkRoutes.post(
       response.status(400).json({ error: "Choose a valid trip." });
       return;
     }
-    const actor = await readSession(sessionToken(request));
-    if (!actor) {
-      response.status(401).json({ error: "Session expired." });
-      return;
-    }
+    const actor = currentMember(response);
 
     const client = await pool.connect();
     try {
@@ -437,8 +458,9 @@ checkRoutes.post(
         `SELECT rider_id AS "riderId" FROM trip_riders WHERE trip_id = $1`,
         [tripId.data]
       );
+      const events = await tripRiderEvents(client, tripId.data);
       for (const rider of riders.rows) {
-        const current = deriveRiderState(await riderEvents(client, tripId.data, rider.riderId));
+        const current = deriveRiderState(events.get(rider.riderId) ?? []);
         if (current.state === "aboard") {
           await client.query("ROLLBACK");
           response.status(409).json({ error: "Riders are still marked aboard. Resolve them first." });

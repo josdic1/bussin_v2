@@ -8,7 +8,7 @@ export function Head({ eyebrow, title, sub, actions }: {
 }) {
   return <header className="head">
     <div>
-      <p className="eyebrow">OPERATIONS / {eyebrow}</p>
+      <p className="eyebrow">{eyebrow}</p>
       <h1>{title}</h1>
       {sub && <p className="desc">{sub}</p>}
     </div>

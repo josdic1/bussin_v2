@@ -14,7 +14,7 @@
     "roster:import": "node --env-file-if-exists=.env --import tsx src/families/import.ts",
     "db:seed-demo": "node --env-file-if-exists=.env --import tsx src/db/seed-demo.ts",
     "tenant:init": "node --env-file-if-exists=.env --import tsx src/db/claim-tenant.ts",
-    "test": "node --env-file-if-exists=.env --import tsx --test src/productTruth.test.ts src/rideCheck.test.ts"
+    "test": "node --env-file-if-exists=.env --import tsx --test src/productTruth.test.ts src/rideCheck.test.ts src/http.test.ts"
   },
   "dependencies": {
     "@bussin/shared": "^0.1.0",

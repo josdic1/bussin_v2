@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   boardResponseSchema, busesResponseSchema, dispatchLocationUpdateSchema, dispatchStaffResponseSchema,
   routesResponseSchema, type BoardTrip, type Bus, type Route, type TripStaff
@@ -16,6 +16,27 @@ export function useNow(intervalMs = 5_000) {
     return () => window.clearInterval(timer);
   }, [intervalMs]);
   return now;
+}
+
+/**
+ * Runs `load` now and every `intervalMs` while the tab is visible. Hidden tabs
+ * skip polls; returning to the tab loads immediately. Aborts on unmount.
+ */
+export function usePolling(load: (signal: AbortSignal) => Promise<void>, intervalMs: number, deps: unknown[]) {
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = () => { if (document.visibilityState === "visible") void loadRef.current(controller.signal); };
+    void loadRef.current(controller.signal);
+    const timer = window.setInterval(run, intervalMs);
+    document.addEventListener("visibilitychange", run);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", run);
+    };
+  }, [intervalMs, ...deps]);
 }
 
 /**
@@ -60,33 +81,27 @@ export function useBoard(day: string, options: { routes?: boolean; staff?: boole
     };
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  usePolling(async (signal) => {
     const query = new URLSearchParams(dayBounds(day));
-    async function load() {
-      try {
-        const [busData, boardData, routeData, staffData] = await Promise.all([
-          getJson("/api/fleet/buses", busesResponseSchema, controller.signal),
-          getJson(`/api/dispatch/board?${query}`, boardResponseSchema, controller.signal),
-          wantRoutes ? getJson("/api/routes", routesResponseSchema, controller.signal) : null,
-          wantStaff ? getJson("/api/dispatch/staff", dispatchStaffResponseSchema, controller.signal) : null
-        ]);
-        if (controller.signal.aborted) return;
-        setBuses(busData.buses);
-        setTrips(boardData.trips);
-        if (routeData) setRoutes(routeData.routes);
-        if (staffData) setStaff(staffData.staff);
-        setError("");
-      } catch (cause) {
-        if (!controller.signal.aborted) setError(message(cause, "Could not load the board."));
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
+    try {
+      const [busData, boardData, routeData, staffData] = await Promise.all([
+        getJson("/api/fleet/buses", busesResponseSchema, signal),
+        getJson(`/api/dispatch/board?${query}`, boardResponseSchema, signal),
+        wantRoutes ? getJson("/api/routes", routesResponseSchema, signal) : null,
+        wantStaff ? getJson("/api/dispatch/staff", dispatchStaffResponseSchema, signal) : null
+      ]);
+      if (signal.aborted) return;
+      setBuses(busData.buses);
+      setTrips(boardData.trips);
+      if (routeData) setRoutes(routeData.routes);
+      if (staffData) setStaff(staffData.staff);
+      setError("");
+    } catch (cause) {
+      if (!signal.aborted) setError(message(cause, "Could not load the board."));
+    } finally {
+      if (!signal.aborted) setLoading(false);
     }
-    void load();
-    const timer = window.setInterval(() => void load(), 15_000);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [day, revision, wantRoutes, wantStaff]);
+  }, 15_000, [day, revision, wantRoutes, wantStaff]);
 
   return { buses, trips, routes, staff, loading, error, live, reload };
 }

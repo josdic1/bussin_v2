@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
   addressSearchResponseSchema,
   createRouteSchema,
   routeSchema,
+  routeGeometriesResponseSchema,
   routesResponseSchema,
   updateRouteSchema,
   type AddressSearchResult,
@@ -11,6 +12,9 @@ import {
 } from "@bussin/shared";
 import { useAuth } from "../auth/AuthProvider";
 import { StopPickerMap } from "../maps/StopPickerMap";
+import { getJson } from "../ops/api";
+import { PALETTE } from "../ops/format";
+import { Head } from "../ops/ui";
 
 type DraftStop = Coordinate & { label: string; id?: string };
 
@@ -40,6 +44,8 @@ export function RoutesPage() {
   const [busyRouteId, setBusyRouteId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [withPath, setWithPath] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -65,6 +71,18 @@ export function RoutesPage() {
     void loadRoutes();
     return () => controller.abort();
   }, []);
+
+  // Which routes already have a stored road path (generated in the background after save).
+  const routeKey = routes.map((route) => route.id).join(",");
+  useEffect(() => {
+    if (!routeKey) return;
+    const controller = new AbortController();
+    const ids = routeKey.split(",").slice(0, 50);
+    getJson(`/api/dispatch/route-geometries?ids=${ids.join(",")}`, routeGeometriesResponseSchema, controller.signal)
+      .then((data) => setWithPath(new Set(data.geometries.map((item) => item.routeId))))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [routeKey]);
 
   useEffect(() => () => searchController.current?.abort(), []);
 
@@ -256,7 +274,7 @@ export function RoutesPage() {
   }
 
   async function deleteRoute(route: Route) {
-    if (!window.confirm(`Delete ${route.name} and all its stops? This cannot be undone.`)) return;
+    setDeleting(null);
     setBusyRouteId(route.id);
     setError("");
     setNotice("");
@@ -323,211 +341,125 @@ export function RoutesPage() {
     }
   }
 
+  const families = [...new Set(routes.map((route) => route.routeFamilyName))];
+
   return (
     <>
-      <p className="eyebrow">OPERATIONS</p>
-      <h1>Routes</h1>
-      <p className="description">Set up the stops each bus will visit.</p>
+      <Head eyebrow="Resources" title="Routes" sub="The stops each bus visits. Road paths generate automatically after you save." />
+      {error && <p className="err" role="alert">{error}</p>}
+      {notice && <p className="notice" role="status">{notice}</p>}
+      <div className="routes-grid">
+        <section className="panel" aria-label="Saved routes">
+          <div className="panel-head"><h3>Saved routes</h3><span>{routes.length} total</span></div>
+          {loading ? <p className="nomatch">Loading routes…</p>
+            : routes.length === 0 ? <p className="nomatch">No routes added yet.</p>
+              : <ul className="rlist">{routes.map((route) => (
+                <li key={route.id} style={{ "--c": PALETTE[families.indexOf(route.routeFamilyName) % PALETTE.length] } as CSSProperties}>
+                  <i />
+                  <div><strong>{route.routeFamilyName} {route.servicePeriod}</strong>
+                    <small>{route.name} · {route.stops.length} stops · {route.active ? "Active" : "Inactive"}</small></div>
+                  <span className={`pill ${withPath.has(route.id) ? "ok" : "warn"}`}>{withPath.has(route.id) ? "Road path ready" : "Straight lines"}</span>
+                  {canManage && (deleting === route.id
+                    ? <div className="confirm"><span>Delete {route.name} and all its stops? This cannot be undone.</span>
+                      <button type="button" className="btn btn-danger" disabled={!!busyRouteId} onClick={() => void deleteRoute(route)}>Yes, delete</button>
+                      <button type="button" className="btn" onClick={() => setDeleting(null)}>Go back</button></div>
+                    : <div className="acts">
+                      <button type="button" className="btn sm" disabled={!!busyRouteId || saving} onClick={() => editRoute(route)}>Edit</button>
+                      <button type="button" className="btn sm" disabled={!!busyRouteId || saving} onClick={() => void changeStatus(route)}>
+                        {route.active ? "Deactivate" : "Reactivate"}</button>
+                      <button type="button" className="btn sm btn-danger" disabled={!!busyRouteId || saving} onClick={() => setDeleting(route.id)}>Delete</button>
+                    </div>)}
+                </li>))}</ul>}
+        </section>
 
-      <section className="fleet-section" aria-label="Saved routes">
-        <h2>Saved routes</h2>
-        {loading ? (
-          <p>Loading routes…</p>
-        ) : routes.length === 0 ? (
-          <p>No routes added yet.</p>
-        ) : (
-          <ul className="route-saved-list">
-            {routes.map((route) => (
-              <li key={route.id}>
-                <div className="route-saved-details">
-                  <strong>{route.routeFamilyName} · {route.servicePeriod}</strong>
-                  <span>{route.name} · {route.stops.length} stops · {route.active ? "Active" : "Inactive"}</span>
-                </div>
-                {canManage && <div className="route-saved-actions">
-                  <button type="button" disabled={!!busyRouteId || saving}
-                    onClick={() => editRoute(route)}>Edit</button>
-                  <button type="button" disabled={!!busyRouteId || saving}
-                    onClick={() => void changeStatus(route)}>
-                    {route.active ? "Deactivate" : "Reactivate"}
-                  </button>
-                  <button type="button" disabled={!!busyRouteId || saving}
-                    onClick={() => void deleteRoute(route)}>Delete</button>
-                </div>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {canManage && (
-        <form className="route-form" onSubmit={(event) => void saveRoute(event)}>
-          <h2>{editingRouteId ? "Edit route" : "Add a route"}</h2>
-          <label htmlFor="route-family">Route family</label>
-          <input
-            id="route-family"
-            value={familyName}
-            onChange={(event) => setFamilyName(event.target.value)}
-            placeholder="For example, Alpha"
-            maxLength={80}
-            required
-          />
-
-          <label htmlFor="route-service-period">Service period</label>
-          <select id="route-service-period" value={servicePeriod}
-            onChange={(event) => setServicePeriod(event.target.value as "AM" | "PM")}
-            disabled={saving}>
-            <option value="AM">AM</option>
-            <option value="PM">PM</option>
-          </select>
-
-          <label htmlFor="route-name">Route name</label>
-          <input
-            id="route-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="For example, Alpha 1-stop"
-            maxLength={120}
-            required
-          />
-
-          <label htmlFor="stop-name">Next stop name</label>
-          <input
-            id="stop-name"
-            value={stopLabel}
-            onChange={(event) => setStopLabel(event.target.value)}
-            placeholder="Name the stop, then click its location"
-            maxLength={120}
-          />
-          <label htmlFor="route-address">Find an address or place</label>
-          <div className="route-address-row">
-            <input
-              id="route-address"
-              type="search"
-              value={address}
-              placeholder="Start typing a street address"
-              autoComplete="street-address"
-              aria-label="Address or place"
-              aria-controls="route-address-suggestions"
-              aria-expanded={matches.length > 0}
-              onChange={(event) => {
-                setAddress(event.target.value);
-                searchController.current?.abort();
-                setSearching(false);
-                setMatches([]);
-                setCandidate(null);
-                setSearchError("");
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setMatches([]);
-                if (event.key === "ArrowDown" && matches.length > 0) {
-                  event.preventDefault();
-                  document.querySelector<HTMLButtonElement>(
-                    "#route-address-suggestions button"
-                  )?.focus();
-                }
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  if (matches.length > 0) {
-                    setCandidate(matches[0]);
-                    setMatches([]);
-                    setSearchError("");
-                  } else if (address.trim().length >= 3) {
-                    void searchAddress(address.trim());
-                  }
-                }
-              }}
-            />
-            {searching && <span className="route-searching" role="status">Finding…</span>}
-          </div>
-          <button type="button" className="route-use-location"
-            disabled={locating} onClick={useCurrentLocation}>
-            {locating ? "Getting current location…" : "Use my current location for this stop"}
-          </button>
-          {searchError && <p className="auth-error" role="alert">{searchError}</p>}
-          {matches.length > 0 && (
-            <ul id="route-address-suggestions" className="route-address-results"
-              aria-label="Address suggestions">
-              {matches.map((match, index) => (
-                <li key={`${match.label}-${index}`}>
-                  <button type="button" onClick={() => {
-                    setCandidate(match);
-                    setMatches([]);
-                    setSearchError("");
-                  }}>
-                    {match.label}
-                    {match.locationType === "place" && (
-                      <span> · approximate location</span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {candidate && (
-            <div className="route-address-selected">
-              <p><strong>Selected:</strong> {candidate.label}</p>
-              <p>Confirm the orange pin is on the actual bus pickup/drop-off point. Drag it if needed.</p>
-              <p><strong>Coordinates:</strong> {candidate.latitude.toFixed(6)}, {candidate.longitude.toFixed(6)}</p>
-              <button type="button" onClick={() => pickStop(candidate)}>
-                Add stop at this exact pin
-              </button>
+        {canManage ? (
+          <form className="panel rform" onSubmit={(event) => void saveRoute(event)}>
+            <h2>{editingRouteId ? "Edit route" : "Add a route"}</h2>
+            <div className="rf2">
+              <div className="ctl-row"><label htmlFor="route-family">Route family</label>
+                <input id="route-family" value={familyName} onChange={(event) => setFamilyName(event.target.value)}
+                  placeholder="For example, Green" maxLength={80} required /></div>
+              <div className="ctl-row"><label htmlFor="route-service-period">Service period</label>
+                <select id="route-service-period" value={servicePeriod}
+                  onChange={(event) => setServicePeriod(event.target.value as "AM" | "PM")} disabled={saving}>
+                  <option value="AM">AM</option><option value="PM">PM</option>
+                </select></div>
             </div>
-          )}
-          <p className="route-hint">
-            Choose an address suggestion, then check the pin. You can also click the map
-            to place a stop or drag a saved marker to correct it.
-            {" "}Address search by <a href="https://www.geoapify.com/"
-              target="_blank" rel="noreferrer">Geoapify</a>.
-          </p>
-
-          <StopPickerMap
-            focus={candidate}
-            onFocusMove={(coordinate) => setCandidate((current) =>
-              current ? { ...current, ...coordinate } : null
-            )}
-            stops={stops}
-            onPick={pickStop}
-            onMove={moveStop}
-          />
-
-          {stops.length > 0 && (
-            <ol className="route-draft-list">
-              {stops.map((stop, index) => (
-                <li key={index}>
-                  <label htmlFor={`stop-${index}`}>Stop {index + 1}</label>
-                  <input
-                    id={`stop-${index}`}
-                    value={stop.label}
-                    onChange={(event) => changeStop(index, event.target.value)}
-                    maxLength={120}
-                  />
-                  <small className="route-stop-coordinate">
-                    {stop.latitude.toFixed(6)}, {stop.longitude.toFixed(6)}
-                  </small>
-                  <div className="route-stop-actions">
-                    <button type="button" disabled={index === 0}
-                      onClick={() => reorderStop(index, -1)}>Up</button>
-                    <button type="button" disabled={index === stops.length - 1}
-                      onClick={() => reorderStop(index, 1)}>Down</button>
-                    <button type="button" onClick={() =>
-                      setStops((current) => current.filter((_, position) => position !== index))
-                    }>Remove</button>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-
-          <button className="auth-button" disabled={saving || stops.length === 0}>
-            {saving ? "Saving…" : editingRouteId ? "Save changes" : "Save route"}
-          </button>
-          {editingRouteId && <button type="button" className="route-cancel"
-            disabled={saving} onClick={cancelEdit}>Cancel editing</button>}
-        </form>
-      )}
-
-      {error && <p className="auth-error" role="alert">{error}</p>}
-      {notice && <p className="route-notice" role="status">{notice}</p>}
+            <div className="ctl-row"><label htmlFor="route-name">Route name</label>
+              <input id="route-name" value={name} onChange={(event) => setName(event.target.value)}
+                placeholder="For example, Green AM" maxLength={120} required /></div>
+            <div className="ctl-row"><label htmlFor="stop-name">Next stop name</label>
+              <input id="stop-name" value={stopLabel} onChange={(event) => setStopLabel(event.target.value)}
+                placeholder="Name the stop, then place it" maxLength={120} /></div>
+            <div className="ctl-row"><label htmlFor="route-address">Find an address or place</label>
+              <div className="addr-row">
+                <input id="route-address" type="search" value={address} placeholder="Start typing a street address"
+                  autoComplete="street-address" aria-label="Address or place" aria-controls="route-address-suggestions"
+                  aria-expanded={matches.length > 0}
+                  onChange={(event) => {
+                    setAddress(event.target.value);
+                    searchController.current?.abort();
+                    setSearching(false);
+                    setMatches([]);
+                    setCandidate(null);
+                    setSearchError("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setMatches([]);
+                    if (event.key === "ArrowDown" && matches.length > 0) {
+                      event.preventDefault();
+                      document.querySelector<HTMLButtonElement>("#route-address-suggestions button")?.focus();
+                    }
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      if (matches.length > 0) {
+                        setCandidate(matches[0]);
+                        setMatches([]);
+                        setSearchError("");
+                      } else if (address.trim().length >= 3) {
+                        void searchAddress(address.trim());
+                      }
+                    }
+                  }} />
+                {searching && <span className="searching" role="status">Finding…</span>}
+              </div></div>
+            <button type="button" className="btn" disabled={locating} onClick={useCurrentLocation}>
+              {locating ? "Getting current location…" : "Use my current location for this stop"}</button>
+            {searchError && <p className="err" role="alert">{searchError}</p>}
+            {matches.length > 0 && <ul id="route-address-suggestions" className="addr-results" aria-label="Address suggestions">
+              {matches.map((match, index) => <li key={`${match.label}-${index}`}>
+                <button type="button" onClick={() => { setCandidate(match); setMatches([]); setSearchError(""); }}>
+                  {match.label}{match.locationType === "place" && <span className="hint"> · approximate location</span>}
+                </button></li>)}
+            </ul>}
+            {candidate && <div className="addr-selected">
+              <p><strong>Selected:</strong> {candidate.label}</p>
+              <p>Check the orange pin sits on the actual pickup point. Drag it if needed.</p>
+              <button type="button" className="btn btn-primary" onClick={() => pickStop(candidate)}>Add stop at this pin</button>
+            </div>}
+            <p className="hint">Pick a suggestion, click the map to place a stop, or drag a saved marker to correct it.
+              {" "}Address search by <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a>.</p>
+            <StopPickerMap focus={candidate}
+              onFocusMove={(coordinate) => setCandidate((current) => current ? { ...current, ...coordinate } : null)}
+              stops={stops} onPick={pickStop} onMove={moveStop} />
+            {stops.length > 0 && <ol className="draft">{stops.map((stop, index) => <li key={index}>
+              <b>{index + 1}</b>
+              <input id={`stop-${index}`} aria-label={`Stop ${index + 1} name`} value={stop.label}
+                onChange={(event) => changeStop(index, event.target.value)} maxLength={120} />
+              <small>{stop.latitude.toFixed(6)}, {stop.longitude.toFixed(6)}</small>
+              <div className="acts">
+                <button type="button" className="btn sm" disabled={index === 0} onClick={() => reorderStop(index, -1)}>Up</button>
+                <button type="button" className="btn sm" disabled={index === stops.length - 1} onClick={() => reorderStop(index, 1)}>Down</button>
+                <button type="button" className="btn sm btn-danger" onClick={() =>
+                  setStops((current) => current.filter((_, position) => position !== index))}>Remove</button>
+              </div>
+            </li>)}</ol>}
+            <button className="btn btn-primary" disabled={saving || stops.length === 0}>
+              {saving ? "Saving…" : editingRouteId ? "Save changes" : "Save route"}</button>
+            {editingRouteId && <button type="button" className="btn" disabled={saving} onClick={cancelEdit}>Cancel editing</button>}
+          </form>
+        ) : <section className="panel"><p className="nomatch">Only admins can edit routes.</p></section>}
+      </div>
     </>
   );
 }

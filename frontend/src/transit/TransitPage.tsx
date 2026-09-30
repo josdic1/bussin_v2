@@ -8,8 +8,8 @@ import {
   dateLabel, dayBounds, dayName, duration, localDate, MIN, plural, shiftDay, time, timeWithSeconds, routeWithPeriod } from "../ops/format";
 import { busColors, busNumber } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { ErrorNote, Head, NoMatch, Search, Seg, SRow } from "../ops/ui";
-import { useNow } from "../ops/useBoard";
+import { ErrorNote, Head, NoMatch, Search, Seg } from "../ops/ui";
+import { useNow, usePolling } from "../ops/useBoard";
 
 type Flag = { sev: "high" | "med"; text: string };
 type TripView = HistoryTrip & {
@@ -163,22 +163,23 @@ export function TransitPage() {
   const [overlayId, setOverlayId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("events");
 
-  useEffect(() => {
-    const controller = new AbortController();
+  usePolling(async (signal) => {
     const range = dayBounds(shiftDay(today, -(DAYS - 1)), DAYS);
-    const load = () => Promise.all([
-      getJson(`/api/dispatch/history?${new URLSearchParams(range)}`, historyResponseSchema, controller.signal),
-      getJson("/api/fleet/buses", busesResponseSchema, controller.signal)
-    ]).then(([history, buses]) => {
+    try {
+      const [history, buses] = await Promise.all([
+        getJson(`/api/dispatch/history?${new URLSearchParams(range)}`, historyResponseSchema, signal),
+        getJson("/api/fleet/buses", busesResponseSchema, signal)
+      ]);
+      if (signal.aborted) return;
       setTrips(history.trips);
       setColorOf(() => busColors(buses.buses));
       setError("");
-    }).catch((cause) => { if (!controller.signal.aborted) setError(message(cause, "Could not load trip history.")); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    void load();
-    const timer = window.setInterval(() => void load(), 30_000);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [today]);
+    } catch (cause) {
+      if (!signal.aborted) setError(message(cause, "Could not load trip history."));
+    } finally {
+      if (!signal.aborted) setLoading(false);
+    }
+  }, 30_000, [today]);
 
   const views = useMemo(() => trips.map((trip) => buildView(trip, now, colorOf(trip.busId)))
     .sort((a, b) => Date.parse(b.departureAt) - Date.parse(a.departureAt)), [trips, now, colorOf]);
@@ -215,7 +216,7 @@ export function TransitPage() {
     const list = filter({ status: statusFilter, exceptions: exceptionsOnly });
     const selected = list.find((trip) => trip.id === selectedId) ?? list[0] ?? null;
     return <>
-      <Head eyebrow="TRANSIT" title="Transit" sub="See each trip and every recorded event." />
+      <Head eyebrow="History" title="Transit" sub="See each trip and every recorded event." />
       {status}
       <div className="tsplit">
         <div className="tlist">
@@ -238,34 +239,13 @@ export function TransitPage() {
     </>;
   }
 
-  if (mode === "adv") {
-    const list = filter({ exceptions: scope === "exc" });
-    return <>
-      <Head eyebrow="TRANSIT" title="Transit" sub={`${list.length} ${scope === "exc" ? "trips with exceptions" : `trips, last ${DAYS} days`}`} />
-      <Seg label="Scope" value={scope} onChange={setScope} items={[["exc", "Exceptions"], ["all", "All trips"]]} />
-      {status}
-      <Search value={query} onChange={setQuery} placeholder="Search bus, route or driver" />
-      <div style={{ marginTop: 8 }} className="surface">{grouped(list, (trip) => item(trip, false, () => setOverlayId(trip.id), 3))}</div>
-      {overlayView}
-    </>;
-  }
-
-  const todays = filter({ day: today });
-  const flagged = todays.filter((trip) => trip.flags.length).length;
-  const word = { active: "Running", planned: "Not started", completed: "Finished", cancelled: "Cancelled" };
+  const list = filter({ exceptions: scope === "exc" });
   return <>
-    <h1 className="sh1">Trips</h1>
+    <Head eyebrow="History" title="Transit" sub={`${list.length} ${scope === "exc" ? "trips with exceptions" : `trips, last ${DAYS} days`}`} />
+    <Seg label="Scope" value={scope} onChange={setScope} items={[["exc", "Exceptions"], ["all", "All trips"]]} />
     {status}
-    <p className={`sline ${flagged ? "bad" : "ok"}`}>{flagged ? `${flagged} ${plural(flagged, "trip today has a problem.", "trips today have problems.")}` : "No problems on today’s trips."}</p>
-    <div className="sl">{todays.length ? todays.map((trip) => {
-      const flags = trip.flags.map((flag) => flag.text);
-      const high = trip.flags.some((flag) => flag.sev === "high");
-      return <SRow key={trip.id} tone={trip.flags.length ? "bad" : trip.status === "active" ? "ok" : trip.status === "planned" ? "warn" : ""}
-        smallTone={high ? "bad" : ""} onClick={() => setOverlayId(trip.id)}
-        small={`${trip.busLabel}, ${trip.assignedStaff?.displayName ?? "no driver"}. ${flags.some((text) => text.startsWith("Not started")) ? "" : `${word[trip.status]}. `}${flags.join(". ")}${flags.length ? "." : ""}`}>
-        <b>{time(trip.departureAt)}</b> {routeWithPeriod(trip.routeName, trip.servicePeriod)}.</SRow>;
-    }) : <NoMatch>{loading ? "Loading trips…" : "No trips today."}</NoMatch>}</div>
-    <p className="hint" style={{ marginTop: 14 }}>Older days are in the advanced view.</p>
+    <Search value={query} onChange={setQuery} placeholder="Search bus, route or driver" />
+    <div style={{ marginTop: 8 }} className="surface">{grouped(list, (trip) => item(trip, false, () => setOverlayId(trip.id), 3))}</div>
     {overlayView}
   </>;
 }

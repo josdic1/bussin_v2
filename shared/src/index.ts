@@ -204,7 +204,9 @@ export const boardStopSchema = z.strictObject({
   latitude: coordinateSchema.shape.latitude,
   longitude: coordinateSchema.shape.longitude,
   arrivedAt: z.string().nullable(),
-  departedAt: z.string().nullable()
+  departedAt: z.string().nullable(),
+  arrivalMethod: z.enum(["automatic", "manual"]).nullable(),
+  departureMethod: z.enum(["automatic", "manual"]).nullable()
 });
 
 export const boardLocationSchema = coordinateSchema.extend({
@@ -252,6 +254,13 @@ export const dispatchLocationUpdateSchema = z.strictObject({
 });
 
 export type BoardTrip = z.infer<typeof boardTripSchema>;
+
+export const routeGeometriesResponseSchema = z.strictObject({
+  geometries: z.array(z.strictObject({
+    routeId: z.string().uuid(),
+    coordinates: z.array(z.tuple([z.number(), z.number()]).rest(z.number())).min(2)
+  }))
+});
 export type DispatchLocationUpdate = z.infer<typeof dispatchLocationUpdateSchema>;
 
 export const dispatchGpsAuditEntrySchema = z.discriminatedUnion("kind", [
@@ -475,11 +484,24 @@ export const familyPortalRideSchema = z.strictObject({
     longitude: coordinateSchema.shape.longitude,
     observedAt: z.string()
   }).nullable(),
+  routeStops: z.array(z.strictObject({
+    id: z.string().uuid(),
+    position: z.number().int().positive(),
+    label: z.string(),
+    latitude: coordinateSchema.shape.latitude,
+    longitude: coordinateSchema.shape.longitude,
+    passed: z.boolean()
+  })),
   eta: familyPortalEtaSchema.nullable()
 });
 
 export const familyPortalResponseSchema = z.strictObject({
-  rides: z.array(familyPortalRideSchema)
+  rides: z.array(familyPortalRideSchema),
+  leaveBufferMinutes: z.number().int().min(0).max(60)
+});
+
+export const leaveBufferInputSchema = z.strictObject({
+  minutes: z.number().int().min(0).max(60)
 });
 
 export type FamilyPortalRide = z.infer<typeof familyPortalRideSchema>;
@@ -515,8 +537,10 @@ export const riderCheckActionSchema = z.strictObject({
 
 export type RiderCheckAction = z.infer<typeof riderCheckActionSchema>;
 
+/** Bulk checks only ever apply to the stop the bus is at. */
 export const bulkCheckActionSchema = z.strictObject({
-  type: z.enum(["board_waiting", "drop_aboard"])
+  type: z.enum(["board_waiting", "drop_aboard"]),
+  stopId: z.string().uuid()
 });
 
 export const checkRiderSchema = z.strictObject({

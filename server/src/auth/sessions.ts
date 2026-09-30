@@ -13,6 +13,10 @@ export type SignedInMember = {
   roles: Role[];
 };
 
+/** Sessions slide: each day of use pushes expiry out to 7 days, never past 30 days from sign-in. */
+export const SESSION_DAYS = 7;
+export const SESSION_MAX_DAYS = 30;
+
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 
 function tokenHash(token: string): Buffer {
@@ -40,19 +44,25 @@ export async function createSession(memberId: string): Promise<string> {
 
   await pool.query(
     `INSERT INTO sessions (member_id, token_hash, expires_at)
-     VALUES ($1, $2, now() + interval '7 days')`,
-    [memberId, tokenHash(token)]
+     VALUES ($1, $2, now() + make_interval(days => $3))`,
+    [memberId, tokenHash(token), SESSION_DAYS]
   );
 
   return token;
 }
 
-export async function readSession(
+type SessionRow = SignedInMember & { sessionId: string; renew: boolean };
+
+/**
+ * Reads the signed-in member for a session token. `renewed` is true when this
+ * read extended the session, so the caller can refresh the browser cookie.
+ */
+export async function readSessionDetailed(
   token: string | undefined
-): Promise<SignedInMember | null> {
+): Promise<{ member: SignedInMember; renewed: boolean } | null> {
   if (!token || !tokenPattern.test(token)) return null;
 
-  const result = await pool.query<SignedInMember>(
+  const result = await pool.query<SessionRow>(
     `SELECT m.id, m.email, m.username, m.display_name,
             m.password_change_required AS "passwordChangeRequired",
             CASE WHEN m.password_change_required
@@ -62,7 +72,10 @@ export async function readSession(
               FROM member_roles mr
               WHERE mr.member_id = m.id AND mr.revoked_at IS NULL
               ORDER BY mr.role
-            ) END AS roles
+            ) END AS roles,
+            s.id AS "sessionId",
+            (s.expires_at < now() + make_interval(days => $2 - 1)
+              AND s.created_at + make_interval(days => $3) > now() + interval '1 hour') AS renew
      FROM sessions s
      JOIN members m ON m.id = s.member_id
      WHERE s.token_hash = $1
@@ -70,10 +83,29 @@ export async function readSession(
        AND s.expires_at > now()
        AND m.activated_at IS NOT NULL
        AND m.suspended_at IS NULL`,
-    [tokenHash(token)]
+    [tokenHash(token), SESSION_DAYS, SESSION_MAX_DAYS]
   );
 
-  return result.rows[0] ?? null;
+  const row = result.rows[0];
+  if (!row) return null;
+
+  const { sessionId, renew, ...member } = row;
+  if (renew) {
+    await pool.query(
+      `UPDATE sessions
+          SET expires_at = LEAST(now() + make_interval(days => $2),
+                                 created_at + make_interval(days => $3))
+        WHERE id = $1 AND revoked_at IS NULL`,
+      [sessionId, SESSION_DAYS, SESSION_MAX_DAYS]
+    );
+  }
+  return { member, renewed: renew };
+}
+
+export async function readSession(
+  token: string | undefined
+): Promise<SignedInMember | null> {
+  return (await readSessionDetailed(token))?.member ?? null;
 }
 
 export async function revokeSession(token: string | undefined): Promise<void> {

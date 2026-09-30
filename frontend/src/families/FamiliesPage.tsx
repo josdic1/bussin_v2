@@ -6,7 +6,7 @@ import {
 import { getJson, message, send } from "../ops/api";
 import { PALETTE, plural } from "../ops/format";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, Seg, SRow, Tile } from "../ops/ui";
+import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, Seg, Tile } from "../ops/ui";
 
 type AccountStatus = Guardian["accountStatus"];
 type OverlayState =
@@ -306,7 +306,7 @@ export function FamiliesPage() {
 
   if (mode === "desktop") {
     return <>
-      <Head eyebrow="FAMILIES" title="Riders & guardians" sub="Assignments and family access in one place." actions={<>
+      <Head eyebrow="Families" title="Riders & guardians" sub="Assignments and family access in one place." actions={<>
         <button type="button" className="btn" onClick={() => setOverlay({ type: "guardianForm", id: null })}>Add guardian</button>
         <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "riderForm", id: null })}>Add rider</button></>} />
       {status}
@@ -355,47 +355,25 @@ export function FamiliesPage() {
     </>;
   }
 
-  if (mode === "adv") {
-    return <>
-      <Head eyebrow="FAMILIES" title="Riders" sub={<>{riders.length} riders &middot; {guardians.length} guardians</>}
-        actions={<Plus label="Add" onClick={() => setOverlay(view === "riders" ? { type: "riderForm", id: null } : { type: "guardianForm", id: null })} />} />
-      <Seg label="View" value={view} onChange={setView} items={[["riders", "Riders"], ["guardians", "Guardians"]]} />
-      {status}
-      {view === "riders" ? <>
-        <Search value={query} onChange={setQuery} placeholder="Search names or route" />
-        <div className="chips"><button type="button" className={`chip${attention ? " on" : ""}`} aria-pressed={attention} onClick={() => setAttention(!attention)}>NEEDS ATTENTION <b>{pending}</b></button></div>
-        <div className="cards">{visible.length ? visible.map((rider) => <button key={rider.id} type="button" className="bc" style={{ "--c": riderColor(rider) } as CSSProperties}
-          onClick={() => setOverlay({ type: "rider", id: rider.id })}>
-          <div className="h"><strong>{rider.givenName} {rider.familyName}</strong><Pill status={riderStatus(rider)} /></div>
-          <div className="st2">{assignLine(rider.am, "AM")}{assignLine(rider.pm, "PM")}</div>
-          <div className="tm"><span>{rider.guardians.length} linked {plural(rider.guardians.length, "guardian", "guardians")}</span></div>
-        </button>) : <NoMatch>{emptyText}</NoMatch>}</div>
-      </> : <div className="cards" style={{ marginTop: 12 }}>{sortedGuardians.map((guardian) =>
-        <button key={guardian.id} type="button" className="bc" style={{ "--c": "#a9b3ab" } as CSSProperties} onClick={() => setOverlay({ type: "guardian", id: guardian.id })}>
-          <div className="h"><strong>{guardian.name}</strong><Pill status={guardian.accountStatus} guardian /></div>
-          <div className="tm"><span>{kidsOf(guardian.id).map((rider) => rider.givenName).join(", ") || "No children linked"}</span></div>
-        </button>)}</div>}
-      {overlayView}
-    </>;
-  }
-
   return <>
-    <h1 className="sh1">Find a child</h1>
+    <Head eyebrow="Families" title="Riders" sub={<>{riders.length} riders &middot; {guardians.length} guardians</>}
+      actions={<Plus label="Add" onClick={() => setOverlay(view === "riders" ? { type: "riderForm", id: null } : { type: "guardianForm", id: null })} />} />
+    <Seg label="View" value={view} onChange={setView} items={[["riders", "Riders"], ["guardians", "Guardians"]]} />
     {status}
-    {pending ? <p className="sline bad">{pending} {plural(pending, "family still needs", "families still need")} to be set up.</p>
-      : !loading && <p className="sline ok">Every family is set up.</p>}
-    <Search value={query} onChange={setQuery} placeholder="Type a name" />
-    <div className="sl" style={{ marginTop: 8 }}>{visible.length ? visible.map((rider) => {
-      const first = rider.guardians[0];
-      const state = riderStatus(rider);
-      const route = rider.am ?? rider.pm;
-      return <SRow key={rider.id} tone={state === "active" ? "ok" : state === "pending" ? "warn" : ""} smallTone={state === "pending" ? "bad" : ""}
-        onClick={() => setOverlay({ type: "rider", id: rider.id })}
-        small={<>{rider.am ? `Picked up at ${rider.am.stopLabel}. ` : ""}{first ? `${first.name}: ${{ active: "has a login", pending: "login needs setup", none: "no login yet" }[first.accountStatus]}.` : ""}</>}>
-        <b>{rider.givenName} {rider.familyName}</b> {route ? `rides ${familyOf(route.routeId, route.routeName)}.` : "has no route yet."}
-      </SRow>;
-    }) : <NoMatch>{loading ? "Loading riders…" : "No child by that name."}</NoMatch>}</div>
-    <div className="pin"><button type="button" className="bigbtn out" onClick={() => setOverlay({ type: "riderForm", id: null })}>Add a rider</button></div>
+    {view === "riders" ? <>
+      <Search value={query} onChange={setQuery} placeholder="Search names or route" />
+      <div className="chips"><button type="button" className={`chip${attention ? " on" : ""}`} aria-pressed={attention} onClick={() => setAttention(!attention)}>NEEDS ATTENTION <b>{pending}</b></button></div>
+      <div className="cards">{visible.length ? visible.map((rider) => <button key={rider.id} type="button" className="bc" style={{ "--c": riderColor(rider) } as CSSProperties}
+        onClick={() => setOverlay({ type: "rider", id: rider.id })}>
+        <div className="h"><strong>{rider.givenName} {rider.familyName}</strong><Pill status={riderStatus(rider)} /></div>
+        <div className="st2">{assignLine(rider.am, "AM")}{assignLine(rider.pm, "PM")}</div>
+        <div className="tm"><span>{rider.guardians.length} linked {plural(rider.guardians.length, "guardian", "guardians")}</span></div>
+      </button>) : <NoMatch>{emptyText}</NoMatch>}</div>
+    </> : <div className="cards" style={{ marginTop: 12 }}>{sortedGuardians.map((guardian) =>
+      <button key={guardian.id} type="button" className="bc" style={{ "--c": "#a9b3ab" } as CSSProperties} onClick={() => setOverlay({ type: "guardian", id: guardian.id })}>
+        <div className="h"><strong>{guardian.name}</strong><Pill status={guardian.accountStatus} guardian /></div>
+        <div className="tm"><span>{kidsOf(guardian.id).map((rider) => rider.givenName).join(", ") || "No children linked"}</span></div>
+      </button>)}</div>}
     {overlayView}
   </>;
 }

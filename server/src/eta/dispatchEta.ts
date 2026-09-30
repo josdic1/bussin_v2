@@ -69,6 +69,13 @@ async function cachedTraffic(
     expiresAt: now + (value ? TRAFFIC_CACHE_MS : TRAFFIC_FAILURE_CACHE_MS)
   };
 
+  // One live entry per trip: a new stop state replaces the old key, and
+  // expired entries are swept so the cache cannot grow without bound.
+  for (const [existing, cachedEntry] of trafficCache) {
+    if ((existing.startsWith(`${tripId}:`) && existing !== key) || cachedEntry.expiresAt <= now) {
+      trafficCache.delete(existing);
+    }
+  }
   trafficCache.set(key, entry);
   return entry;
 }
