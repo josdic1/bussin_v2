@@ -657,3 +657,26 @@ export type HistoryTrip = z.infer<typeof historyTripSchema>;
 export const historyResponseSchema = z.strictObject({
   trips: z.array(historyTripSchema)
 });
+
+// ---------------------------------------------------------------------------
+// Admin reset: wipes operational data, keeps admin logins and tenant identity.
+// ---------------------------------------------------------------------------
+
+export const RESET_CONFIRMATION = "RESET";
+
+export const adminResetInputSchema = z.strictObject({
+  confirm: z.literal(RESET_CONFIRMATION)
+});
+
+export const adminResetCountsSchema = z.strictObject({
+  buses: z.number().int().nonnegative(),
+  routes: z.number().int().nonnegative(),
+  trips: z.number().int().nonnegative(),
+  riders: z.number().int().nonnegative(),
+  guardians: z.number().int().nonnegative(),
+  members: z.number().int().nonnegative(),
+  gpsSamples: z.number().int().nonnegative(),
+  keptAdmins: z.number().int().nonnegative()
+});
+
+export type AdminResetCounts = z.infer<typeof adminResetCountsSchema>;

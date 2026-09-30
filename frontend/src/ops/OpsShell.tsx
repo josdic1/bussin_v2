@@ -4,6 +4,7 @@ import {
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../auth/AuthProvider";
 import { initials } from "./format";
+import { DangerZone } from "./DangerZone";
 
 /** Desktop gets the sidebar and three-pane layouts; phones get stacked cards and bottom tabs. */
 export type ViewMode = "desktop" | "adv";
@@ -173,6 +174,7 @@ export function OpsShell() {
         <div className="nav-label">People and records</div>
         <nav className="nav" aria-label="People and records">{pages.filter((page) => page.group === "records").map(link)}</nav>
         <div className="side-foot">
+          {isAdmin && <DangerZone />}
           {roleControl}
           <div className="who-row"><div><b>{name}</b>{isAdmin ? "Admin" : "Dispatch"}</div>
             <button type="button" onClick={signOut}>Sign out</button></div>
@@ -197,7 +199,8 @@ export function OpsShell() {
       </div>
       <main className="mc">
         <Suspense fallback={<p className="hint">Loading…</p>}><Outlet /></Suspense>
-        <div className="mfoot"><button type="button" onClick={signOut}>Sign out {name}</button></div>
+        <div className="mfoot"><button type="button" onClick={signOut}>Sign out {name}</button>
+          {isAdmin && <> · <DangerZone compact /></>}</div>
       </main>
       <nav className="tabs" aria-label="Main" style={{ gridTemplateColumns: `repeat(${pages.filter((page) => !page.desktopOnly).length},1fr)` }}>
         {pages.filter((page) => !page.desktopOnly).map((page) => <NavLink key={page.path} to={page.path} end={page.path === "/"}

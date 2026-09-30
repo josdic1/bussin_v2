@@ -24,7 +24,7 @@
 
 /* ---------- shell ---------- */
 .ops .app.d{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh;background:linear-gradient(to right,var(--side) 223px,var(--line) 223px,var(--line) 224px,var(--cream) 224px)}
-.ops .sidebar{position:sticky;top:0;height:100vh;padding:18px 14px;border-right:1px solid var(--line);background:var(--side);display:flex;flex-direction:column;overflow:auto}
+.ops .sidebar{position:sticky;top:0;z-index:30;height:100vh;padding:18px 14px;border-right:1px solid var(--line);background:var(--side);display:flex;flex-direction:column;overflow:auto}
 .ops .brand{display:flex;align-items:center;gap:11px;padding:3px 6px 12px}
 .ops .brandmark{width:38px;height:38px;border-radius:12px;background:var(--green);color:var(--lime);display:grid;place-items:center;font-weight:900;font-size:20px;flex:none}
 .ops .brand b{display:block;font-size:15px;letter-spacing:.08em}
@@ -529,3 +529,17 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .srow .go{color:#9aa79f;font-size:20px;align-self:center}
 @media(max-width:700px){.ops .acts .btn{flex:1 1 auto}.ops .rf2{grid-template-columns:1fr}.ops .filters input,.ops .filters select{min-width:0}}
 @media (max-width:1100px){.ops .tsplit{grid-template-columns:320px minmax(0,1fr)}.ops .split{grid-template-columns:1fr}.ops .split .rdetail{border-left:0;border-top:1px solid var(--line)}}
+
+/* ---------- danger zone ---------- */
+.ops .danger-zone{display:grid;gap:2px;width:100%;text-align:left;padding:10px 12px;border:1px solid var(--badline);border-radius:12px;background:var(--badbg);color:var(--bad)}
+.ops .danger-zone b{font-size:12px;letter-spacing:.02em}
+.ops .danger-zone small{font-size:10px;opacity:.85}
+.ops .danger-zone:hover{border-color:var(--bad)}
+.ops .mfoot .danger-link{border:0;background:none;color:var(--bad);text-decoration:underline;font-size:12px}
+.ops .reset-list{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:12px}
+.ops .reset-list div{display:flex;justify-content:space-between;gap:12px;padding:9px 12px;border-top:1px solid var(--line2);font-size:13px}
+.ops .reset-list div:first-child{border-top:0}
+.ops .reset-list b{font-variant-numeric:tabular-nums;color:var(--bad)}
+.ops .reset-list .keep{background:var(--okbg)}
+.ops .reset-list .keep b{color:var(--ok)}
+.ops .btn.reset-go{background:var(--bad);border-color:var(--bad);color:#fff}

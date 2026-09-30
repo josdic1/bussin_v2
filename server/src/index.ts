@@ -9,6 +9,7 @@ import { familyRoutes } from "./families/routes.js";
 import { memberRoutes } from "./members/routes.js";
 import { staffRoutes } from "./staff/routes.js";
 import { checkRoutes } from "./check/routes.js";
+import { adminRoutes } from "./admin/routes.js";
 import { readTenant } from "./db/tenant.js";
 import { pool } from "./db/pool.js";
 import { closeListener } from "./db/listen.js";
@@ -40,6 +41,7 @@ app.use("/api/families", familyRoutes);
 app.use("/api/members", memberRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/check", checkRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });
