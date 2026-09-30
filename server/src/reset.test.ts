@@ -27,10 +27,19 @@ test("reset removes everything except admin logins, and rolls back cleanly", asy
        VALUES ($1, 'Reset Staff', 'x', now(), false) RETURNING id`, [`reset_staff_${tag}`]);
     await client.query("INSERT INTO member_roles (member_id, role) VALUES ($1, 'staff')", [staff.rows[0].id]);
     await client.query("INSERT INTO buses (label, active) VALUES ($1, true)", [`Reset bus ${tag}`]);
+    const guardian = await client.query<{ id: string }>("INSERT INTO guardians (name) VALUES ('Reset Guardian') RETURNING id");
+    const note = await client.query<{ id: string }>(
+      `INSERT INTO family_messages (body, audience, audience_label, sent_by, sent_by_name)
+       VALUES ('Reset test message', 'all', 'Everyone', $1, 'Reset Staff') RETURNING id`, [staff.rows[0].id]);
+    await client.query("INSERT INTO family_message_recipients (message_id, guardian_id) VALUES ($1, $2)",
+      [note.rows[0].id, guardian.rows[0].id]);
 
     const removed = await resetAllButAdmins(client);
     assert.ok(removed.buses >= 1);
     assert.ok(removed.members >= 1);
+
+    const messages = await client.query("SELECT 1 FROM family_messages");
+    assert.equal(messages.rowCount, 0, "messages removed");
 
     const after = await resetCounts(client);
     assert.deepEqual(

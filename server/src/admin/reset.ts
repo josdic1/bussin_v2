@@ -8,6 +8,8 @@ import type { AdminResetCounts } from "@bussin/shared";
  * these, the reset fails loudly instead of silently wiping more than intended.
  */
 const OPERATIONAL_TABLES = [
+  "family_message_recipients",
+  "family_messages",
   "trip_sweeps",
   "trip_rider_events",
   "trip_riders",

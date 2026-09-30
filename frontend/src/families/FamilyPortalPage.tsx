@@ -1,8 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { familyPortalResponseSchema, type FamilyPortalRide } from "@bussin/shared";
+import { familyMessagesResponseSchema, familyPortalResponseSchema, type FamilyMessage, type FamilyPortalRide } from "@bussin/shared";
 import { useAuth } from "../auth/AuthProvider";
 
 const clock = (value: string | number) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+function sentWhen(value: string) {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const day = date.toDateString() === today.toDateString() ? "Today"
+    : date.toDateString() === yesterday.toDateString() ? "Yesterday"
+      : date.toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${day} ${clock(value)}`;
+}
+
+const DAY = 86_400_000;
+
+function MessageItem({ item, isNew }: { item: FamilyMessage; isNew: boolean }) {
+  return <article className={`fmsg${isNew ? " new" : ""}`}>
+    <div className="fmsg-top"><span>{isNew ? "New · " : ""}{item.audienceLabel}</span><time dateTime={item.sentAt}>{sentWhen(item.sentAt)}</time></div>
+    <p>{item.body}</p>
+  </article>;
+}
+
+/** New and last-24-hour messages sit above the bus; anything older waits below it, folded away. */
+function splitMessages(messages: FamilyMessage[], fresh: Set<string>, now: number) {
+  const recent = messages.filter((item) => fresh.has(item.id) || now - Date.parse(item.sentAt) < DAY);
+  const top = recent.slice(0, Math.max(2, recent.filter((item) => fresh.has(item.id)).length));
+  return { top, earlier: messages.filter((item) => !top.includes(item)) };
+}
+
+function EarlierMessages({ messages }: { messages: FamilyMessage[] }) {
+  const [open, setOpen] = useState(false);
+  if (!messages.length) return null;
+  return <section className="fmsgs earlier" aria-label="Earlier messages">
+    <button type="button" className="fmsgs-more" aria-expanded={open} onClick={() => setOpen(!open)}>
+      {open ? "Hide earlier messages" : `Earlier messages (${messages.length})`}</button>
+    {open && messages.map((item) => <MessageItem key={item.id} item={item} isNew={false} />)}
+  </section>;
+}
 
 /** Siblings on the same trip and stop share one card. */
 type RideGroup = { key: string; riders: string[]; ride: FamilyPortalRide };
@@ -140,6 +177,9 @@ export function FamilyPortalPage() {
   const [now, setNow] = useState(() => Date.now());
   const saveTimer = useRef<number | undefined>(undefined);
   const editing = useRef(false);
+  const [messages, setMessages] = useState<FamilyMessage[]>([]);
+  const [fresh, setFresh] = useState<Set<string>>(() => new Set());
+  const marking = useRef(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -155,6 +195,15 @@ export function FamilyPortalPage() {
       setRides(body.rides);
       if (!editing.current) setBufferState(body.leaveBufferMinutes);
       setError("");
+      // Messages are extra: if they fail to load, the bus information still shows.
+      const inbox = await fetch("/api/messages/mine", { credentials: "same-origin", signal })
+        .then(async (reply) => reply.ok ? familyMessagesResponseSchema.parse(await reply.json()).messages : null)
+        .catch(() => null);
+      if (inbox && !signal?.aborted) {
+        setMessages(inbox);
+        const unread = inbox.filter((item) => !item.read).map((item) => item.id);
+        if (unread.length) setFresh((current) => new Set([...current, ...unread]));
+      }
     } catch (cause) {
       if (!signal?.aborted) setError(cause instanceof Error ? cause.message : "Could not load your bus information.");
     } finally {
@@ -170,6 +219,28 @@ export function FamilyPortalPage() {
     document.addEventListener("visibilitychange", tick);
     return () => { controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
   }, [load]);
+
+  // Seen on screen for a few seconds counts as read; the office sees the read count.
+  const unreadIds = messages.filter((item) => !item.read).map((item) => item.id).join(",");
+  useEffect(() => {
+    if (!unreadIds || marking.current) return;
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      marking.current = true;
+      void fetch("/api/messages/mine/read", { method: "POST", credentials: "same-origin" })
+        .then((reply) => { if (reply.ok) setMessages((list) => list.map((item) => ({ ...item, read: true }))); })
+        .catch(() => undefined)
+        .finally(() => { marking.current = false; });
+    }, 3_000);
+    return () => window.clearTimeout(timer);
+  }, [unreadIds]);
+
+  const newCount = fresh.size;
+  useEffect(() => {
+    const base = "Bussin";
+    document.title = newCount ? `(${newCount}) ${base}` : base;
+    return () => { document.title = base; };
+  }, [newCount]);
 
   function setBuffer(minutes: number) {
     setBufferState(minutes);
@@ -187,6 +258,7 @@ export function FamilyPortalPage() {
   }
 
   const groups = groupRides(rides);
+  const split = splitMessages(messages, fresh, now);
 
   return <main className="field">
     <header className="ftop">
@@ -195,9 +267,12 @@ export function FamilyPortalPage() {
     </header>
     <h1 className="fh1">Your bus</h1>
     {error && <p className="ferror" role="alert">{error}</p>}
+    {split.top.length > 0 && <section className="fmsgs" aria-label="Messages">
+      {split.top.map((item) => <MessageItem key={item.id} item={item} isNew={fresh.has(item.id)} />)}</section>}
     {loading ? <p className="fsub">Loading your bus…</p>
       : groups.length === 0 ? <section className="fcard"><div className="inner">
         <p className="fline">No bus today</p><p className="fsub">There is no running or upcoming trip for your riders. This page updates by itself.</p></div></section>
         : groups.map((group) => <Card key={group.key} group={group} now={now} buffer={buffer} setBuffer={setBuffer} />)}
+    <EarlierMessages messages={split.earlier} />
   </main>;
 }

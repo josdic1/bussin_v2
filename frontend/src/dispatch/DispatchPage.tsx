@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { createPlannedTripSchema, type BoardTrip, type Bus, type Route } from "@bussin/shared";
-import { message, send } from "../ops/api";
+import { createPlannedTripSchema, riderCoverageSchema, type BoardTrip, type Bus, type RiderCoverage, type Route } from "@bussin/shared";
+import { getJson, message, send } from "../ops/api";
 import { dateLabel, dayName, localDate, plural, shiftDay, time, age, routeWithPeriod } from "../ops/format";
 import {
   busColors, fleetRows, nextEta, severityRank, stopsDone, type Alert, type BusRow
@@ -134,12 +134,24 @@ function alertCard(row: BusRow, alert: Alert, open: (id: string) => void, start:
 }
 
 export function DispatchPage() {
-  const { mode, role, toast } = useOps();
+  const { mode, role, isAdmin, toast } = useOps();
+  const [coverage, setCoverage] = useState<RiderCoverage | null>(null);
   const navigate = useNavigate();
   const today = localDate(new Date());
   const [day, setDay] = useState(today);
   const board = useBoard(day, { routes: true, staff: true });
   const monitor = role === "monitor";
+
+  // Riders with no AM or PM route never show up on a bus, so check the roster directly.
+  useEffect(() => {
+    if (!isAdmin || !monitor) { setCoverage(null); return; }
+    const controller = new AbortController();
+    const load = () => getJson("/api/families/coverage", riderCoverageSchema, controller.signal)
+      .then(setCoverage).catch(() => { /* the card is a helper; the board still works without it */ });
+    void load();
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 60_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [isAdmin, monitor]);
   const check = useCheckBoard(monitor && day === today, 15_000);
   const now = useNow();
   const actions = useTripActions(board.reload, toast);
@@ -212,6 +224,17 @@ export function DispatchPage() {
       cards.push({ key: "ridecheck", sev: "clear", title: "All riders accounted for", pill: "Clear",
         text: "No unresolved rider checks across today's trips.", actions: [{ label: "View Ride Check", run: () => navigate("/check") }] });
     }
+  }
+  if (coverage && coverage.noRoute.length) {
+    const names = coverage.noRoute.map((rider) => rider.name);
+    const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
+    cards.unshift({
+      key: "noroute", sev: "high",
+      title: names.length === 1 ? "1 rider has no bus route" : `${names.length} riders have no bus route`,
+      pill: "Riders",
+      text: `${shown}: no AM or PM stop, so no bus will pick them up.`,
+      actions: [{ label: "Fix in Riders", primary: true, run: () => navigate("/families?attention=1") }]
+    });
   }
   if (!cards.length && !board.loading) {
     cards.push({ key: "none", sev: "clear", title: "Nothing needs you", pill: "Clear", text: "Every bus is on schedule and reporting.", actions: [] });

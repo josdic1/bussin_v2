@@ -120,3 +120,13 @@ details.pd div{padding:0 12px 12px;font-size:11px;color:var(--muted);line-height
 .step{display:flex;border:1px solid var(--green);border-radius:10px;overflow:hidden;flex:none}
 .step button{width:40px;height:38px;border:0;background:#fff;color:var(--green);font-size:18px;font-weight:900}
 .step span{width:58px;display:grid;place-items:center;font-weight:900;font-size:13px;border-left:1px solid var(--green);border-right:1px solid var(--green)}
+
+/* Family messages */
+.fmsgs{margin:0 0 12px}
+.fmsg{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:8px}
+.fmsg.new{border-color:var(--green);box-shadow:inset 4px 0 0 var(--lime)}
+.fmsg-top{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);font-weight:700}
+.fmsg.new .fmsg-top span{color:var(--green)}
+.fmsg p{margin:4px 0 0;font-size:15px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.fmsgs.earlier{margin-top:4px}
+.fmsgs-more{display:block;border:0;background:none;padding:6px 2px 10px;color:var(--muted);font-size:13px;font-weight:800}

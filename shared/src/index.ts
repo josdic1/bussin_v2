@@ -433,6 +433,14 @@ export const riderSchema = z.strictObject({
 });
 
 export const rosterResponseSchema = z.strictObject({ riders: z.array(riderSchema) });
+
+/** Riders the buses will miss: no AM and no PM stop, or only one direction. */
+export const riderCoverageSchema = z.strictObject({
+  noRoute: z.array(z.strictObject({ id: z.string().uuid(), name: z.string() })),
+  amOnly: z.number().int().nonnegative(),
+  pmOnly: z.number().int().nonnegative()
+});
+export type RiderCoverage = z.infer<typeof riderCoverageSchema>;
 export type Rider = z.infer<typeof riderSchema>;
 
 export const addressSearchResponseSchema = z.strictObject({
@@ -680,3 +688,57 @@ export const adminResetCountsSchema = z.strictObject({
 });
 
 export type AdminResetCounts = z.infer<typeof adminResetCountsSchema>;
+
+// ---------------------------------------------------------------------------
+// Family messages: an admin writes, guardians read them in the family portal.
+// ---------------------------------------------------------------------------
+
+export const MESSAGE_MAX_LENGTH = 1000;
+export const messageAudienceSchema = z.enum(["all", "route", "trip", "rider"]);
+export type MessageAudience = z.infer<typeof messageAudienceSchema>;
+
+/** Who a message goes to: everyone, one route (AM and PM), one trip, or one child's guardians. */
+export const messageTargetSchema = z.discriminatedUnion("audience", [
+  z.strictObject({ audience: z.literal("all") }),
+  z.strictObject({ audience: z.literal("route"), routeFamilyId: z.string().uuid() }),
+  z.strictObject({ audience: z.literal("trip"), tripId: z.string().uuid() }),
+  z.strictObject({ audience: z.literal("rider"), riderId: z.string().uuid() })
+]);
+export type MessageTarget = z.infer<typeof messageTargetSchema>;
+
+export const sendMessageInputSchema = z.strictObject({
+  target: messageTargetSchema,
+  body: z.string().trim().min(1).max(MESSAGE_MAX_LENGTH)
+});
+
+export const messageReachSchema = z.strictObject({
+  label: z.string(),
+  guardians: z.number().int().nonnegative(),
+  withLogin: z.number().int().nonnegative()
+});
+export type MessageReach = z.infer<typeof messageReachSchema>;
+
+export const sentMessageSchema = z.strictObject({
+  id: z.string().uuid(),
+  body: z.string(),
+  audience: messageAudienceSchema,
+  audienceLabel: z.string(),
+  sentBy: z.string(),
+  sentAt: z.string(),
+  retractedAt: z.string().nullable(),
+  guardians: z.number().int().nonnegative(),
+  withLogin: z.number().int().nonnegative(),
+  readBy: z.number().int().nonnegative()
+});
+export type SentMessage = z.infer<typeof sentMessageSchema>;
+export const sentMessagesResponseSchema = z.strictObject({ messages: z.array(sentMessageSchema) });
+
+export const familyMessageSchema = z.strictObject({
+  id: z.string().uuid(),
+  body: z.string(),
+  audienceLabel: z.string(),
+  sentAt: z.string(),
+  read: z.boolean()
+});
+export type FamilyMessage = z.infer<typeof familyMessageSchema>;
+export const familyMessagesResponseSchema = z.strictObject({ messages: z.array(familyMessageSchema) });

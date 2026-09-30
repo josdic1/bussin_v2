@@ -28,6 +28,8 @@ export function RoutesPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
+  // The display name follows "<family> <period>" until someone types their own.
+  const [nameEdited, setNameEdited] = useState(false);
   const [familyName, setFamilyName] = useState("");
   const [servicePeriod, setServicePeriod] = useState<"AM" | "PM">("AM");
   const [stopLabel, setStopLabel] = useState("");
@@ -215,8 +217,14 @@ export function RoutesPage() {
     });
   }
 
+  const autoName = familyName.trim() ? `${familyName.trim()} ${servicePeriod}` : "";
+  useEffect(() => {
+    if (!nameEdited) setName(autoName);
+  }, [autoName, nameEdited]);
+
   function cancelEdit() {
     setEditingRouteId(null);
+    setNameEdited(false);
     setName("");
     setFamilyName("");
     setServicePeriod("AM");
@@ -230,6 +238,7 @@ export function RoutesPage() {
   function editRoute(route: Route) {
     setEditingRouteId(route.id);
     setName(route.name);
+    setNameEdited(route.name.trim() !== `${route.routeFamilyName.trim()} ${route.servicePeriod}`);
     setFamilyName(route.routeFamilyName);
     setServicePeriod(route.servicePeriod);
     setStops(route.stops.map(({ id, label, latitude, longitude }) =>
@@ -240,7 +249,7 @@ export function RoutesPage() {
     setMatches([]);
     setError("");
     setNotice("");
-    document.getElementById("route-name")?.focus();
+    document.getElementById("route-family")?.focus();
   }
 
   async function readError(response: Response): Promise<string> {
@@ -385,9 +394,12 @@ export function RoutesPage() {
                   <option value="AM">AM</option><option value="PM">PM</option>
                 </select></div>
             </div>
-            <div className="ctl-row"><label htmlFor="route-name">Route name</label>
-              <input id="route-name" value={name} onChange={(event) => setName(event.target.value)}
-                placeholder="For example, Green AM" maxLength={120} required /></div>
+            <div className="ctl-row"><label htmlFor="route-name">Display name</label>
+              <input id="route-name" value={name} maxLength={120} required placeholder="Fills in from family and period"
+                onChange={(event) => { setName(event.target.value); setNameEdited(event.target.value.trim() !== ""); }} />
+              <span className="hint">{nameEdited
+                ? <>Custom name. <button type="button" className="linkish" onClick={() => setNameEdited(false)}>Use {autoName || "family and period"}</button></>
+                : "Filled in from family and period. Type over it only if you want a different label. Roster imports match on this name."}</span></div>
             <div className="ctl-row"><label htmlFor="stop-name">Next stop name</label>
               <input id="stop-name" value={stopLabel} onChange={(event) => setStopLabel(event.target.value)}
                 placeholder="Name the stop, then place it" maxLength={120} /></div>

@@ -5,7 +5,7 @@ import {
   familyPortalResponseSchema,
   leaveBufferInputSchema,
   guardianInputSchema, guardiansResponseSchema, riderInputSchema,
-  rosterResponseSchema, type Guardian, type Rider
+  riderCoverageSchema, rosterResponseSchema, type Guardian, type Rider
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
@@ -276,6 +276,20 @@ familyRoutes.put("/me/leave-buffer", requireSameOrigin, requireRole("family"), a
 familyRoutes.get("/guardians", requireRole("admin"), async (_request, response) => {
   const result = await pool.query<GuardianRow>(`${guardiansSql} ORDER BY g.name, g.id`);
   response.json(guardiansResponseSchema.parse({ guardians: result.rows.map(guardianFromRow) }));
+});
+
+familyRoutes.get("/coverage", requireRole("admin"), async (_request, response) => {
+  const result = await pool.query<{ id: string; name: string; am: boolean; pm: boolean }>(
+    `SELECT r.id, r.given_name || ' ' || r.family_name AS name,
+            EXISTS (SELECT 1 FROM rider_stop_assignments a WHERE a.rider_id = r.id AND a.direction = 'AM') AS am,
+            EXISTS (SELECT 1 FROM rider_stop_assignments a WHERE a.rider_id = r.id AND a.direction = 'PM') AS pm
+       FROM riders r ORDER BY r.family_name, r.given_name, r.id`
+  );
+  response.json(riderCoverageSchema.parse({
+    noRoute: result.rows.filter((row) => !row.am && !row.pm).map(({ id, name }) => ({ id, name })),
+    amOnly: result.rows.filter((row) => row.am && !row.pm).length,
+    pmOnly: result.rows.filter((row) => !row.am && row.pm).length
+  }));
 });
 
 familyRoutes.get("/roster", requireRole("admin"), async (_request, response) => {
