@@ -28,7 +28,7 @@ const osmStyle: StyleSpecification = {
   layers: [{ id: "osm", type: "raster", source: "osm" }]
 };
 
-const style = import.meta.env.VITE_MAP_STYLE_URL || (import.meta.env.DEV ? osmStyle : null);
+const style = import.meta.env.VITE_MAP_STYLE_URL || osmStyle;
 
 export type MapProps = {
   trips: BoardTrip[];
