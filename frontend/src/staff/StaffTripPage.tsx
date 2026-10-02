@@ -138,10 +138,15 @@ export function StaffTripPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  // Every trip read gets a number; only the newest one may update the screen,
+  // so a slow older response can never roll the trip back.
+  const tripReadSeq = useRef(0);
   const loadTrip = useCallback(async (signal?: AbortSignal) => {
+    const seq = ++tripReadSeq.current;
     const response = await fetch("/api/staff/trip", { credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS, signal) });
     if (!response.ok) throw new Error(await readError(response, "Could not load your trip."));
     const data = staffTripResponseSchema.parse(await response.json());
+    if (seq !== tripReadSeq.current) return;
     setTrip(data.trip);
     setError("");
   }, []);
@@ -385,7 +390,7 @@ export function StaffTripPage() {
       });
       if (!response.ok) throw new Error(await readError(response, "Could not update your trip."));
       const result = tripActionResponseSchema.parse(await response.json());
-      if (result.status === "completed") { setJustCompleted(true); setTrip(null); } else await loadTrip();
+      if (result.status === "completed") { tripReadSeq.current += 1; setJustCompleted(true); setTrip(null); } else await loadTrip();
     } catch (cause) {
       setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message
         : "No answer from Dispatch. Check signal and tap again.");
