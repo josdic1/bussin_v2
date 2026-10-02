@@ -100,6 +100,12 @@ const TRIP_FALLBACK_MS = 30_000;
 const PRESENCE_MS = 20_000;
 const EARLY_START_WARNING_MS = 10 * 60_000;
 const MANUAL_DEPART_AFTER_MS = 30_000;
+// Phone-use safety: big buttons lock while the bus moves (about 7 mph and up)
+// and unlock once it slows under about 3 mph. Auto-detect covers stops meanwhile.
+const MOVING_LOCK_MPS = 3;
+const MOVING_UNLOCK_MPS = 1.3;
+// If GPS goes quiet, never leave the buttons locked: they are the fallback.
+const MOVING_LOCK_MAX_FIX_AGE_MS = 15_000;
 
 /**
  * The staff phone. GPS and screen wake lock start as soon as the screen opens;
@@ -121,6 +127,8 @@ export function StaffTripPage() {
   const [dispatch, setDispatch] = useState<{ state: "idle" | "live" | "queued" | "error"; at: number | null; queued: number; note: string }>(
     { state: "idle", at: null, queued: 0, note: "" });
   const [autoPaused, setAutoPaused] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const movingRef = useRef(false);
   const autoFailures = useRef(0);
   const [awake, setAwake] = useState<"yes" | "tap" | "unsupported">("tap");
   const [now, setNow] = useState(() => Date.now());
@@ -271,6 +279,17 @@ export function StaffTripPage() {
       latitude: position.coords.latitude, longitude: position.coords.longitude,
       accuracy: position.coords.accuracy, observedAt: position.timestamp || Date.now()
     };
+    // Speed from the phone, or worked out from the last fix when the phone gives none.
+    const before = fixRef.current;
+    let speed: number | null = position.coords.speed !== null && position.coords.speed >= 0 ? position.coords.speed : null;
+    if (speed === null && before && next.accuracy <= 35 && before.accuracy <= 35) {
+      const seconds = (next.observedAt - before.observedAt) / 1000;
+      if (seconds >= 0.5 && seconds <= 15) speed = distanceMeters(before, next) / seconds;
+    }
+    if (speed !== null) {
+      if (!movingRef.current && speed >= MOVING_LOCK_MPS) { movingRef.current = true; setMoving(true); }
+      else if (movingRef.current && speed <= MOVING_UNLOCK_MPS) { movingRef.current = false; setMoving(false); }
+    }
     fixRef.current = next;
     lastPosition.current = position;
     setFix(next);
@@ -437,6 +456,8 @@ export function StaffTripPage() {
         ? { text: "GPS stopped updating. Keep Bussin open and on screen.", button: "Restart GPS", run: startGps }
         : null;
 
+  const locked = moving && !!fix && now - fix.observedAt < MOVING_LOCK_MAX_FIX_AGE_MS;
+  const LOCKED_TEXT = "Stop the bus to tap";
   const finalStop = trip?.stops.at(-1) ?? null;
   const nextStop = active ? trip!.stops.find((stop) => !stop.departedAt) ?? null : null;
   const nextIndex = nextStop ? trip!.stops.indexOf(nextStop) : -1;
@@ -462,12 +483,12 @@ export function StaffTripPage() {
       ? <div className="pconfirm">Scheduled for {clock(trip.departureAt)}. Start {Math.ceil(until / 60_000)} minutes early?
         <div><button type="button" onClick={() => setConfirming(null)}>Go back</button>
           <button type="button" className="pri" disabled={pending} onClick={() => void act("start")}>Start now</button></div></div>
-      : <button type="button" className="bigbtn dark" disabled={pending}
-        onClick={() => until > EARLY_START_WARNING_MS ? setConfirming("start") : void act("start")}>{pending ? "Starting…" : "Start trip"}</button>;
+      : <button type="button" className="bigbtn dark" disabled={pending || locked}
+        onClick={() => until > EARLY_START_WARNING_MS ? setConfirming("start") : void act("start")}>{locked ? LOCKED_TEXT : pending ? "Starting…" : "Start trip"}</button>;
   } else if (readyToComplete) {
     hero = <div className="hero"><span className="ov">LAST STOP · {trip.stops.length} OF {trip.stops.length}</span><h2>{finalStop!.label}</h2>
       <div className="big">Arrived<small>{clock(finalStop!.arrivedAt!)}</small></div><p>Everyone off? Finish the trip to free the bus.</p></div>;
-    primary = <button type="button" className="bigbtn" disabled={pending} onClick={() => void act("complete")}>{pending ? "Finishing…" : "Finish trip"}</button>;
+    primary = <button type="button" className="bigbtn" disabled={pending || locked} onClick={() => void act("complete")}>{locked ? LOCKED_TEXT : pending ? "Finishing…" : "Finish trip"}</button>;
   } else if (nextStop?.arrivedAt) {
     const dwell = now - Date.parse(nextStop.arrivedAt);
     const departing = progress && progress.stopId === nextStop.id && progress.phase === "confirming_departure" ? progress : null;
@@ -481,9 +502,9 @@ export function StaffTripPage() {
       ? <div className="pconfirm">Undo arrival at {nextStop.label}? The original stays in the log as corrected.
         <div><button type="button" onClick={() => setConfirming(null)}>Go back</button>
           <button type="button" className="pri" disabled={pending} onClick={() => void act("undo_arrival", nextStop.id)}>Undo arrival</button></div></div>
-      : <>{dwell >= MANUAL_DEPART_AFTER_MS && <button type="button" className="bigbtn out" disabled={pending}
-        onClick={() => void act("depart", nextStop.id)}>Leaving now</button>}
-        <button type="button" className="textbtn" onClick={() => setConfirming("undo")}>Not here yet? Undo arrival</button></>;
+      : <>{dwell >= MANUAL_DEPART_AFTER_MS && <button type="button" className="bigbtn out" disabled={pending || locked}
+        onClick={() => void act("depart", nextStop.id)}>{locked ? LOCKED_TEXT : "Leaving now"}</button>}
+        {!locked && <button type="button" className="textbtn" onClick={() => setConfirming("undo")}>Not here yet? Undo arrival</button>}</>;
   } else if (nextStop) {
     hero = <div className="hero"><span className="ov">NEXT STOP · {nextIndex + 1} OF {trip.stops.length}</span><h2>{nextStop.label}</h2>
       {confirmingArrival
@@ -495,8 +516,8 @@ export function StaffTripPage() {
       <p>{progress?.phase === "rearming" && progress.stopId === nextStop.id
         ? "Arrival was undone. Drive out of the stop area and auto-arrival turns back on."
         : "Arrival records itself when you stop at the pickup."}</p></div>;
-    primary = <button type="button" className="bigbtn out" disabled={pending} onClick={() => void act("arrive", nextStop.id)}>
-      {pending ? "Saving…" : `Arrived at ${nextStop.label}`}</button>;
+    primary = <button type="button" className="bigbtn out" disabled={pending || locked} onClick={() => void act("arrive", nextStop.id)}>
+      {locked ? LOCKED_TEXT : pending ? "Saving…" : `Arrived at ${nextStop.label}`}</button>;
   }
 
   return <main className="field">
