@@ -62,6 +62,34 @@ const GPS_POLL_MS = 6_000;
 const UPLOAD_RETRY_MS = 3_000;
 // About 15 minutes of fixes: a dead zone never loses an arrival.
 const UPLOAD_QUEUE_MAX = 900;
+const QUEUE_STORAGE_KEY = "bussin-gps-queue";
+const QUEUE_KEEP_MS = 15 * 60_000;
+
+/** Unsent fixes live on the phone so closing, crashing or reloading Bussin never loses them. */
+function loadSavedQueue(): Sample[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Date.now() - QUEUE_KEEP_MS;
+    return parsed.flatMap((item) => {
+      const sample = staffLocationSampleInputSchema.safeParse(item);
+      return sample.success && Date.parse(sample.data.observedAt) > cutoff ? [sample.data] : [];
+    }).slice(-UPLOAD_QUEUE_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveQueue(samples: Sample[]) {
+  try {
+    if (samples.length) localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(samples));
+    else localStorage.removeItem(QUEUE_STORAGE_KEY);
+  } catch {
+    // Storage full or blocked: the in-memory queue still works while the app stays open.
+  }
+}
 const TRIP_FALLBACK_MS = 30_000;
 const PRESENCE_MS = 20_000;
 const EARLY_START_WARNING_MS = 10 * 60_000;
@@ -95,7 +123,7 @@ export function StaffTripPage() {
   const lastPosition = useRef<GeolocationPosition | null>(null);
   const watchId = useRef<number | null>(null);
   const pollTimer = useRef<number | null>(null);
-  const queue = useRef<Sample[]>([]);
+  const queue = useRef<Sample[]>(loadSavedQueue());
   const flushing = useRef(false);
   const retryTimer = useRef<number | null>(null);
   const lastUpload = useRef(0);
@@ -177,11 +205,19 @@ export function StaffTripPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(sample)
         });
-        if (response.status === 409) { queue.current = []; refresh(); break; }
+        if (response.status === 409) {
+          // That trip is over or reassigned: drop only its fixes, keep any for the current trip.
+          queue.current = queue.current.filter((item) => item.tripId !== sample.tripId);
+          saveQueue(queue.current);
+          refresh();
+          continue;
+        }
         if (!response.ok) throw new Error(await readError(response, "Could not send location to Dispatch."));
         const result = staffLocationSampleResponseSchema.parse(await response.json());
         const header = response.headers.get("X-Bussin-Journey-Progress");
-        queue.current.shift();
+        // Remove exactly the fix the server confirmed, even if the queue was trimmed meanwhile.
+        queue.current = queue.current.filter((item) => item.clientSampleId !== sample.clientSampleId);
+        saveQueue(queue.current);
         lastUpload.current = Date.now();
         if (result.accepted) {
           const parsed = header ? staffJourneyProgressSchema.safeParse(JSON.parse(decodeURIComponent(header))) : null;
@@ -240,6 +276,7 @@ export function StaffTripPage() {
     if (!sample.success) return;
     queue.current.push(sample.data);
     if (queue.current.length > UPLOAD_QUEUE_MAX) queue.current.splice(0, queue.current.length - UPLOAD_QUEUE_MAX);
+    saveQueue(queue.current);
     void flush();
   }, [flush]);
 
@@ -283,6 +320,8 @@ export function StaffTripPage() {
   useEffect(() => {
     startGps();
     void requestWake();
+    // Fixes saved before the app was closed or reloaded go out as soon as it reopens.
+    if (queue.current.length) void flush();
     const watchdog = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       const last = fixRef.current?.observedAt ?? 0;
