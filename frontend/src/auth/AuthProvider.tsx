@@ -44,11 +44,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const controller = new AbortController();
+    let retryTimer: number | null = null;
 
+    // A redeploy or dead zone must not strand the phone: keep retrying every
+    // 3s, show "can't connect" meanwhile, and clear it the moment the server answers.
     async function loadSession() {
+      const attempt = new AbortController();
+      const stop = () => attempt.abort();
+      controller.signal.addEventListener("abort", stop);
+      const attemptTimeout = window.setTimeout(stop, 10_000);
       try {
         const response = await fetch("/api/auth/me", {
-          signal: controller.signal,
+          signal: attempt.signal,
           credentials: "same-origin"
         });
 
@@ -62,15 +69,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           throw await responseError(response);
         }
+        setLoadError(null);
       } catch {
         if (!controller.signal.aborted) {
-          setLoadError("Cannot connect to the Bussin server.");
+          setLoadError("Cannot reach the Bussin server. Retrying...");
+          retryTimer = window.setTimeout(() => void loadSession(), 3_000);
         }
+      } finally {
+        window.clearTimeout(attemptTimeout);
+        controller.signal.removeEventListener("abort", stop);
       }
     }
 
     void loadSession();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
   }, []);
 
   async function login(identity: string, password: string) {

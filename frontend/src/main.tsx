@@ -22,3 +22,10 @@ createRoot(root).render(
     </ErrorBoundary>
   </StrictMode>
 );
+
+// Cache the app shell so a server blip never leaves a white screen on launch.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+  });
+}
