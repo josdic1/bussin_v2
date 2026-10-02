@@ -354,8 +354,11 @@ staffRoutes.post(
       transition: null,
       progress: null
     };
+    let journeyFailed = false;
     const journeyClient = await pool.connect();
     try {
+      // Test hook only: lets the browser test prove the phone shows a failure.
+      if (process.env.BUSSIN_TEST_FAIL_JOURNEY === "1") throw new Error("Test: journey automation disabled");
       await journeyClient.query("BEGIN");
       await journeyClient.query("SET LOCAL lock_timeout = '3s'");
       journeyResult = await applyJourneyFromGps(journeyClient, {
@@ -365,11 +368,14 @@ staffRoutes.post(
       await journeyClient.query("COMMIT");
     } catch (error) {
       await journeyClient.query("ROLLBACK").catch(() => undefined);
+      journeyFailed = true;
       console.error("Journey GPS automation failed; manual trip controls remain available.", error);
     } finally {
       journeyClient.release();
     }
 
+    // A header, not a body field: phones running an older copy ignore it safely.
+    if (journeyFailed) response.setHeader("X-Bussin-Journey-Error", "1");
     if (journeyResult.progress) {
       response.setHeader(
         "X-Bussin-Journey-Progress",

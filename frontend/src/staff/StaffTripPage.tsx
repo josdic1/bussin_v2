@@ -114,6 +114,8 @@ export function StaffTripPage() {
   const [online, setOnline] = useState(() => navigator.onLine);
   const [dispatch, setDispatch] = useState<{ state: "idle" | "live" | "queued" | "error"; at: number | null; queued: number; note: string }>(
     { state: "idle", at: null, queued: 0, note: "" });
+  const [autoPaused, setAutoPaused] = useState(false);
+  const autoFailures = useRef(0);
   const [awake, setAwake] = useState<"yes" | "tap" | "unsupported">("tap");
   const [now, setNow] = useState(() => Date.now());
 
@@ -220,6 +222,10 @@ export function StaffTripPage() {
         saveQueue(queue.current);
         lastUpload.current = Date.now();
         if (result.accepted) {
+          // Three failed automation checks in a row means auto-detect is down: tell the driver.
+          if (response.headers.get("X-Bussin-Journey-Error") === "1") autoFailures.current += 1;
+          else autoFailures.current = 0;
+          setAutoPaused(autoFailures.current >= 3);
           const parsed = header ? staffJourneyProgressSchema.safeParse(JSON.parse(decodeURIComponent(header))) : null;
           setProgress(parsed?.success ? parsed.data : null);
           if (result.journey) {
@@ -490,6 +496,7 @@ export function StaffTripPage() {
     </div>
     {problem && <div className="fproblem"><p>{problem.text}</p><button type="button" onClick={problem.run}>{problem.button}</button></div>}
     {error && <p className="ferror" role="alert">{error}</p>}
+    {autoPaused && active && <p className="ferror" role="alert">Auto-detect is paused. Tap Arrived and Leaving now yourself. Dispatch still sees your GPS.</p>}
     {notice && <div className="pnote" role="status">
       <span>{notice.action === "arrived" ? "Arrived" : "Left"} {notice.stopLabel} automatically</span>
       <button type="button" onClick={() => setNotice(null)}>OK</button></div>}
