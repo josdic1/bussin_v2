@@ -13,6 +13,7 @@ import { useTripActions } from "../ops/useTripActions";
 import { alerts as checkAlerts, counts } from "../check/checkModel";
 import { useCheckBoard } from "../check/useCheckBoard";
 import { TripDetail, TripPill } from "./TripDetail";
+import { useAttentionSignal } from "./attentionSignal";
 
 const DispatchMap = lazy(async () => ({ default: (await import("./DispatchMap")).DispatchMap }));
 
@@ -206,6 +207,7 @@ export function DispatchPage() {
   const stale = rows.filter((row) => row.status === "GPS STALE").length;
   const aboard = check.trips.filter((trip) => trip.status === "active").reduce((sum, trip) => sum + counts(trip).aboard, 0);
   const high = attention.filter((row) => row.alerts.some((alert) => alert.sev === "high")).length;
+  useAttentionSignal(day === today ? high : 0);
 
   const cards: Card[] = attention.map((row) => alertCard(row, row.alerts[0], openTrip, (trip) => actions.request(trip, "start")));
   if (monitor && day === today) {
