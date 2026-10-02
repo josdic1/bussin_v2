@@ -16,6 +16,8 @@ export async function applyTripAction(
     actorId: string;
     assignedStaffMemberId?: string;
     eventNote?: string;
+    /** When the event really happened (GPS evidence time). Defaults to now. */
+    occurredAt?: Date;
   }
 ): Promise<TripActionOutcome> {
   const trip = await client.query<{
@@ -184,15 +186,16 @@ export async function applyTripAction(
   if (update) await client.query(update, [input.tripId]);
   await client.query(
     `INSERT INTO trip_events (
-       trip_id, event_type, trip_stop_id, recorded_by, note, replaces_event_id
-     ) VALUES ($1, $2, $3, $4, $5, $6)`,
+       trip_id, event_type, trip_stop_id, recorded_by, note, replaces_event_id, occurred_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE(LEAST($7::timestamptz, now()), now()))`,
     [
       input.tripId,
       eventType!,
       stopId,
       input.actorId,
       input.action.type === "undo_arrival" ? "staff:undo-arrival" : input.eventNote ?? null,
-      replacementEventId
+      replacementEventId,
+      input.occurredAt ?? null
     ]
   );
 

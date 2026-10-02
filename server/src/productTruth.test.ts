@@ -118,7 +118,7 @@ test("GPS quality policy classifies stale, future, and inaccurate fixes", () => 
   const now = Date.parse("2026-09-24T18:00:00.000Z");
 
   assert.equal(locationSampleRejectionReason({
-    observedAt: "2026-09-24T17:58:59.000Z",
+    observedAt: "2026-09-24T17:44:59.000Z",
     accuracyM: 12
   }, now), "stale");
 
@@ -601,7 +601,7 @@ test("database protects Bussin product truth", async (t) => {
       await expectDatabaseError(client, "P0001", () => client.query(
         `INSERT INTO trip_location_samples
            (trip_id, member_id, client_sample_id, observed_at, latitude, longitude, accuracy_m)
-         VALUES ($1, $2, gen_random_uuid(), clock_timestamp() - interval '2 minutes',
+         VALUES ($1, $2, gen_random_uuid(), clock_timestamp() - interval '16 minutes',
                  40.75, -74.25, 12)`,
         [trip.rows[0].id, staff.rows[0].id]
       ));

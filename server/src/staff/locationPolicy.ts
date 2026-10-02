@@ -1,4 +1,5 @@
-export const MAX_LOCATION_AGE_MS = 60_000;
+// Fixes saved on the phone through a dead zone arrive late; keep them (matches migration 030).
+export const MAX_LOCATION_AGE_MS = 15 * 60_000;
 export const MAX_LOCATION_FUTURE_SKEW_MS = 30_000;
 export const MAX_LOCATION_ACCURACY_M = 100;
 

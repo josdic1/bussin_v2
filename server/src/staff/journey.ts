@@ -301,7 +301,8 @@ export async function applyJourneyFromGps(
       actorId: input.actorId,
       assignedStaffMemberId: input.actorId,
       action: { type: "arrive", stopId: next.id },
-      eventNote: "journey:gps"
+      eventNote: "journey:gps",
+      occurredAt: evidence[0].observedAt
     });
     return outcome.ok
       ? {
@@ -357,7 +358,8 @@ export async function applyJourneyFromGps(
     actorId: input.actorId,
     assignedStaffMemberId: input.actorId,
     action: { type: "depart", stopId: next.id },
-    eventNote: "journey:gps"
+    eventNote: "journey:gps",
+    occurredAt: evidence[0].observedAt
   });
   return outcome.ok
     ? {

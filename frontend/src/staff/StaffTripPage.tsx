@@ -60,7 +60,8 @@ const GPS_STALE_MS = 45_000;
 const GPS_WATCHDOG_MS = 8_000;
 const GPS_POLL_MS = 6_000;
 const UPLOAD_RETRY_MS = 3_000;
-const UPLOAD_QUEUE_MAX = 20;
+// About 15 minutes of fixes: a dead zone never loses an arrival.
+const UPLOAD_QUEUE_MAX = 900;
 const TRIP_FALLBACK_MS = 30_000;
 const PRESENCE_MS = 20_000;
 const EARLY_START_WARNING_MS = 10 * 60_000;
@@ -116,7 +117,11 @@ export function StaffTripPage() {
   }, []);
 
   const refresh = useCallback(() => {
-    void loadTrip().catch((cause) => setError(cause instanceof Error ? cause.message : "Could not refresh your trip."));
+    void loadTrip().catch((cause) => {
+      const network = !navigator.onLine || (cause instanceof Error && (cause.name === "AbortError" || cause.name === "TypeError"));
+      setError(network ? "Can't reach Dispatch right now. GPS is saved on the phone and sends when the connection is back."
+        : cause instanceof Error ? cause.message : "Could not refresh your trip.");
+    });
   }, [loadTrip]);
 
   // Trip: server pushes a "trip" event on real changes; a slow poll covers dropped streams.
@@ -360,7 +365,7 @@ export function StaffTripPage() {
     : awake === "unsupported" ? ["warn", "SCREEN", "Keep it on"] : ["warn", "SCREEN", "Tap to keep on"];
   const active = trip?.status === "active";
   const dispatchView: [string, string, string] = !active ? ["", "DISPATCH", "Connected"]
-    : !online ? ["warn", "DISPATCH", `${dispatch.queued} queued`]
+    : !online ? ["warn", "DISPATCH", `No signal · ${dispatch.queued} saved`]
       : dispatch.state === "error" ? ["bad", "DISPATCH", "Retrying"]
         : dispatch.at ? ["", "DISPATCH", `Sent ${Math.max(0, Math.round((now - dispatch.at) / 1000))}s ago`]
           : ["warn", "DISPATCH", "Waiting for GPS"];
