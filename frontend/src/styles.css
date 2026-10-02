@@ -9,6 +9,8 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--cream)}
+/* Mobile stability: no text inflation on rotate, no double-tap zoom on fast taps. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--green);outline-offset:2px}
@@ -16,7 +18,7 @@ button{cursor:pointer}
 .hint{font-size:12px;color:var(--muted)}
 
 /* ---------- sign in ---------- */
-.auth-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--cream)}
+.auth-screen{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--cream)}
 .auth-card{width:min(100%,420px);padding:32px;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:0 18px 50px rgba(23,56,44,.08)}
 .auth-brand{display:grid;place-items:center;width:44px;height:44px;margin-bottom:28px;border-radius:13px;background:var(--green);color:var(--lime);font-size:22px;font-weight:900}
 .auth-card h1{margin:8px 0 6px;font-size:32px;letter-spacing:-.045em}
@@ -31,7 +33,7 @@ button{cursor:pointer}
 .auth-error{margin:10px 0 0;padding:10px 12px;border-radius:10px;border:1px solid var(--badline);background:var(--badbg);color:var(--bad);font-size:13px;font-weight:700}
 
 /* ---------- field screens (driver phone, family portal) ---------- */
-.field{max-width:520px;margin:0 auto;padding:10px 14px 40px;min-height:100vh}
+.field{max-width:520px;margin:0 auto;padding:10px 14px 96px;min-height:100vh;min-height:100dvh}
 .ftop{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 2px 12px}
 .ftop .wm{font-weight:900;letter-spacing:.12em;font-size:12px}
 .ftop .wm span{display:block;font-size:11px;letter-spacing:0;color:var(--muted);font-weight:700;margin-top:2px}
@@ -51,7 +53,7 @@ button{cursor:pointer}
 .hero{background:var(--green);color:#fff;padding:16px;border-radius:16px;margin-bottom:10px}
 .hero .ov{font-size:9px;font-weight:900;letter-spacing:.16em;color:#a9c7b4}
 .hero h2{margin:6px 0 2px;font-size:28px;letter-spacing:-.03em;line-height:1.05}
-.hero p{margin:6px 0 0;color:#cfe0d5;font-size:13px;line-height:1.4}
+.hero p{margin:6px 0 0;color:#cfe0d5;font-size:13px;line-height:1.4;min-height:2.8em}
 .hero .big{font-size:42px;font-weight:900;letter-spacing:-.04em;margin:8px 0 0;font-variant-numeric:tabular-nums}
 .hero .big small{font-size:14px;font-weight:700;color:#a9c7b4;margin-left:6px;letter-spacing:0}
 .hero .prog{height:8px;background:rgba(255,255,255,.18);border-radius:9px;margin:12px 0 6px;overflow:hidden}
@@ -130,3 +132,11 @@ details.pd div{padding:0 12px 12px;font-size:11px;color:var(--muted);line-height
 .fmsg p{margin:4px 0 0;font-size:15px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
 .fmsgs.earlier{margin-top:4px}
 .fmsgs-more{display:block;border:0;background:none;padding:6px 2px 10px;color:var(--muted);font-size:13px;font-weight:800}
+
+/* Driver screen: transient messages float at the bottom instead of pushing the screen down. */
+.ftoasts{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;gap:8px;max-width:520px;margin:0 auto;padding:0 14px calc(12px + env(safe-area-inset-bottom));pointer-events:none}
+.ftoasts>*{pointer-events:auto;margin:0;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+/* Reserved space: the hero keeps one height whether or not a check is running. */
+.hero .waiting{opacity:.55}
+/* iPhone zooms into any text box under 16px and stays zoomed. */
+@media (max-width:760px){input,select,textarea{font-size:16px!important}}

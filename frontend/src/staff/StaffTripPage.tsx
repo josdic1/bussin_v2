@@ -120,6 +120,11 @@ export function StaffTripPage() {
   const [confirming, setConfirming] = useState<null | "start" | "undo">(null);
   const [justCompleted, setJustCompleted] = useState(false);
   const [notice, setNotice] = useState<{ action: "arrived" | "departed"; stopId: string; stopLabel: string } | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   const [progress, setProgress] = useState<StaffJourneyProgress | null>(null);
   const [fix, setFix] = useState<Fix | null>(null);
   const [gps, setGps] = useState<GpsState>("starting");
@@ -494,30 +499,40 @@ export function StaffTripPage() {
     const departing = progress && progress.stopId === nextStop.id && progress.phase === "confirming_departure" ? progress : null;
     hero = <div className="hero"><span className="ov">AT STOP · {nextIndex + 1} OF {trip.stops.length}</span><h2>{nextStop.label}</h2>
       <div className="big">{mmss(dwell)}<small>at stop</small></div>
-      {departing && <><div className="prog"><b style={{ width: `${Math.round(Math.min(1, departing.qualifyingSpanSeconds / departing.requiredSpanSeconds) * 100)}%` }} /></div>
-        <div className="pl"><span>Checking departure · {departing.distanceM} m out</span>
-          <span>about {Math.max(0, Math.ceil(departing.requiredSpanSeconds - departing.qualifyingSpanSeconds))}s</span></div></>}
+      <div className={departing ? "" : "waiting"}>
+        <div className="prog"><b style={{ width: departing ? `${Math.round(Math.min(1, departing.qualifyingSpanSeconds / departing.requiredSpanSeconds) * 100)}%` : "0%" }} /></div>
+        <div className="pl">{departing
+          ? <><span>Checking departure · {departing.distanceM} m out</span>
+            <span>about {Math.max(0, Math.ceil(departing.requiredSpanSeconds - departing.qualifyingSpanSeconds))}s</span></>
+          : <span>Auto-departure ready</span>}</div></div>
       <p>Departure records itself when you drive off.{trip.stops[nextIndex + 1] ? ` Next: ${trip.stops[nextIndex + 1].label}.` : ""}</p></div>;
     primary = confirming === "undo"
       ? <div className="pconfirm">Undo arrival at {nextStop.label}? The original stays in the log as corrected.
         <div><button type="button" onClick={() => setConfirming(null)}>Go back</button>
           <button type="button" className="pri" disabled={pending} onClick={() => void act("undo_arrival", nextStop.id)}>Undo arrival</button></div></div>
-      : <>{dwell >= MANUAL_DEPART_AFTER_MS && <button type="button" className="bigbtn out" disabled={pending || locked}
-        onClick={() => void act("depart", nextStop.id)}>{locked ? LOCKED_TEXT : "Leaving now"}</button>}
-        {!locked && <button type="button" className="textbtn" onClick={() => setConfirming("undo")}>Not here yet? Undo arrival</button>}</>;
+      : <><button type="button" className="bigbtn out" disabled={pending || locked || dwell < MANUAL_DEPART_AFTER_MS}
+        onClick={() => void act("depart", nextStop.id)}>{locked ? LOCKED_TEXT : dwell < MANUAL_DEPART_AFTER_MS
+          ? `Leaving now (in ${Math.ceil((MANUAL_DEPART_AFTER_MS - dwell) / 1000)}s)` : "Leaving now"}</button>
+        <button type="button" className="textbtn" disabled={locked} style={locked ? { visibility: "hidden" } : undefined}
+          onClick={() => setConfirming("undo")}>Not here yet? Undo arrival</button></>;
   } else if (nextStop) {
     hero = <div className="hero"><span className="ov">NEXT STOP · {nextIndex + 1} OF {trip.stops.length}</span><h2>{nextStop.label}</h2>
       {confirmingArrival
-        ? <><div className="big">{confirmingArrival.distanceM} m<small>checking arrival</small></div>
-          <div className="prog"><b style={{ width: `${Math.round(Math.min(1, confirmingArrival.qualifyingSpanSeconds / confirmingArrival.requiredSpanSeconds) * 100)}%` }} /></div>
-          <div className="pl"><span>GPS checks {Math.min(confirmingArrival.qualifyingFixes, confirmingArrival.requiredFixes)} of {confirmingArrival.requiredFixes}</span>
-            <span>about {Math.max(0, Math.ceil(confirmingArrival.requiredSpanSeconds - confirmingArrival.qualifyingSpanSeconds))}s</span></div></>
+        ? <div className="big">{confirmingArrival.distanceM} m<small>checking arrival</small></div>
         : <div className="big">{distance === null ? "…" : distanceText(distance)}<small>{distance === null ? "waiting for GPS" : "away"}</small></div>}
+      <div className={confirmingArrival ? "" : "waiting"}>
+        <div className="prog"><b style={{ width: confirmingArrival ? `${Math.round(Math.min(1, confirmingArrival.qualifyingSpanSeconds / confirmingArrival.requiredSpanSeconds) * 100)}%` : "0%" }} /></div>
+        <div className="pl">{confirmingArrival
+          ? <><span>GPS checks {Math.min(confirmingArrival.qualifyingFixes, confirmingArrival.requiredFixes)} of {confirmingArrival.requiredFixes}</span>
+            <span>about {Math.max(0, Math.ceil(confirmingArrival.requiredSpanSeconds - confirmingArrival.qualifyingSpanSeconds))}s</span></>
+          : <span>Auto-arrival ready</span>}</div></div>
       <p>{progress?.phase === "rearming" && progress.stopId === nextStop.id
         ? "Arrival was undone. Drive out of the stop area and auto-arrival turns back on."
         : "Arrival records itself when you stop at the pickup."}</p></div>;
-    primary = <button type="button" className="bigbtn out" disabled={pending || locked} onClick={() => void act("arrive", nextStop.id)}>
-      {locked ? LOCKED_TEXT : pending ? "Saving…" : `Arrived at ${nextStop.label}`}</button>;
+    primary = <><button type="button" className="bigbtn out" disabled={pending || locked} onClick={() => void act("arrive", nextStop.id)}>
+      {locked ? LOCKED_TEXT : pending ? "Saving…" : `Arrived at ${nextStop.label}`}</button>
+      {/* Same height as the at-stop screen's undo link, so the list below never jumps. */}
+      <button type="button" className="textbtn" tabIndex={-1} aria-hidden="true" disabled style={{ visibility: "hidden" }}>Not here yet? Undo arrival</button></>;
   }
 
   return <main className="field">
@@ -530,11 +545,13 @@ export function StaffTripPage() {
         <i /><span>{label}<small>{detail}</small></span></div>)}
     </div>
     {problem && <div className="fproblem"><p>{problem.text}</p><button type="button" onClick={problem.run}>{problem.button}</button></div>}
-    {error && <p className="ferror" role="alert">{error}</p>}
-    {autoPaused && active && <p className="ferror" role="alert">Auto-detect is paused. Tap Arrived and Leaving now yourself. Dispatch still sees your GPS.</p>}
-    {notice && <div className="pnote" role="status">
-      <span>{notice.action === "arrived" ? "Arrived" : "Left"} {notice.stopLabel} automatically</span>
-      <button type="button" onClick={() => setNotice(null)}>OK</button></div>}
+    <div className="ftoasts">
+      {notice && <div className="pnote" role="status">
+        <span>{notice.action === "arrived" ? "Arrived" : "Left"} {notice.stopLabel} automatically</span>
+        <button type="button" onClick={() => setNotice(null)}>OK</button></div>}
+      {autoPaused && active && <p className="ferror" role="alert">Auto-detect is paused. Tap Arrived and Leaving now yourself. Dispatch still sees your GPS.</p>}
+      {error && <p className="ferror" role="alert">{error}</p>}
+    </div>
     {hero}
     {primary}
     {trip && trip.stops.length > 0 && <>
