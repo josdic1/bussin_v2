@@ -28,6 +28,12 @@ function timeoutSignal(ms: number, outer?: AbortSignal): AbortSignal {
 }
 const REQUEST_TIMEOUT_MS = 10_000;
 
+/** No signal, a timeout or a dropped connection: never show the driver raw browser text. */
+function isConnectionProblem(cause: unknown): boolean {
+  return !navigator.onLine || (cause instanceof Error && (cause.name === "AbortError" || cause.name === "TypeError"));
+}
+const NO_CONNECTION = "Can't reach Dispatch right now. GPS is saved on the phone and sends when the connection is back.";
+
 const clock = (value: string | number) => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 const clockSeconds = (value: number) => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(value));
 
@@ -153,8 +159,7 @@ export function StaffTripPage() {
 
   const refresh = useCallback(() => {
     void loadTrip().catch((cause) => {
-      const network = !navigator.onLine || (cause instanceof Error && (cause.name === "AbortError" || cause.name === "TypeError"));
-      setError(network ? "Can't reach Dispatch right now. GPS is saved on the phone and sends when the connection is back."
+      setError(isConnectionProblem(cause) ? NO_CONNECTION
         : cause instanceof Error ? cause.message : "Could not refresh your trip.");
     });
   }, [loadTrip]);
@@ -163,7 +168,8 @@ export function StaffTripPage() {
   useEffect(() => {
     const controller = new AbortController();
     void loadTrip(controller.signal).catch((cause) => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load your trip.");
+      if (!controller.signal.aborted) setError(isConnectionProblem(cause) ? NO_CONNECTION
+        : cause instanceof Error ? cause.message : "Could not load your trip.");
     });
     const source = new EventSource("/api/staff/live");
     source.addEventListener("ready", refresh);
@@ -246,7 +252,9 @@ export function StaffTripPage() {
       }
     } catch (cause) {
       setDispatch((current) => ({ ...current, state: navigator.onLine ? "error" : "queued", queued: queued(),
-        note: cause instanceof Error && cause.name !== "AbortError" ? `${cause.message} Retrying.` : "Dispatch did not answer. Retrying." }));
+        note: isConnectionProblem(cause)
+          ? `Can't reach Dispatch. ${queued()} GPS fixes saved on the phone; they send automatically.`
+          : cause instanceof Error ? `${cause.message} Retrying automatically.` : "Upload failed. Retrying automatically." }));
       scheduleRetry();
     } finally {
       flushing.current = false;
@@ -392,9 +400,10 @@ export function StaffTripPage() {
       const result = tripActionResponseSchema.parse(await response.json());
       if (result.status === "completed") { tripReadSeq.current += 1; setJustCompleted(true); setTrip(null); } else await loadTrip();
     } catch (cause) {
-      setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message
-        : "No answer from Dispatch. Check signal and tap again.");
-      refresh();
+      // Connection problem: say so plainly. The tap may not have saved, so ask for it again.
+      setError(isConnectionProblem(cause) ? "Can't reach Dispatch, so that tap may not have saved. Check signal and tap again."
+        : cause instanceof Error ? cause.message : "Could not update your trip. Tap again.");
+      if (!isConnectionProblem(cause)) refresh();
     } finally {
       setPending(false);
     }
