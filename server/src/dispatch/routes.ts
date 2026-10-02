@@ -867,7 +867,10 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
         occurredAt: event.occurredAt.toISOString(),
         stopLabel: event.stopLabel,
         method: event.type === "arrived_stop" || event.type === "departed_stop"
-          ? method(event.note) : null,
+          ? method(event.note)
+          : event.type === "completed"
+            ? event.note === "auto:finished-after-final-stop" ? "automatic" as const : "manual" as const
+            : null,
         replaced: event.replaced,
         recordedBy: event.recordedBy
       })),

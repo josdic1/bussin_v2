@@ -16,6 +16,7 @@ import { pool } from "./db/pool.js";
 import { closeListener } from "./db/listen.js";
 import { frontendStatic, securityHeaders } from "./http.js";
 import { closeAllStreams } from "./sse.js";
+import { startAutoFinish } from "./trips/autoFinish.js";
 
 const tenant = await readTenant();
 
@@ -88,11 +89,15 @@ const server = app.listen(port, isProduction ? "0.0.0.0" : "127.0.0.1", () => {
   console.log(`Bussin ${tenant.name} server listening on port ${port}`);
 });
 
+// Finishes trips the driver forgot to finish (10 min after the final stop).
+const stopAutoFinish = startAutoFinish();
+
 /** Redeploys send SIGTERM: stop accepting, end live streams, drain the pool. */
 let shuttingDown = false;
 function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopAutoFinish();
   console.log(`${signal} received, shutting down`);
   closeAllStreams();
   const force = setTimeout(() => process.exit(0), 8_000);

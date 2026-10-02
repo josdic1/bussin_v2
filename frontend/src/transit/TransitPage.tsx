@@ -67,7 +67,9 @@ function eventRows(trip: TripView): LogRow[] {
         sub: trip.delayMin > 0 ? `${trip.delayMin} min after scheduled ${time(trip.departureAt)}` : "On time" };
       case "arrived_stop": return { at: event.occurredAt, kind: event.type, text: `Arrived at ${event.stopLabel}`, method: event.method, replaced: event.replaced };
       case "departed_stop": return { at: event.occurredAt, kind: event.type, text: `Departed ${event.stopLabel}`, method: event.method, replaced: event.replaced };
-      case "completed": return { at: event.occurredAt, kind: event.type, text: "Trip completed" };
+      case "completed": return event.method === "automatic"
+        ? { at: event.occurredAt, kind: event.type, text: "Trip completed", method: event.method, sub: "Finished automatically 10 min after the final stop" }
+        : { at: event.occurredAt, kind: event.type, text: "Trip completed" };
       case "cancelled": return { at: event.occurredAt, kind: event.type, text: "Trip cancelled", sev: "high", sub: `By ${event.recordedBy}` };
       case "correction": return { at: event.occurredAt, kind: event.type, text: `Arrival at ${event.stopLabel} undone`, sev: "med", sub: `By ${event.recordedBy}` };
       default: return { at: event.occurredAt, kind: event.type, text: "Note", sub: `By ${event.recordedBy}` };
