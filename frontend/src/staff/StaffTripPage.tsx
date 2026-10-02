@@ -398,8 +398,9 @@ export function StaffTripPage() {
     const departing = progress && progress.stopId === nextStop.id && progress.phase === "confirming_departure" ? progress : null;
     hero = <div className="hero"><span className="ov">AT STOP · {nextIndex + 1} OF {trip.stops.length}</span><h2>{nextStop.label}</h2>
       <div className="big">{mmss(dwell)}<small>at stop</small></div>
-      {departing && <><div className="prog"><b style={{ width: `${Math.round(departing.qualifyingFixes / departing.requiredFixes * 100)}%` }} /></div>
-        <div className="pl"><span>Checking departure {departing.qualifyingFixes} of {departing.requiredFixes}</span><span>{departing.distanceM} m</span></div></>}
+      {departing && <><div className="prog"><b style={{ width: `${Math.round(Math.min(1, departing.qualifyingSpanSeconds / departing.requiredSpanSeconds) * 100)}%` }} /></div>
+        <div className="pl"><span>Checking departure · {departing.distanceM} m out</span>
+          <span>about {Math.max(0, Math.ceil(departing.requiredSpanSeconds - departing.qualifyingSpanSeconds))}s</span></div></>}
       <p>Departure records itself when you drive off.{trip.stops[nextIndex + 1] ? ` Next: ${trip.stops[nextIndex + 1].label}.` : ""}</p></div>;
     primary = confirming === "undo"
       ? <div className="pconfirm">Undo arrival at {nextStop.label}? The original stays in the log as corrected.
@@ -413,7 +414,7 @@ export function StaffTripPage() {
       {confirmingArrival
         ? <><div className="big">{confirmingArrival.distanceM} m<small>checking arrival</small></div>
           <div className="prog"><b style={{ width: `${Math.round(Math.min(1, confirmingArrival.qualifyingSpanSeconds / confirmingArrival.requiredSpanSeconds) * 100)}%` }} /></div>
-          <div className="pl"><span>GPS checks {confirmingArrival.qualifyingFixes} of {confirmingArrival.requiredFixes}</span>
+          <div className="pl"><span>GPS checks {Math.min(confirmingArrival.qualifyingFixes, confirmingArrival.requiredFixes)} of {confirmingArrival.requiredFixes}</span>
             <span>about {Math.max(0, Math.ceil(confirmingArrival.requiredSpanSeconds - confirmingArrival.qualifyingSpanSeconds))}s</span></div></>
         : <div className="big">{distance === null ? "…" : distanceText(distance)}<small>{distance === null ? "waiting for GPS" : "away"}</small></div>}
       <p>{progress?.phase === "rearming" && progress.stopId === nextStop.id

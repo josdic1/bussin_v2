@@ -5,18 +5,29 @@ import type {
 } from "@bussin/shared";
 import { applyTripAction } from "../trips/actions.js";
 
+/**
+ * Auto arrival/departure rules.
+ *
+ * Evidence is a run of CONSECUTIVE qualifying fixes ending at the newest fix.
+ * Both a minimum fix count AND a minimum time span must be met. The run is not
+ * capped at the fix count: phones report every 1-3s, so capping at 3 fixes made
+ * the span 2-6s forever and the 12s requirement could never be met.
+ */
 export const JOURNEY_CONFIG = {
   maxAccuracyM: 35,
   arrivalRadiusM: 45,
   arrivalEvidenceCount: 3,
-  arrivalMinSpanMs: 12_000,
+  arrivalMinSpanMs: 8_000,
   arrivalMaxSpeedMps: 4,
   departureRadiusM: 75,
   departureEvidenceCount: 3,
-  departureMinSpanMs: 12_000,
+  departureMinSpanMs: 8_000,
   departureMinOutwardProgressM: 15,
-  departureBacktrackToleranceM: 8,
-  sampleLookback: 8
+  departureClearlyGoneM: 150,
+  // Time window of fixes to consider. Count-based lookback (the old 8 fixes)
+  // covered only ~8s at 1 Hz, less than the span requirement.
+  sampleWindowMs: 3 * 60_000,
+  sampleLimit: 400
 } as const;
 
 type JourneySample = {
@@ -59,15 +70,13 @@ export function distanceMeters(a: StopPoint, b: StopPoint): number {
 
 function latestConsecutiveEvidence(
   samples: JourneySample[],
-  predicate: (sample: JourneySample) => boolean,
-  count: number
+  predicate: (sample: JourneySample) => boolean
 ): JourneySample[] {
   const ordered = [...samples].sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime());
   const evidence: JourneySample[] = [];
   for (const sample of ordered) {
     if (!predicate(sample)) break;
     evidence.push(sample);
-    if (evidence.length === count) break;
   }
   return evidence.reverse();
 }
@@ -85,8 +94,7 @@ function arrivalEvidence(samples: JourneySample[], stop: StopPoint): JourneySamp
     samples,
     (sample) => sample.accuracyM <= JOURNEY_CONFIG.maxAccuracyM &&
       distanceMeters(sample, stop) <= JOURNEY_CONFIG.arrivalRadiusM &&
-      (sample.speedMps === null || sample.speedMps <= JOURNEY_CONFIG.arrivalMaxSpeedMps),
-    JOURNEY_CONFIG.arrivalEvidenceCount
+      (sample.speedMps === null || sample.speedMps <= JOURNEY_CONFIG.arrivalMaxSpeedMps)
   );
 }
 
@@ -94,8 +102,7 @@ function departureEvidence(samples: JourneySample[], stop: StopPoint): JourneySa
   return latestConsecutiveEvidence(
     samples,
     (sample) => sample.accuracyM <= JOURNEY_CONFIG.maxAccuracyM &&
-      distanceMeters(sample, stop) >= JOURNEY_CONFIG.departureRadiusM,
-    JOURNEY_CONFIG.departureEvidenceCount
+      distanceMeters(sample, stop) >= JOURNEY_CONFIG.departureRadiusM
   );
 }
 
@@ -113,15 +120,12 @@ export function hasDepartureEvidence(samples: JourneySample[], stop: StopPoint):
   const span = evidence.at(-1)!.observedAt.getTime() - evidence[0].observedAt.getTime();
   if (span < JOURNEY_CONFIG.departureMinSpanMs) return false;
 
-  const distances = evidence.map((sample) => distanceMeters(sample, stop));
-  if (distances.at(-1)! - distances[0] < JOURNEY_CONFIG.departureMinOutwardProgressM) return false;
-
-  for (let index = 1; index < distances.length; index += 1) {
-    if (distances[index] + JOURNEY_CONFIG.departureBacktrackToleranceM < distances[index - 1]) {
-      return false;
-    }
-  }
-  return true;
+  // Must be actually driving away, not parked a bit off the pin. Either the bus
+  // is clearly gone, or it moved further out across the evidence run. Red lights
+  // and GPS jitter on the way out are fine (no strict monotonic check).
+  const latest = distanceMeters(evidence.at(-1)!, stop);
+  if (latest >= JOURNEY_CONFIG.departureClearlyGoneM) return true;
+  return latest - distanceMeters(evidence[0], stop) >= JOURNEY_CONFIG.departureMinOutwardProgressM;
 }
 
 type JourneyStopRow = {
@@ -138,7 +142,8 @@ type JourneyStopRow = {
 async function recentSamples(
   client: PoolClient,
   tripId: string,
-  since: Date | null
+  since: Date | null,
+  windowed = true
 ): Promise<JourneySample[]> {
   const result = await client.query<JourneySample>(
     `SELECT observed_at AS "observedAt",
@@ -149,9 +154,12 @@ async function recentSamples(
        FROM trip_location_samples
       WHERE trip_id = $1
         AND ($2::timestamptz IS NULL OR observed_at >= $2)
+        AND (NOT $5::boolean OR observed_at >= (
+          SELECT max(observed_at) FROM trip_location_samples WHERE trip_id = $1
+        ) - ($3::int * interval '1 millisecond'))
       ORDER BY observed_at DESC
-      LIMIT $3`,
-    [tripId, since, JOURNEY_CONFIG.sampleLookback]
+      LIMIT $4`,
+    [tripId, since, JOURNEY_CONFIG.sampleWindowMs, windowed ? JOURNEY_CONFIG.sampleLimit : 5_000, windowed]
   );
   return result.rows;
 }
@@ -245,7 +253,9 @@ export async function applyJourneyFromGps(
   const stopPoint = { latitude: next.latitude, longitude: next.longitude };
 
   if (!next.arrivedAt) {
-    let samples = await recentSamples(client, input.tripId, next.undoneArrivalAt);
+    // After an undo, look at every fix since the undo so a drive-out that
+    // happened minutes ago still re-arms auto-arrival.
+    let samples = await recentSamples(client, input.tripId, next.undoneArrivalAt, !next.undoneArrivalAt);
     const latest = [...samples].sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime())[0];
 
     if (next.undoneArrivalAt) {
