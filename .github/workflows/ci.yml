@@ -1,0 +1,48 @@
+# Runs on every push to main: typecheck, all server tests (against a real
+# PostgreSQL), and a full build. Railway's "Wait for CI" setting holds the
+# deploy until this passes, so a broken build never reaches a bus.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bussin
+          POSTGRES_PASSWORD: bussin
+          POSTGRES_DB: bussin_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bussin"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: bussin
+      PGPASSWORD: bussin
+      PGDATABASE: bussin_ci
+      BUSSIN_TENANT: ci-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Prepare test database
+        run: |
+          npm run db:migrate -w @bussin/server
+          npm run tenant:init -w @bussin/server -- ci-test "CI Bus"
+      - run: npm test
+      - run: npm run build
