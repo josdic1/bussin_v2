@@ -76,3 +76,25 @@ test("poor accuracy fixes never count", () => {
   const fixes = Array.from({ length: 15 }, (_, i) => fix(i, 3, 0, 60));
   assert.equal(hasArrivalEvidence(fixes, stop), false);
 });
+
+test("departure never fires for a bus sitting still 150m+ from a misplaced pin", () => {
+  // Driver tapped Arrived far from a bad pin; kids are boarding. Distance alone must not depart.
+  const fixes = Array.from({ length: 40 }, (_, i) => fix(i, 160 + (i % 3), 0));
+  assert.equal(hasDepartureEvidence(fixes, stop), false);
+});
+
+test("departure fires when driving off from far away with real speed", () => {
+  const fixes = Array.from({ length: 12 }, (_, i) => fix(i, 160 + i * 1, 4));
+  assert.equal(hasDepartureEvidence(fixes, stop), true);
+});
+
+test("a long GPS gap breaks arrival evidence", () => {
+  // Two fixes 60s apart at the stop prove nothing about the time between.
+  const fixes = [fix(0, 3, 0), fix(60, 3, 0), fix(61, 3, 0)];
+  assert.equal(hasArrivalEvidence(fixes, stop), false);
+});
+
+test("a long GPS gap breaks departure evidence", () => {
+  const fixes = [fix(0, 100, 8), fix(40, 200, 8), fix(41, 210, 8)];
+  assert.equal(hasDepartureEvidence(fixes, stop), false);
+});

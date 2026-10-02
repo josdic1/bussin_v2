@@ -23,7 +23,10 @@ export const JOURNEY_CONFIG = {
   departureEvidenceCount: 3,
   departureMinSpanMs: 8_000,
   departureMinOutwardProgressM: 15,
-  departureClearlyGoneM: 150,
+  // A real GPS speed at or above this (about 6 mph) also proves the bus is driving away.
+  departureMovingSpeedMps: 2.5,
+  // Fixes further apart than this break the evidence chain: a gap proves nothing.
+  maxEvidenceGapMs: 15_000,
   // Time window of fixes to consider. Count-based lookback (the old 8 fixes)
   // covered only ~8s at 1 Hz, less than the span requirement.
   sampleWindowMs: 3 * 60_000,
@@ -76,6 +79,8 @@ function latestConsecutiveEvidence(
   const evidence: JourneySample[] = [];
   for (const sample of ordered) {
     if (!predicate(sample)) break;
+    const newer = evidence.at(-1);
+    if (newer && newer.observedAt.getTime() - sample.observedAt.getTime() > JOURNEY_CONFIG.maxEvidenceGapMs) break;
     evidence.push(sample);
   }
   return evidence.reverse();
@@ -120,12 +125,16 @@ export function hasDepartureEvidence(samples: JourneySample[], stop: StopPoint):
   const span = evidence.at(-1)!.observedAt.getTime() - evidence[0].observedAt.getTime();
   if (span < JOURNEY_CONFIG.departureMinSpanMs) return false;
 
-  // Must be actually driving away, not parked a bit off the pin. Either the bus
-  // is clearly gone, or it moved further out across the evidence run. Red lights
-  // and GPS jitter on the way out are fine (no strict monotonic check).
+  // Must be actually driving away, not parked a bit off the pin (for example a
+  // manual arrival tapped 150 m from a misplaced pin). Proof is either steady
+  // outward movement across the run, or a real driving speed with no net
+  // movement back toward the stop. Distance alone never counts.
+  const first = distanceMeters(evidence[0], stop);
   const latest = distanceMeters(evidence.at(-1)!, stop);
-  if (latest >= JOURNEY_CONFIG.departureClearlyGoneM) return true;
-  return latest - distanceMeters(evidence[0], stop) >= JOURNEY_CONFIG.departureMinOutwardProgressM;
+  if (latest - first >= JOURNEY_CONFIG.departureMinOutwardProgressM) return true;
+  const moving = evidence.some((sample) => sample.speedMps !== null &&
+    sample.speedMps >= JOURNEY_CONFIG.departureMovingSpeedMps);
+  return moving && latest >= first;
 }
 
 type JourneyStopRow = {
@@ -249,13 +258,17 @@ export async function applyJourneyFromGps(
 
   const next = stops.rows.find((stop) => !stop.departedAt);
   if (!next) return { transition: null, progress: null };
+  const previous = stops.rows[stops.rows.indexOf(next) - 1];
+  // Fixes from before the previous stop's departure belong to that stop, never to this one.
+  const previousDepartedAt = previous?.departedAt ?? null;
   const finalStop = stops.rows.at(-1);
   const stopPoint = { latitude: next.latitude, longitude: next.longitude };
 
   if (!next.arrivedAt) {
     // After an undo, look at every fix since the undo so a drive-out that
     // happened minutes ago still re-arms auto-arrival.
-    let samples = await recentSamples(client, input.tripId, next.undoneArrivalAt, !next.undoneArrivalAt);
+    let samples = (await recentSamples(client, input.tripId, next.undoneArrivalAt, !next.undoneArrivalAt))
+      .filter((sample) => !previousDepartedAt || sample.observedAt >= previousDepartedAt);
     const latest = [...samples].sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime())[0];
 
     if (next.undoneArrivalAt) {
