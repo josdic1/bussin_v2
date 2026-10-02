@@ -23,6 +23,16 @@ createRoot(root).render(
   </StrictMode>
 );
 
+// Vite reports a missing code file from an older build here; reload once to get the new build.
+window.addEventListener("vite:preloadError", () => {
+  try {
+    const last = Number(sessionStorage.getItem("bussin-chunk-reload") ?? 0);
+    if (Date.now() - last < 30_000) return;
+    sessionStorage.setItem("bussin-chunk-reload", String(Date.now()));
+  } catch { /* storage blocked: reload anyway */ }
+  location.reload();
+});
+
 // Cache the app shell so a server blip never leaves a white screen on launch.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
