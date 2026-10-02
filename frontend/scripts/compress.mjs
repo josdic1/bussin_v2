@@ -15,3 +15,9 @@ for (const file of readdirSync(assets)) {
   count += 1;
 }
 console.log(`Compressed ${count} assets`);
+
+// The service worker reads this list on install and saves every code file, so
+// Bussin opens fully offline after one visit (including screens not yet opened).
+const files = readdirSync(assets).filter((file) => !file.endsWith(".gz")).map((file) => `/assets/${file}`);
+writeFileSync(new URL("../dist/asset-list.json", import.meta.url), JSON.stringify(files));
+console.log(`Listed ${files.length} assets for offline use`);

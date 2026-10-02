@@ -2,6 +2,22 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 const RELOAD_KEY = "bussin-chunk-reload";
 
+/**
+ * True when one automatic reload is allowed now. Needs working storage to
+ * remember the last reload: without it, never auto-reload (that could loop
+ * forever); the Reload button is shown instead.
+ */
+export function claimAutoReload(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0);
+    if (Date.now() - last < 30_000) return false;
+    sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+    return sessionStorage.getItem(RELOAD_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** A tab opened before a deploy asks for code files the new build no longer has. */
 function isStaleBuild(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -22,14 +38,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("Bussin screen crashed", error, info.componentStack);
-    if (isStaleBuild(error)) {
-      let last = 0;
-      try { last = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0); } catch { /* storage blocked */ }
-      if (Date.now() - last > 30_000) {
-        try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch { /* storage blocked */ }
-        location.reload();
-      }
-    }
+    if (isStaleBuild(error) && claimAutoReload()) location.reload();
   }
 
   render() {

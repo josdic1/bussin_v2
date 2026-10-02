@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
-import { ErrorBoundary } from "./ErrorBoundary";
+import { ErrorBoundary, claimAutoReload } from "./ErrorBoundary";
 import "./styles.css";
 import "./ops/ops.css";
 
@@ -24,12 +24,9 @@ createRoot(root).render(
 );
 
 // Vite reports a missing code file from an older build here; reload once to get the new build.
-window.addEventListener("vite:preloadError", () => {
-  try {
-    const last = Number(sessionStorage.getItem("bussin-chunk-reload") ?? 0);
-    if (Date.now() - last < 30_000) return;
-    sessionStorage.setItem("bussin-chunk-reload", String(Date.now()));
-  } catch { /* storage blocked: reload anyway */ }
+window.addEventListener("vite:preloadError", (event) => {
+  if (!claimAutoReload()) return; // the error screen with a Reload button takes over
+  event.preventDefault();
   location.reload();
 });
 
