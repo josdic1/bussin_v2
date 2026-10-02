@@ -19,6 +19,15 @@ async function readError(response: Response, fallback: string): Promise<string> 
   return fallback;
 }
 
+/** Every request gives up after a few seconds so the phone never waits forever on a stuck server. */
+function timeoutSignal(ms: number, outer?: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), ms);
+  outer?.addEventListener("abort", () => { window.clearTimeout(timer); controller.abort(); });
+  return controller.signal;
+}
+const REQUEST_TIMEOUT_MS = 10_000;
+
 const clock = (value: string | number) => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 const clockSeconds = (value: number) => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(value));
 
@@ -99,7 +108,7 @@ export function StaffTripPage() {
   }, []);
 
   const loadTrip = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/staff/trip", { credentials: "same-origin", signal });
+    const response = await fetch("/api/staff/trip", { credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS, signal) });
     if (!response.ok) throw new Error(await readError(response, "Could not load your trip."));
     const data = staffTripResponseSchema.parse(await response.json());
     setTrip(data.trip);
@@ -137,7 +146,7 @@ export function StaffTripPage() {
     const report = () => {
       if (document.visibilityState !== "visible" || !navigator.onLine) return;
       if (Date.now() - lastUpload.current < PRESENCE_MS - 2_000) return;
-      void fetch("/api/staff/presence", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+      void fetch("/api/staff/presence", { method: "POST", credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS) }).catch(() => undefined);
     };
     report();
     const timer = window.setInterval(report, PRESENCE_MS);
@@ -159,7 +168,7 @@ export function StaffTripPage() {
       while (queue.current.length) {
         const sample = queue.current[0];
         const response = await fetch("/api/staff/trip/location", {
-          method: "POST", credentials: "same-origin",
+          method: "POST", credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS),
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(sample)
         });
@@ -185,7 +194,7 @@ export function StaffTripPage() {
       }
     } catch (cause) {
       setDispatch((current) => ({ ...current, state: navigator.onLine ? "error" : "queued", queued: queued(),
-        note: cause instanceof Error ? `${cause.message} Retrying.` : "Upload failed. Retrying." }));
+        note: cause instanceof Error && cause.name !== "AbortError" ? `${cause.message} Retrying.` : "Dispatch did not answer. Retrying." }));
       scheduleRetry();
     } finally {
       flushing.current = false;
@@ -320,7 +329,7 @@ export function StaffTripPage() {
     setError("");
     try {
       const response = await fetch("/api/staff/trip/actions", {
-        method: "POST", credentials: "same-origin",
+        method: "POST", credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(action.data)
       });
@@ -328,7 +337,9 @@ export function StaffTripPage() {
       const result = tripActionResponseSchema.parse(await response.json());
       if (result.status === "completed") { setJustCompleted(true); setTrip(null); } else await loadTrip();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update your trip.");
+      setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message
+        : "No answer from Dispatch. Check signal and tap again.");
+      refresh();
     } finally {
       setPending(false);
     }

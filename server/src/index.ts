@@ -103,5 +103,8 @@ function shutdown(signal: string) {
   });
   server.closeIdleConnections();
 }
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection (server kept running)", reason);
+});
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));

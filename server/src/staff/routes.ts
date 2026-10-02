@@ -357,6 +357,7 @@ staffRoutes.post(
     const journeyClient = await pool.connect();
     try {
       await journeyClient.query("BEGIN");
+      await journeyClient.query("SET LOCAL lock_timeout = '3s'");
       journeyResult = await applyJourneyFromGps(journeyClient, {
         tripId: input.data.tripId,
         actorId: member.id
