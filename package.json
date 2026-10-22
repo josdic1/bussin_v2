@@ -13,8 +13,7 @@
     "dev": "node scripts/dev.mjs",
     "doctor": "node scripts/doctor.mjs",
     "test": "npm run build -w @bussin/shared && npm run test -w @bussin/server",
-    "start": "npm run start -w @bussin/server",
-    "test:tablet": "node --import tsx --test frontend/tests/trackingHealth.test.ts"
+    "start": "npm run start -w @bussin/server"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

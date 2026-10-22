@@ -742,20 +742,3 @@ export const familyMessageSchema = z.strictObject({
 });
 export type FamilyMessage = z.infer<typeof familyMessageSchema>;
 export const familyMessagesResponseSchema = z.strictObject({ messages: z.array(familyMessageSchema) });
-
-
-/** Driver messages use reviewed text and can target only the assigned trip. */
-export const DRIVER_MESSAGES = {
-  late5: { label: "5 minutes late", body: "Your bus is running approximately 5 minutes late. Please check Bussin for updates." },
-  late10: { label: "10 minutes late", body: "Your bus is running approximately 10 minutes late. Please check Bussin for updates." },
-  delayed: { label: "Bus delayed", body: "Your bus is delayed. We will share an update when more information is available." },
-  resumed: { label: "Back on the road", body: "Your bus is back on the road. Please check Bussin for the latest location." }
-} as const;
-export const driverMessageInputSchema = z.strictObject({
-  tripId: z.string().uuid(), clientMessageId: z.string().uuid(),
-  preset: z.enum(["late5", "late10", "delayed", "resumed"])
-});
-export const driverMessagePreviewInputSchema = z.strictObject({ tripId: z.string().uuid() });
-export const driverMessageReceiptSchema = messageReachSchema.extend({
-  id: z.string().uuid(), channel: z.literal("in_app"), replayed: z.boolean()
-});

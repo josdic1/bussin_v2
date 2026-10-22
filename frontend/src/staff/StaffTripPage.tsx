@@ -10,10 +10,6 @@ import {
   type StaffTrip
 } from "@bussin/shared";
 import { useAuth } from "../auth/AuthProvider";
-import { DriverIcon } from "./DriverIcon";
-import { DriverMessages } from "./DriverMessages";
-import { ageSeconds, trackingHealth } from "./trackingHealth";
-import "./driver-tablet.css";
 
 async function readError(response: Response, fallback: string): Promise<string> {
   const body: unknown = await response.json().catch(() => null);
@@ -140,9 +136,6 @@ export function StaffTripPage() {
   const movingRef = useRef(false);
   const autoFailures = useRef(0);
   const [awake, setAwake] = useState<"yes" | "tap" | "unsupported">("tap");
-  const [visible, setVisible] = useState(() => document.visibilityState === "visible");
-  const [tripCheckedAt, setTripCheckedAt] = useState<number | null>(null);
-  const [acceptedFix, setAcceptedFix] = useState<{ tripId: string; at: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const tripRef = useRef<StaffTrip | null | undefined>(undefined);
@@ -173,7 +166,6 @@ export function StaffTripPage() {
     if (!response.ok) throw new Error(await readError(response, "Could not load your trip."));
     const data = staffTripResponseSchema.parse(await response.json());
     if (seq !== tripReadSeq.current) return;
-    setTripCheckedAt(Date.now());
     setTrip(data.trip);
     setError("");
   }, []);
@@ -223,9 +215,6 @@ export function StaffTripPage() {
 
   const flush = useCallback(async () => {
     if (flushing.current) return;
-    // Expire queued fixes during runtime as well as on reload.
-    queue.current = queue.current.filter(sample => Date.parse(sample.observedAt) > Date.now() - QUEUE_KEEP_MS);
-    saveQueue(queue.current);
     const queued = () => queue.current.length;
     if (!queued()) return;
     if (!navigator.onLine) {
@@ -267,7 +256,6 @@ export function StaffTripPage() {
             setNotice({ action: result.journey.action, stopId: result.journey.stopId, stopLabel: result.journey.stopLabel });
             refresh();
           }
-          setAcceptedFix({ tripId: sample.tripId, at: Date.parse(sample.observedAt) });
           setDispatch({ state: "live", at: Date.now(), queued: queued(), note: "" });
         } else if (result.reason !== "duplicate") {
           setDispatch((current) => ({ ...current, queued: queued(), note: result.reason === "poor_accuracy"
@@ -330,7 +318,6 @@ export function StaffTripPage() {
     });
     if (!sample.success) return;
     queue.current.push(sample.data);
-    setDispatch(current => ({ ...current, queued: queue.current.length }));
     if (queue.current.length > UPLOAD_QUEUE_MAX) queue.current.splice(0, queue.current.length - UPLOAD_QUEUE_MAX);
     saveQueue(queue.current);
     void flush();
@@ -385,7 +372,6 @@ export function StaffTripPage() {
       if (!wakeLock.current) void requestWake();
     }, GPS_WATCHDOG_MS);
     const foreground = () => {
-      setVisible(document.visibilityState === "visible");
       if (document.visibilityState !== "visible") return;
       startGps();
       void requestWake();
@@ -453,12 +439,19 @@ export function StaffTripPage() {
 
   // ---------- derived view ----------
   const fixAge = fix ? now - fix.observedAt : Infinity;
+  const gpsView: [string, string, string] = gps === "denied" ? ["bad", "GPS", "Permission off"]
+    : gps === "unsupported" ? ["bad", "GPS", "Not supported"]
+      : !fix ? [gps === "error" ? "bad" : "warn", "GPS", gps === "error" ? "No signal" : "Finding…"]
+        : fixAge > GPS_STALE_MS ? ["bad", "GPS", `No fix ${Math.round(fixAge / 1000)}s`]
+          : ["", "GPS", `±${Math.round(fix.accuracy)} m`];
+  const screenView: [string, string, string] = awake === "yes" ? ["", "SCREEN", "Staying awake"]
+    : awake === "unsupported" ? ["warn", "SCREEN", "Keep it on"] : ["warn", "SCREEN", "Tap to keep on"];
   const active = trip?.status === "active";
-  const confirmedAt = acceptedFix && acceptedFix.tripId === trip?.id ? acceptedFix.at : null;
-  const health = trackingHealth({ now, active, online, visible, gpsAllowed: gps !== "denied" && gps !== "unsupported",
-    fixAt: fix?.observedAt ?? null, accuracy: fix?.accuracy ?? null, acceptedFixAt: confirmedAt,
-    receivedAt: dispatch.at, tripCheckedAt, queued: dispatch.queued, wakeHeld: awake === "yes" });
-  const ageLabel = (at: number | null) => { const seconds = ageSeconds(now, at); return seconds === null ? "Not yet" : `${seconds}s ago`; };
+  const dispatchView: [string, string, string] = !active ? ["", "DISPATCH", "Connected"]
+    : !online ? ["warn", "DISPATCH", `No signal · ${dispatch.queued} saved`]
+      : dispatch.state === "error" ? ["bad", "DISPATCH", "Retrying"]
+        : dispatch.at ? ["", "DISPATCH", `Sent ${Math.max(0, Math.round((now - dispatch.at) / 1000))}s ago`]
+          : ["warn", "DISPATCH", "Waiting for GPS"];
 
   const problem = gps === "denied"
     ? { text: "Location is turned off for Bussin. Allow Location for this site in your phone settings, then come back.", button: "Try again", run: startGps }
@@ -474,7 +467,7 @@ export function StaffTripPage() {
   const nextStop = active ? trip!.stops.find((stop) => !stop.departedAt) ?? null : null;
   const nextIndex = nextStop ? trip!.stops.indexOf(nextStop) : -1;
   const readyToComplete = !!(active && finalStop?.arrivedAt && trip!.stops.slice(0, -1).every((stop) => stop.departedAt));
-  const distance = nextStop && fix && fixAge <= 20_000 ? distanceMeters(fix, nextStop) : null;
+  const distance = nextStop && fix ? distanceMeters(fix, nextStop) : null;
   const doneCount = trip ? trip.stops.filter((stop, index) => stop.departedAt || (index === trip.stops.length - 1 && stop.arrivedAt)).length : 0;
   const confirmingArrival = progress && nextStop && progress.stopId === nextStop.id && progress.phase === "confirming_arrival" ? progress : null;
 
@@ -526,7 +519,7 @@ export function StaffTripPage() {
     hero = <div className="hero"><span className="ov">NEXT STOP · {nextIndex + 1} OF {trip.stops.length}</span><h2>{nextStop.label}</h2>
       {confirmingArrival
         ? <div className="big">{confirmingArrival.distanceM} m<small>checking arrival</small></div>
-        : <div className="big">{distance === null ? "…" : distanceText(distance)}<small>{distance === null ? "waiting for GPS" : "away · straight line"}</small></div>}
+        : <div className="big">{distance === null ? "…" : distanceText(distance)}<small>{distance === null ? "waiting for GPS" : "away"}</small></div>}
       <div className={confirmingArrival ? "" : "waiting"}>
         <div className="prog"><b style={{ width: confirmingArrival ? `${Math.round(Math.min(1, confirmingArrival.qualifyingSpanSeconds / confirmingArrival.requiredSpanSeconds) * 100)}%` : "0%" }} /></div>
         <div className="pl">{confirmingArrival
@@ -542,39 +535,25 @@ export function StaffTripPage() {
       <button type="button" className="textbtn" tabIndex={-1} aria-hidden="true" disabled style={{ visibility: "hidden" }}>Not here yet? Undo arrival</button></>;
   }
 
-  return <main className="field driver-tablet">
-    <div className="driver-sticky">
-      <header className="ftop">
-        <div className="wm"><DriverIcon name="bus" /><div>BUSSIN<span>{member?.display_name ?? "Driver"} · {tenant?.name ?? ""}</span></div></div>
-        <button type="button" disabled={locked || pending} onClick={() => { if (window.confirm("Sign out of this driver terminal?")) void signOut(); }}>Sign out</button>
-      </header>
-      <section className={`driver-truth ${health.tone}`} aria-label="Live tracking status">
-        <div className="driver-truth-heading"><DriverIcon name={health.tone === "good" ? "check" : "alert"} />
-          <div><h1 aria-live="polite">{health.title}</h1><p>{health.detail}</p></div></div>
-        <div className="driver-facts">
-          <div><DriverIcon name="bus" /><span>TRIP<strong>{trip ? `${trip.busLabel} · ${trip.status === "active" ? "Active" : "Not started"}` : trip === undefined ? "Checking…" : "None assigned"}</strong></span></div>
-          <div><DriverIcon name="gps" /><span>GPS<strong>{ageLabel(fix?.observedAt ?? null)}</strong><small>{gps === "denied" ? "Permission off" : fix ? `Accuracy ±${Math.round(fix.accuracy)} m` : "Finding location"}</small></span></div>
-          <div><DriverIcon name="cloud" /><span>DISPATCH RECEIVED<strong>{ageLabel(confirmedAt === null ? null : dispatch.at)}</strong><small>{!online ? "Internet offline" : dispatch.queued ? `${dispatch.queued} location updates queued` : `GPS sample ${ageLabel(confirmedAt)}`}</small></span></div>
-          <button type="button" onClick={() => void requestWake()}><DriverIcon name="screen" /><span>SCREEN<strong>{awake === "yes" ? "Staying on" : "Keep screen on"}</strong><small>{awake === "yes" ? "Keep Bussin in front" : "Tap to try wake protection"}</small></span></button>
-        </div>
-      </section>
+  return <main className="field">
+    <header className="ftop">
+      <div className="wm">BUSSIN<span>{member?.display_name ?? ""}{trip ? ` · ${trip.busLabel}` : ""} · {tenant?.name ?? ""}</span></div>
+      <button type="button" onClick={() => void signOut()}>Sign out</button>
+    </header>
+    <div className="health" aria-label="Phone status">
+      {[gpsView, screenView, dispatchView].map(([tone, label, detail]) => <div key={label} className={tone}>
+        <i /><span>{label}<small>{detail}</small></span></div>)}
     </div>
     {problem && <div className="fproblem"><p>{problem.text}</p><button type="button" onClick={problem.run}>{problem.button}</button></div>}
     <div className="ftoasts">
       {notice && <div className="pnote" role="status">
         <span>{notice.action === "arrived" ? "Arrived" : "Left"} {notice.stopLabel} automatically</span>
         <button type="button" onClick={() => setNotice(null)}>OK</button></div>}
-      {autoPaused && active && <p className="ferror" role="alert">Auto-detect is paused. Tap Arrived and Leaving now yourself. Location delivery status is shown above.</p>}
+      {autoPaused && active && <p className="ferror" role="alert">Auto-detect is paused. Tap Arrived and Leaving now yourself. Dispatch still sees your GPS.</p>}
       {error && <p className="ferror" role="alert">{error}</p>}
     </div>
-    <div className="driver-layout"><section className="driver-journey" aria-label="Current trip">
     {hero}
     {primary}
-    </section><aside className="driver-tools">
-      {trip && member && <DriverMessages key={trip.id} tripId={trip.id} routeName={trip.routeName} memberId={member.id} locked={locked} />}
-      <button type="button" className="driver-refresh" disabled={locked || pending} onClick={refresh}><DriverIcon name="refresh" />Check trip with Dispatch</button>
-      <p className="driver-quiet">Keep this screen open. GPS may pause if the tablet locks or you switch apps.</p>
-    </aside></div>
     {trip && trip.stops.length > 0 && <>
       <div className="psec"><h3>Route stops</h3><span>{doneCount} of {trip.stops.length} done</span></div>
       <ol className="pstops">{trip.stops.map((stop, index) => {
