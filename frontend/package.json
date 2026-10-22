@@ -6,7 +6,8 @@
   "scripts": {
     "check": "tsc --noEmit",
     "build": "tsc --noEmit && vite build && node scripts/compress.mjs",
-    "dev": "vite"
+    "dev": "vite",
+    "prebuild": "npm run build -w @bussin/shared"
   },
   "dependencies": {
     "@bussin/shared": "^0.1.0",
