@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import {
+  DRIVER_MESSAGES, driverMessageInputSchema, driverMessagePreviewInputSchema, driverMessageReceiptSchema,
   familyMessagesResponseSchema, messageReachSchema, messageTargetSchema, sendMessageInputSchema,
   sentMessagesResponseSchema, type MessageTarget
 } from "@bussin/shared";
@@ -73,6 +74,93 @@ function reach(audience: Audience) {
   });
 }
 
+
+/** Caller owns the transaction. Every family-message send uses this writer. */
+async function saveMessage(client: PoolClient, target: MessageTarget, body: string,
+  member: { id: string; display_name: string }, audience: Audience, id?: string) {
+  const saved = await client.query<{ id: string }>(
+      `INSERT INTO family_messages (body, audience, route_family_id, trip_id, rider_id, audience_label, sent_by, sent_by_name, id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::uuid, gen_random_uuid())) RETURNING id`,
+      [body, target.audience,
+        target.audience === "route" ? target.routeFamilyId : null,
+        target.audience === "trip" ? target.tripId : null,
+        target.audience === "rider" ? target.riderId : null,
+        audience.label, member.id, member.display_name, id ?? null]
+    );
+    await client.query(
+      `INSERT INTO family_message_recipients (message_id, guardian_id)
+       SELECT $1, unnest($2::uuid[])`,
+      [saved.rows[0].id, audience.guardians.map((guardian) => guardian.id)]
+    );
+  return saved.rows[0].id;
+}
+
+/** Lock authorization through commit, so reassignment cannot race a send. */
+async function lockDriverTrip(client: PoolClient, memberId: string, tripId: string) {
+  const assigned = await client.query(
+    `SELECT a.trip_id FROM staff_assignments a JOIN trips t ON t.id = a.trip_id
+      WHERE a.member_id = $1 AND a.trip_id = $2 AND a.ended_at IS NULL
+        AND t.status IN ('planned', 'active') FOR UPDATE OF a, t`, [memberId, tripId]);
+  return Boolean(assigned.rowCount);
+}
+
+messageRoutes.post("/staff/preview", requireSameOrigin, requireRole("staff"), async (request, response) => {
+  const input = driverMessagePreviewInputSchema.safeParse(request.body);
+  if (!input.success) { response.status(400).json({ error: "Choose your assigned trip." }); return; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (!await lockDriverTrip(client, currentMember(response).id, input.data.tripId)) {
+      await client.query("ROLLBACK"); response.status(403).json({ error: "This trip is no longer assigned to you." }); return;
+    }
+    const audience = await resolveAudience(client, { audience: "trip", tripId: input.data.tripId });
+    await client.query("COMMIT");
+    response.json(reach(audience));
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+});
+
+messageRoutes.post("/staff", requireSameOrigin, requireRole("staff"), async (request, response) => {
+  const input = driverMessageInputSchema.safeParse(request.body);
+  if (!input.success) { response.status(400).json({ error: "Choose a message for your assigned trip." }); return; }
+  const { tripId, clientMessageId, preset } = input.data;
+  const body = DRIVER_MESSAGES[preset].body;
+  const member = currentMember(response);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (!await lockDriverTrip(client, member.id, tripId)) {
+      await client.query("ROLLBACK"); response.status(403).json({ error: "This trip is no longer assigned to you." }); return;
+    }
+    // The same request ID and payload always identify the same message, even
+    // after a lost response. A changed payload with that ID is a conflict.
+    const prior = await client.query<{ sent_by: string; trip_id: string; body: string }>(
+      `SELECT sent_by, trip_id, body FROM family_messages WHERE id = $1`, [clientMessageId]);
+    if (prior.rowCount) {
+      const saved = prior.rows[0];
+      if (saved.sent_by !== member.id || saved.trip_id !== tripId || saved.body !== body) {
+        await client.query("ROLLBACK"); response.status(409).json({ error: "Message request does not match the original. Refresh before sending." }); return;
+      }
+      const counts = await client.query<{ guardians: number; withLogin: number; label: string }>(
+        `SELECT m.audience_label AS label, count(r.guardian_id)::int AS guardians,
+          count(r.guardian_id) FILTER (WHERE ${HAS_LOGIN})::int AS "withLogin"
+         FROM family_messages m LEFT JOIN family_message_recipients r ON r.message_id = m.id
+         LEFT JOIN guardians g ON g.id = r.guardian_id WHERE m.id = $1 GROUP BY m.id`, [clientMessageId]);
+      await client.query("COMMIT");
+      response.json(driverMessageReceiptSchema.parse({ id: clientMessageId, channel: "in_app", replayed: true, ...counts.rows[0] })); return;
+    }
+    const target = { audience: "trip" as const, tripId };
+    const audience = await resolveAudience(client, target);
+    if (!audience.guardians.length) {
+      await client.query("ROLLBACK"); response.status(400).json({ error: "This trip has no linked guardians." }); return;
+    }
+    const id = await saveMessage(client, target, body, member, audience, clientMessageId);
+    await client.query("COMMIT");
+    response.status(201).json(driverMessageReceiptSchema.parse({ id, channel: "in_app", replayed: false, ...reach(audience) }));
+  } catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; }
+  finally { client.release(); }
+});
+
 /** Admin: who a message would reach, before sending. */
 messageRoutes.post("/preview", requireSameOrigin, requireRole("admin"), async (request, response) => {
   const target = messageTargetSchema.safeParse(request.body);
@@ -125,22 +213,9 @@ messageRoutes.post("/", requireSameOrigin, requireRole("admin"), async (request,
       response.status(400).json({ error: `Nobody would get this. ${audience.label} has no linked guardians.` });
       return;
     }
-    const saved = await client.query<{ id: string }>(
-      `INSERT INTO family_messages (body, audience, route_family_id, trip_id, rider_id, audience_label, sent_by, sent_by_name)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-      [body, target.audience,
-        target.audience === "route" ? target.routeFamilyId : null,
-        target.audience === "trip" ? target.tripId : null,
-        target.audience === "rider" ? target.riderId : null,
-        audience.label, member.id, member.display_name]
-    );
-    await client.query(
-      `INSERT INTO family_message_recipients (message_id, guardian_id)
-       SELECT $1, unnest($2::uuid[])`,
-      [saved.rows[0].id, audience.guardians.map((guardian) => guardian.id)]
-    );
+    const id = await saveMessage(client, target, body, member, audience);
     await client.query("COMMIT");
-    response.status(201).json({ id: saved.rows[0].id, ...reach(audience) });
+    response.status(201).json({ id, ...reach(audience) });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     if (error instanceof NotFound) { response.status(404).json({ error: error.message }); return; }
