@@ -97,10 +97,14 @@ async function saveMessage(client: PoolClient, target: MessageTarget, body: stri
 
 /** Lock authorization through commit, so reassignment cannot race a send. */
 async function lockDriverTrip(client: PoolClient, memberId: string, tripId: string) {
+  // Match Dispatch's lock order: trip first, assignment second. Locking the
+  // assignment first can deadlock against a simultaneous reassignment.
+  const trip = await client.query(
+    `SELECT id FROM trips WHERE id = $1 AND status IN ('planned', 'active') FOR UPDATE`, [tripId]);
+  if (!trip.rowCount) return false;
   const assigned = await client.query(
-    `SELECT a.trip_id FROM staff_assignments a JOIN trips t ON t.id = a.trip_id
-      WHERE a.member_id = $1 AND a.trip_id = $2 AND a.ended_at IS NULL
-        AND t.status IN ('planned', 'active') FOR UPDATE OF a, t`, [memberId, tripId]);
+    `SELECT trip_id FROM staff_assignments
+      WHERE member_id = $1 AND trip_id = $2 AND ended_at IS NULL FOR UPDATE`, [memberId, tripId]);
   return Boolean(assigned.rowCount);
 }
 

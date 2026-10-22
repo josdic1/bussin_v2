@@ -58,7 +58,20 @@ test("driver messages enforce assignment, recipient isolation, fixed text and du
     const results = await Promise.all([post('staff', simultaneous), post('staff', simultaneous)]);
     assert.deepEqual(results.map(r => r.status).sort(), [200, 201]);
     assert.equal((await pool.query(`SELECT count(*)::int AS count FROM family_messages WHERE id = $1`, [simultaneous.clientMessageId])).rows[0].count, 1);
-    await pool.query(`UPDATE staff_assignments SET ended_at = now() WHERE member_id = $1`, [driver]);
+    // Dispatch locks trip first, then ends its assignment. A simultaneous send
+    // must wait and recheck, rather than deadlocking or using old authorization.
+    const dispatch = await pool.connect();
+    let racing: Promise<Response> | undefined;
+    try {
+      await dispatch.query("BEGIN");
+      await dispatch.query(`SELECT id FROM trips WHERE id = $1 FOR UPDATE`, [trip]);
+      racing = post('staff', { ...input, clientMessageId: randomUUID() });
+      await dispatch.query("SELECT pg_sleep(0.05)");
+      await dispatch.query(`UPDATE staff_assignments SET ended_at = now() WHERE member_id = $1`, [driver]);
+      await dispatch.query("COMMIT");
+    } catch (error) { await dispatch.query("ROLLBACK"); throw error; }
+    finally { dispatch.release(); }
+    assert.equal((await racing!).status, 403);
     assert.equal((await post('staff', { ...input, clientMessageId: randomUUID() })).status, 403);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
