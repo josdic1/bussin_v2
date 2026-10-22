@@ -31,7 +31,7 @@ No Twilio secrets belong in frontend code. Connecting SMS later needs verified s
 
 The patch uses relative `/api` URLs and the existing session cookie. Use `npm run build` for the Railway build and `npm start` for the server start; preserve your existing environment and migration setup. The supplied railway.json specifies health checks but does not establish the dashboard's current build or pre-deploy settings. This update introduces no database migration or new runtime dependency.
 
-If Netlify serves the frontend separately, deploy the matching frontend build and preserve the existing same-origin `/api` proxy to Railway. Do not replace it with cross-origin requests that drop the session cookie. No Netlify site/proxy configuration is included in the supplied archive, so that live configuration must be confirmed separately.
+If Netlify serves the frontend separately, deploy the matching frontend build and preserve the existing same-origin `/api` proxy to Railway. Do not replace it with cross-origin requests that drop the session cookie. The observed Netlify build command is `npm --workspace @bussin/frontend run build`. A frontend prebuild step now builds the shared workspace first, fixing the missing `@bussin/shared` build failure. Netlify API proxy configuration still requires separate confirmation.
 
 ## Verification
 
