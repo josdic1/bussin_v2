@@ -1,11 +1,13 @@
 import { lazy, Suspense, useState, type FormEvent } from "react";
-import { Navigate, Outlet, Route, Routes } from "react-router";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router";
 import { useAuth } from "./auth/AuthProvider";
 import { FleetPage } from "./fleet/FleetPage";
 import { DispatchPage } from "./dispatch/DispatchPage";
 import { StaffTripPage } from "./staff/StaffTripPage";
 import { FamilyPortalPage } from "./families/FamilyPortalPage";
 import { OpsShell } from "./ops/OpsShell";
+// Cab terminal for docked driver tablets, at /terminal. Loaded only there.
+const DriverTerminal = lazy(async () => ({ default: (await import("./terminal/DriverTerminal")).DriverTerminal }));
 const MembersPage = lazy(async () => ({ default: (await import("./members/MembersPage")).MembersPage }));
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
 const MessagesPage = lazy(async () => ({ default: (await import("./messages/MessagesPage")).MessagesPage }));
@@ -172,6 +174,7 @@ function ChangePassword() {
 
 function AuthGate() {
   const { member, loadError } = useAuth();
+  const { pathname } = useLocation();
 
   if (loadError) {
     return (
@@ -195,6 +198,9 @@ function AuthGate() {
   }
 
   if (member.roles.includes("staff")) {
+    if (pathname === "/terminal") {
+      return <Suspense fallback={<AuthScreen title="Opening terminal" description="Loading…" />}><DriverTerminal /></Suspense>;
+    }
     return <StaffTripPage />;
   }
 
@@ -255,6 +261,8 @@ export function App() {
           <Route path="messages" element={<AdminOnly><MessagesPage /></AdminOnly>} />
           <Route path="transit" element={<TransitPage />} />
         </Route>
+        {/* Staff accounts get the cab terminal here (see AuthGate); everyone else goes home. */}
+        <Route path="terminal" element={<Navigate to="/" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
