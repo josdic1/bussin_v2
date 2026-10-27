@@ -48,3 +48,31 @@
 .ops .dm-saved .dm-tag{color:#1a7f45}
 .ops .dm-problem{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#fdecea;border-bottom:1px solid #f4c7c3;color:#912018;font-size:13px}
 .ops .dm-problem b{font-weight:850}
+
+/* ---------- Bar actions + roster import ---------- */
+.ops .dm-acts{display:flex;gap:8px}
+.ops .dm-acts .btn{min-height:34px}
+.ops .dm-ok{padding:10px 14px;background:#e9f6ee;border-bottom:1px solid #cde9d7;color:#14532d;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.ops .im h2{font-size:22px;margin:2px 0 8px}
+.ops .im-help{color:var(--muted);font-size:13px;line-height:1.45;margin-bottom:14px}
+.ops .im-file{margin-left:10px;color:var(--muted);font-size:12px}
+.ops .im-note{margin-top:14px;color:var(--muted);font-size:13px}
+.ops .im-bad{margin-top:12px;padding:10px 12px;border-radius:10px;background:#fdecea;color:#912018;font-size:13px}
+.ops .im-counts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.ops .im-counts span{padding:6px 10px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted)}
+.ops .im-counts b{color:var(--ink)}
+.ops .im-counts .warn{border-color:#f5d48a;background:#fff8e6}
+.ops .im-counts .bad{border-color:#f4c7c3;background:#fdecea;color:#912018}
+.ops .im-list{list-style:none;margin:14px 0 8px;padding:0;border:1px solid var(--line);border-radius:12px;max-height:calc(100vh - 470px);min-height:160px;overflow:auto}
+.ops .im-list li{padding:10px 12px;border-bottom:1px solid var(--line2);font-size:12px}
+.ops .im-list li:last-child{border-bottom:0}
+.ops .im-list li div{display:flex;align-items:baseline;gap:8px}
+.ops .im-list li small{color:var(--soft)}
+.ops .im-list li em{margin-left:auto;font-style:normal;font-size:10px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.ops .im-list li p{margin-top:4px;color:var(--muted);line-height:1.4}
+.ops .im-list li.im-new em{color:#1a7f45}
+.ops .im-list li.im-update em{color:var(--green)}
+.ops .im-list li.im-error{background:#fffafa}
+.ops .im-list li.im-error em,.ops .im-list li.im-error p{color:#b42318}
+.ops .im-list li.im-skip em{color:#b54708}
+.ops .im-actions{position:sticky;bottom:-22px;display:flex;justify-content:flex-end;gap:8px;margin:12px -24px -22px;padding:14px 24px 22px;background:#fff;border-top:1px solid var(--line)}

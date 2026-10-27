@@ -6,6 +6,7 @@ import {
 import type { z } from "zod";
 import { getJson, message } from "../ops/api";
 import { Head, Search } from "../ops/ui";
+import { ImportRoster } from "./ImportRoster";
 import "./data.css";
 
 // Data mode: every table as a plain grid.
@@ -82,6 +83,9 @@ export function DataPage() {
   const [states, setStates] = useState<Record<CellKey, CellState>>({});
   const [problem, setProblem] = useState<Problem | null>(null);
   const flashTimers = useRef<Record<string, number>>({});
+  const [reload, setReload] = useState(0); // bump to refetch cards and the open table
+  const [importing, setImporting] = useState(false);
+  const [done, setDone] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -92,7 +96,7 @@ export function DataPage() {
       .then(setStops)
       .catch(() => { /* dropdowns stay empty; saving will explain */ });
     return () => controller.abort();
-  }, []);
+  }, [reload]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -106,7 +110,7 @@ export function DataPage() {
         setLoading(false);
       });
     return () => controller.abort();
-  }, [active]);
+  }, [active, reload]);
 
   useEffect(() => () => Object.values(flashTimers.current).forEach((t) => window.clearTimeout(t)), []);
 
@@ -231,10 +235,17 @@ export function DataPage() {
             : `${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"}`) : ""}
         </span>
         {lockedNote && <span className="dm-ro">Read-only here. {lockedNote}</span>}
+        {active === "riders" && <div className="dm-acts">
+          <a className="btn" href="/api/families/roster.csv" download>Download CSV</a>
+          <button type="button" className="btn" onClick={() => { setDone(""); setImporting(true); }}>Upload CSV</button>
+        </div>}
         <div className="dm-find">
           <Search value={query} onChange={setQuery} placeholder="Filter this table" />
         </div>
       </div>
+
+      {done && <div className="dm-ok" role="status"><span>{done}</span>
+        <button type="button" className="btn sm" onClick={() => setDone("")}>Dismiss</button></div>}
 
       {problem && <div className="dm-problem" role="alert">
         <span><b>Not saved: {problem.where}.</b> {problem.text}</span>
@@ -324,5 +335,8 @@ export function DataPage() {
         </table>
       </div>}
     </section>
+
+    {importing && <ImportRoster onClose={() => setImporting(false)}
+      onApplied={(summary) => { setImporting(false); setDone(summary); setReload((n) => n + 1); }} />}
   </>;
 }

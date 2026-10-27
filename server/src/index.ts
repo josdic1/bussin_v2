@@ -12,6 +12,7 @@ import { checkRoutes } from "./check/routes.js";
 import { adminRoutes } from "./admin/routes.js";
 import { messageRoutes } from "./messages/routes.js";
 import { dataRoutes } from "./data/routes.js";
+import { dataImportRoutes } from "./data/import.js";
 import { readTenant } from "./db/tenant.js";
 import { pool } from "./db/pool.js";
 import { closeListener } from "./db/listen.js";
@@ -42,6 +43,8 @@ app.set("trust proxy", isProduction ? 1 : false);
 app.disable("x-powered-by");
 app.use(securityHeaders);
 
+// Roster import takes whole files, so it reads its own (larger) request bodies first.
+app.use("/api/data/import", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); }, dataImportRoutes);
 app.use(express.json({ limit: "32kb" }));
 app.use("/api", (_request, response, next) => {
   response.set("Cache-Control", "no-store");

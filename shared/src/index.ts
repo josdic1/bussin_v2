@@ -787,3 +787,36 @@ export const dataStopOptionsResponseSchema = z.strictObject({
   AM: z.array(dataStopOptionSchema),
   PM: z.array(dataStopOptionSchema)
 });
+
+// ---------- Data mode: roster CSV import (admin) ----------
+// The file is read in the browser and sent as plain rows. The server answers with a
+// preview of every change; nothing is written until the same file is sent to apply.
+export const rosterImportInputSchema = z.strictObject({
+  headers: z.array(z.string().max(80)).min(1).max(80),
+  rows: z.array(z.array(z.string().max(500)).max(80)).max(5000),
+  // From the preview. Apply refuses if the plan no longer matches what was previewed.
+  token: z.string().max(100).optional()
+});
+export type RosterImportInput = z.infer<typeof rosterImportInputSchema>;
+export const rosterImportItemSchema = z.strictObject({
+  line: z.number().int(),
+  rider: z.string(),
+  kind: z.enum(["new", "update", "same", "skip", "error"]),
+  changes: z.array(z.string()),
+  error: z.string().nullable()
+});
+export type RosterImportItem = z.infer<typeof rosterImportItemSchema>;
+export const rosterImportPreviewSchema = z.strictObject({
+  items: z.array(rosterImportItemSchema),
+  counts: z.strictObject({
+    new: z.number().int(), update: z.number().int(), same: z.number().int(),
+    skip: z.number().int(), error: z.number().int(), newGuardians: z.number().int()
+  }),
+  missingColumns: z.array(z.string()),
+  token: z.string()
+});
+export type RosterImportPreview = z.infer<typeof rosterImportPreviewSchema>;
+export const rosterImportResultSchema = z.strictObject({
+  applied: z.number().int(), created: z.number().int(), updated: z.number().int(), newGuardians: z.number().int()
+});
+export type RosterImportResult = z.infer<typeof rosterImportResultSchema>;
