@@ -1,0 +1,31 @@
+/* Data mode: table cards on top, the open table as a grid below. Plain on purpose. */
+.ops .dm-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:18px 0 16px}
+.ops .dm-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);text-align:left;cursor:pointer}
+.ops .dm-card span{font-size:10px;font-weight:850;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.ops .dm-card strong{font-size:22px;font-weight:850;line-height:1}
+.ops .dm-card:hover{border-color:var(--green2)}
+.ops .dm-card.on{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
+.ops .dm-card.on span{color:var(--green)}
+
+.ops .dm-grid{display:flex;flex-direction:column}
+.ops .dm-bar{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.ops .dm-bar b{font-size:14px}
+.ops .dm-count{color:var(--muted);font-size:12px}
+.ops .dm-find{margin-left:auto;width:260px}
+.ops .dm-find input{height:34px}
+.ops .dm-note{padding:28px 16px;color:var(--muted);font-size:13px}
+.ops .dm-note.bad{color:#b42318}
+
+/* The grid scrolls inside itself so the cards and header stay put. */
+.ops .dm-scroll{overflow:auto;max-height:calc(100vh - 330px);min-height:240px}
+.ops .dm-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+.ops .dm-table th{position:sticky;top:0;z-index:1;background:#fafbf9;border-bottom:1px solid var(--line);border-right:1px solid var(--line2);padding:0;text-align:left;white-space:nowrap}
+.ops .dm-table th button{display:flex;align-items:center;gap:6px;width:100%;padding:9px 12px;border:0;background:none;font-size:9px;font-weight:850;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);cursor:pointer;text-align:left}
+.ops .dm-table th button:hover{color:var(--ink)}
+.ops .dm-table th[aria-sort="ascending"] button,.ops .dm-table th[aria-sort="descending"] button{color:var(--green)}
+.ops .dm-table th i{font-style:normal;font-size:11px;width:10px}
+.ops .dm-table td{padding:8px 12px;border-bottom:1px solid var(--line2);border-right:1px solid var(--line2);white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.ops .dm-table tbody tr:hover td{background:#fbfcfa}
+.ops .dm-table .dm-num{width:44px;text-align:right;color:var(--soft);font-variant-numeric:tabular-nums;background:#fafbf9}
+.ops .dm-table th.dm-num{padding:9px 12px;font-size:9px;color:var(--soft)}
+.ops .dm-table td.dm-empty{color:var(--soft)}

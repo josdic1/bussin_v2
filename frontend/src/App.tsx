@@ -10,6 +10,7 @@ import { OpsShell } from "./ops/OpsShell";
 const DriverTerminal = lazy(async () => ({ default: (await import("./terminal/DriverTerminal")).DriverTerminal }));
 const MembersPage = lazy(async () => ({ default: (await import("./members/MembersPage")).MembersPage }));
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
+const DataPage = lazy(async () => ({ default: (await import("./data/DataPage")).DataPage }));
 const MessagesPage = lazy(async () => ({ default: (await import("./messages/MessagesPage")).MessagesPage }));
 const CheckPage = lazy(async () => ({ default: (await import("./check/CheckPage")).CheckPage }));
 const MyBusPage = lazy(async () => ({ default: (await import("./mybus/MyBusPage")).MyBusPage }));
@@ -259,6 +260,7 @@ export function App() {
           <Route path="families" element={<AdminOnly><FamiliesPage /></AdminOnly>} />
           <Route path="riders" element={<Navigate to="/families" replace />} />
           <Route path="messages" element={<AdminOnly><MessagesPage /></AdminOnly>} />
+          <Route path="data" element={<AdminOnly><DataPage /></AdminOnly>} />
           <Route path="transit" element={<TransitPage />} />
         </Route>
         {/* Staff accounts get the cab terminal here (see AuthGate); everyone else goes home. */}

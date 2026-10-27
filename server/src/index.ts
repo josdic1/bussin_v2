@@ -11,6 +11,7 @@ import { staffRoutes } from "./staff/routes.js";
 import { checkRoutes } from "./check/routes.js";
 import { adminRoutes } from "./admin/routes.js";
 import { messageRoutes } from "./messages/routes.js";
+import { dataRoutes } from "./data/routes.js";
 import { readTenant } from "./db/tenant.js";
 import { pool } from "./db/pool.js";
 import { closeListener } from "./db/listen.js";
@@ -45,6 +46,7 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/check", checkRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/data", dataRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });

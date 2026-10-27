@@ -742,3 +742,19 @@ export const familyMessageSchema = z.strictObject({
 });
 export type FamilyMessage = z.infer<typeof familyMessageSchema>;
 export const familyMessagesResponseSchema = z.strictObject({ messages: z.array(familyMessageSchema) });
+
+// ---------- Data mode: every table as a plain grid (admin) ----------
+export const dataTableKeySchema = z.enum(["riders", "guardians", "buses", "routes", "stops", "members"]);
+export type DataTableKey = z.infer<typeof dataTableKeySchema>;
+export const dataTablesResponseSchema = z.strictObject({
+  tables: z.array(z.strictObject({ key: dataTableKeySchema, label: z.string(), count: z.number().int().nonnegative() }))
+});
+export const dataCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+export type DataCell = z.infer<typeof dataCellSchema>;
+export const dataTableResponseSchema = z.strictObject({
+  key: dataTableKeySchema,
+  label: z.string(),
+  columns: z.array(z.strictObject({ key: z.string(), label: z.string() })),
+  rows: z.array(z.strictObject({ id: z.string(), cells: z.record(z.string(), dataCellSchema) }))
+});
+export type DataTable = z.infer<typeof dataTableResponseSchema>;
