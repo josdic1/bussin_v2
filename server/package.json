@@ -8,6 +8,7 @@
     "build": "tsc",
     "dev": "node --env-file-if-exists=.env --watch --import tsx src/index.ts",
     "start": "node --env-file-if-exists=.env dist/index.js",
+    "migrate": "node --env-file-if-exists=.env dist/db/migrate.js",
     "db:check": "node --env-file-if-exists=.env --import tsx src/db/check.ts",
     "db:migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate.ts",
     "db:bootstrap": "node --env-file-if-exists=.env --import tsx src/auth/bootstrap.ts",

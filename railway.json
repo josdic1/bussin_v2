@@ -1,6 +1,9 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
+    "preDeployCommand": [
+      "npm run migrate -w @bussin/server"
+    ],
     "healthcheckPath": "/health",
     "healthcheckTimeout": 120,
     "overlapSeconds": 30,

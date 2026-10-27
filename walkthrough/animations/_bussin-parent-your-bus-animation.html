@@ -1,0 +1,280 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bussin — Parent Your Bus Demo</title>
+<style>
+:root{
+  --ink:#17231e; --muted:#6d7771; --line:#d5dbd6; --bg:#f5f6f2;
+  --green:#153f33; --green2:#2d7754; --red:#b9443b; --lime:#c9ee00;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#dfe2de;color:var(--ink)}
+body{display:grid;place-items:center;overflow:hidden}
+.stage{
+  position:relative;width:min(100vw,1100px);height:min(100vh,720px);
+  background:#e7e9e5;overflow:hidden;
+}
+.replay{
+  position:absolute;left:14px;top:14px;z-index:50;border:1px solid rgba(255,255,255,.35);
+  background:rgba(20,28,24,.82);color:#fff;border-radius:8px;padding:8px 12px;font-weight:800;
+  opacity:0;transition:.2s
+}
+.stage:hover .replay{opacity:1}
+.toast{
+  position:absolute;left:50%;top:16px;z-index:49;transform:translateX(-50%) translateY(-8px);
+  background:#202722;color:#fff;border-radius:8px;padding:8px 13px;font-size:12px;font-weight:800;
+  opacity:0;transition:.25s
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.phoneWrap{position:absolute;inset:0;display:grid;place-items:center}
+.phone{
+  width:410px;height:655px;background:#2d3431;border-radius:31px;padding:4px;
+  box-shadow:0 28px 90px rgba(0,0,0,.22)
+}
+.screen{position:relative;width:100%;height:100%;border-radius:27px;background:var(--bg);overflow:hidden}
+.page{
+  position:absolute;inset:0;padding:18px 16px 20px;opacity:0;transform:translateX(18px);
+  transition:opacity .45s ease,transform .45s ease;pointer-events:none
+}
+.page.show{opacity:1;transform:none;pointer-events:auto}
+
+.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+.brand{font-size:14px;font-weight:900;letter-spacing:.15em}
+.brandSub{font-size:11px;color:#66716b;margin-top:4px;font-weight:700}
+.signout{font-size:12px;color:#66716b;text-decoration:underline;font-weight:750;margin-top:3px}
+h1{font-size:28px;margin:0 0 14px}
+
+.card{border:1px solid var(--line);border-radius:17px;background:#fff;overflow:hidden}
+.cardTop{padding:20px 16px;border-bottom:1px solid var(--line)}
+.kicker{font-size:10px;font-weight:900;letter-spacing:.2em;color:#6a756f}
+.big{font-size:31px;line-height:1;font-weight:900;margin:8px 0 4px}
+.sub{font-size:14px;color:var(--muted);line-height:1.35}
+.rider{display:flex;align-items:center;gap:8px;padding:12px 16px 6px}
+.avatar{width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:900}
+.rider b{font-size:13px}
+.route{padding:0 16px 14px;font-weight:850;font-size:15px}
+.route small{display:block;color:var(--muted);font-weight:500;margin-top:4px}
+.infoGrid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #e2e6e2;border-bottom:1px solid #e2e6e2}
+.info{padding:12px 16px}
+.info .kicker{font-size:9px}
+.info b{display:block;margin-top:4px;font-size:14px}
+.warnRow{display:flex;justify-content:space-between;align-items:center;padding:11px 14px}
+.warnText b{font-size:14px;display:block}.warnText span{font-size:12px;color:var(--muted)}
+.stepper{display:flex;border:1px solid var(--green);border-radius:11px;overflow:hidden}
+.stepper button{width:40px;height:38px;border:0;background:#fff;color:var(--green);font-size:20px;font-weight:900}
+.stepper .value{width:56px;height:38px;display:grid;place-items:center;border-left:1px solid var(--green);border-right:1px solid var(--green);font-size:13px;font-weight:850}
+
+.goTop{background:var(--red);color:#fff;padding:20px 16px}
+.goTop .kicker{color:#fff}.goTop .big{font-size:48px;margin-top:8px}
+.goTop .sub{color:#fff;font-weight:800}
+.miniMap{height:160px;background:#edf2eb;position:relative;border-bottom:1px solid var(--line)}
+.routeLine{position:absolute;width:5px;height:115px;background:#478160;left:163px;top:30px;transform:rotate(17deg);transform-origin:bottom center;border-radius:999px}
+.stopDot{position:absolute;width:20px;height:20px;border-radius:50%;border:4px solid var(--green);background:#fff;left:126px;top:127px}
+.busDot{position:absolute;width:20px;height:20px;border-radius:50%;border:4px solid #43805f;background:#fff;left:155px;top:28px}
+.stopLabel{position:absolute;left:102px;top:105px;font-size:12px;font-weight:850}
+.busLabel{position:absolute;left:149px;top:117px;background:#1d2823;color:#fff;border-radius:8px;padding:5px 8px;font-size:10px;font-weight:850;border:3px solid #dbe8df}
+.progressArea{padding:12px 16px 10px}
+.progressTitle{font-size:16px;font-weight:900;margin:7px 0 2px}
+.live{font-size:12px;color:var(--muted)}
+.bar{height:8px;border-radius:999px;background:#dce3dd;margin-top:10px;overflow:hidden}
+.fill{height:100%;width:0;background:var(--green);border-right:3px solid var(--lime);transition:width 1.4s ease}
+
+.pickTop{background:#e6f3ea;color:#2b7552;padding:20px 16px}
+.pickTop .kicker{color:#2b7552}.pickTop .big{font-size:29px}
+.pickTop .sub{color:#2b7552;font-weight:750}
+
+.cursor{
+  position:absolute;z-index:55;width:20px;height:26px;pointer-events:none;
+  transition:left .42s cubic-bezier(.22,.8,.22,1),top .42s cubic-bezier(.22,.8,.22,1);
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.18))
+}
+.cursor svg{width:100%;height:100%}
+.ring{
+  position:absolute;z-index:54;width:18px;height:18px;border:2px solid rgba(18,63,49,.45);
+  border-radius:50%;opacity:0;pointer-events:none
+}
+.ring.pop{animation:pop .38s ease-out}
+@keyframes pop{0%{opacity:1;transform:scale(.5)}100%{opacity:0;transform:scale(2.2)}}
+.press{transform:scale(.96);filter:brightness(.95)}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<button class="replay" id="replay">Replay demo</button>
+<div class="toast" id="toast">Alert set for 5 minutes before</div>
+
+<div class="phoneWrap">
+<div class="phone">
+<div class="screen">
+
+<section class="page show" id="scheduled">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Family · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+  <h1>Your bus</h1>
+  <div class="card">
+    <div class="cardTop">
+      <div class="kicker">LATER TODAY</div>
+      <div class="big">Leaves 4:15 PM</div>
+      <div class="sub">Live times start when the driver starts the trip.</div>
+    </div>
+    <div class="rider"><div class="avatar">DD</div><b>Denny Dixon</b></div>
+    <div class="route">ALPHA Bus · Northside - Northfield Ave.<small>Northside - Northfield Ave.</small></div>
+    <div class="infoGrid">
+      <div class="info"><div class="kicker">YOUR STOP</div><b>PU1 - Beech Spring Rd.</b></div>
+      <div class="info"><div class="kicker">BUS</div><b>ALPHA Bus · AM</b></div>
+    </div>
+    <div class="warnRow">
+      <div class="warnText"><b>Warn me before the bus</b><span>Your walk to the stop</span></div>
+      <div class="stepper">
+        <button id="minusBtn">−</button>
+        <div class="value" id="warnValue">5 min</div>
+        <button id="plusBtn">+</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="page" id="approaching">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Family · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+  <h1>Your bus</h1>
+  <div class="card">
+    <div class="goTop">
+      <div class="kicker">LEAVE NOW</div>
+      <div class="big">Go</div>
+      <div class="sub">ALPHA Bus reaches PU1 - Beech Spring Rd. about 4:19 PM</div>
+    </div>
+    <div class="miniMap">
+      <div class="routeLine"></div>
+      <div class="busDot"></div>
+      <div class="stopDot"></div>
+      <div class="stopLabel">Your stop</div>
+      <div class="busLabel">BUS</div>
+    </div>
+    <div class="rider"><div class="avatar">DD</div><b>Denny Dixon</b></div>
+    <div class="progressArea">
+      <div class="progressTitle">Your stop is next</div>
+      <div class="live">Live · updated 4:18 PM</div>
+      <div class="bar"><div class="fill" id="goFill"></div></div>
+    </div>
+    <div class="infoGrid">
+      <div class="info"><div class="kicker">YOUR STOP</div><b>PU1 - Beech Spring Rd.</b></div>
+      <div class="info"><div class="kicker">BUS</div><b>ALPHA Bus · AM</b></div>
+    </div>
+    <div class="warnRow">
+      <div class="warnText"><b>Warn me before the bus</b><span>Your walk to the stop</span></div>
+      <div class="stepper">
+        <button>−</button><div class="value">5 min</div><button>+</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="page" id="picked">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Family · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+  <h1>Your bus</h1>
+  <div class="card">
+    <div class="pickTop">
+      <div class="kicker">ON THE BUS</div>
+      <div class="big">Picked up 4:19 PM</div>
+      <div class="sub">Denny is on ALPHA Bus.</div>
+    </div>
+    <div class="miniMap">
+      <div class="routeLine"></div>
+      <div class="busDot" style="left:150px;top:78px;background:#2f7653;border-color:#2f7653"></div>
+      <div class="stopDot" style="left:150px;top:78px;background:#2f7653;border-color:#2f7653"></div>
+      <div class="stopLabel" style="left:128px;top:57px">Your stop</div>
+      <div class="busLabel" style="left:158px;top:75px">BUS</div>
+    </div>
+    <div class="rider"><div class="avatar">DD</div><b>Denny Dixon</b></div>
+    <div class="progressArea">
+      <div class="progressTitle">Heading to school</div>
+      <div class="live">Live · updated 4:20 PM</div>
+      <div class="bar"><div class="fill" id="pickupFill" style="width:50%"></div></div>
+    </div>
+    <div class="infoGrid">
+      <div class="info"><div class="kicker">YOUR STOP</div><b>PU1 - Beech Spring Rd.</b></div>
+      <div class="info"><div class="kicker">BUS</div><b>ALPHA Bus · AM</b></div>
+    </div>
+  </div>
+</section>
+
+<div class="ring" id="ring"></div>
+<div class="cursor" id="cursor">
+<svg viewBox="0 0 24 30"><path d="M2 1 L2 24 L8 18 L12 28 L16 26 L12 17 L21 17 Z" fill="white" stroke="#17211c" stroke-width="1.5"/></svg>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const stage=$('#stage'),cursor=$('#cursor'),ring=$('#ring'),toast=$('#toast');
+const pages={scheduled:$('#scheduled'),approaching:$('#approaching'),picked:$('#picked')};
+
+function pt(el,x=.5,y=.5){
+  const a=stage.getBoundingClientRect(),r=el.getBoundingClientRect();
+  return{x:r.left-a.left+r.width*x,y:r.top-a.top+r.height*y}
+}
+async function move(el,x=.5,y=.5){
+  const p=pt(el,x,y);cursor.style.opacity='1';cursor.style.left=(p.x-3)+'px';cursor.style.top=(p.y-3)+'px';await sleep(420)
+}
+async function click(el){
+  await move(el);const p=pt(el);ring.style.left=(p.x-9)+'px';ring.style.top=(p.y-9)+'px';
+  ring.classList.remove('pop');void ring.offsetWidth;ring.classList.add('pop');
+  el.classList.add('press');await sleep(120);el.classList.remove('press');await sleep(180)
+}
+function showPage(k){
+  Object.values(pages).forEach(p=>p.classList.remove('show'));pages[k].classList.add('show')
+}
+function showToast(msg){
+  toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),700)
+}
+function reset(){
+  showPage('scheduled');$('#warnValue').textContent='5 min';$('#goFill').style.width='0';
+  cursor.style.opacity='1';cursor.style.left='720px';cursor.style.top='580px'
+}
+async function run(){
+  reset();await sleep(800);
+
+  // Parent checks/adjusts warning control.
+  await click($('#plusBtn'));
+  $('#warnValue').textContent='10 min';
+  showToast('Alert set for 10 minutes before');
+  await sleep(650);
+  await click($('#minusBtn'));
+  $('#warnValue').textContent='5 min';
+  showToast('Alert set for 5 minutes before');
+  await sleep(900);
+
+  // Bus approaches.
+  showPage('approaching');
+  await sleep(400);
+  $('#goFill').style.width='52%';
+  await sleep(2100);
+
+  // Child picked up.
+  showPage('picked');
+  await sleep(500);
+  $('#pickupFill').style.width='68%';
+  cursor.style.opacity='0';
+}
+$('#replay').addEventListener('click',run);
+document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();run()}});
+window.addEventListener('load',run);
+</script>
+</body>
+</html>

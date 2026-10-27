@@ -1,0 +1,340 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bussin — Driver Walkthrough</title>
+<style>
+:root{
+  --ink:#17231e; --muted:#6d7771; --line:#d5dbd6; --bg:#f5f6f2;
+  --green:#153f33; --green2:#2d7754; --red:#6f2822; --lime:#c9ff00;
+  --warn:#f8f0d8; --warnBorder:#e7cf8b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#dfe2de;color:var(--ink)}
+body{display:grid;place-items:center;overflow:hidden}
+.stage{position:relative;width:min(100vw,1100px);height:min(100vh,760px);background:#e8eae6;overflow:hidden}
+.replay{
+  position:absolute;left:14px;top:14px;z-index:60;border:1px solid rgba(255,255,255,.35);
+  background:rgba(20,28,24,.82);color:#fff;border-radius:8px;padding:8px 12px;font-weight:800;
+  opacity:0;transition:.2s
+}
+.stage:hover .replay{opacity:1}
+.toast{
+  position:absolute;left:50%;top:16px;z-index:59;transform:translateX(-50%) translateY(-8px);
+  background:#202722;color:#fff;border-radius:8px;padding:8px 13px;font-size:12px;font-weight:800;
+  opacity:0;transition:.25s
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.phoneWrap{position:absolute;inset:0;display:grid;place-items:center}
+.phone{
+  width:410px;height:700px;background:#2e3532;border-radius:30px;padding:4px;
+  box-shadow:0 28px 90px rgba(0,0,0,.22)
+}
+.screen{position:relative;width:100%;height:100%;border-radius:27px;background:var(--bg);overflow:hidden}
+.page{
+  position:absolute;inset:0;padding:18px 14px 20px;opacity:0;transform:translateX(18px);
+  transition:opacity .42s ease,transform .42s ease;pointer-events:none
+}
+.page.show{opacity:1;transform:none;pointer-events:auto}
+.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.brand{font-size:14px;font-weight:900;letter-spacing:.15em}
+.brandSub{font-size:11px;color:#66716b;margin-top:4px;font-weight:700}
+.signout{font-size:12px;color:#66716b;text-decoration:underline;font-weight:750;margin-top:3px}
+.status{
+  display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:white;margin-bottom:10px
+}
+.stat{padding:10px 9px;border-right:1px solid #e0e5e1}.stat:last-child{border-right:0}
+.statTop{display:flex;align-items:center;gap:7px;font-size:9px;font-weight:900;letter-spacing:.14em}
+.dot{width:8px;height:8px;border-radius:50%;background:#2f7a55}
+.dot.bad{background:#c55050}
+.statSub{font-size:11px;color:#5f6c66;margin-top:2px}
+.tripHero{border-radius:16px;padding:18px 16px;color:white;background:var(--red);margin-bottom:10px}
+.tripHero.green{background:var(--green)}
+.kicker{font-size:9px;font-weight:900;letter-spacing:.2em;opacity:.8}
+.routeTitle{font-size:26px;line-height:1.05;font-weight:900;margin:8px 0 6px}
+.tripSub{font-size:13px;line-height:1.3}
+.late{font-size:43px;font-weight:900;margin-top:14px}
+.late small{font-size:16px}
+.bigAction{width:100%;height:56px;border:0;border-radius:14px;font-size:18px;font-weight:900}
+.bigAction.green{background:var(--green);color:#fff}
+.bigAction.lime{background:var(--lime);color:#10241a}
+.outlineAction{width:100%;height:50px;border:1px solid var(--green);border-radius:13px;background:white;color:#173f34;font-size:16px;font-weight:850}
+.routeStops{margin-top:16px}
+.stopsHead{display:flex;justify-content:space-between;font-size:10px;color:#69756f;font-weight:900;letter-spacing:.16em;margin-bottom:6px}
+.stopList{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+.stop{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid #e0e5e1;font-size:13px}
+.stop:last-child{border-bottom:0}
+.stop.next{background:#f3f7d9}
+.left{display:flex;align-items:center;gap:12px}
+.num{width:24px;height:24px;border:2px solid #d7dfd8;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:900}
+.num.done{background:var(--green);color:white;border-color:var(--green)}
+.num.next{border-color:var(--green)}
+.details{margin-top:10px;border:1px solid var(--line);border-radius:12px;background:white;padding:11px;font-size:13px;color:#65716b;font-weight:800}
+.warn{
+  margin-bottom:10px;border:1px solid var(--warnBorder);background:var(--warn);border-radius:12px;padding:13px;color:#9a6b20
+}
+.warn b{display:block;font-size:13px;margin-bottom:8px}
+.warn .bigAction{height:44px;background:var(--green);color:#fff;border-radius:10px}
+.completeCard{border:1px solid var(--line);border-radius:16px;background:#fff;padding:20px 16px}
+.completeCard h2{font-size:28px;margin:6px 0}
+.completeCard p{margin:0;color:var(--muted);font-size:14px;line-height:1.45}
+
+.cursor{
+  position:absolute;z-index:65;width:20px;height:26px;pointer-events:none;
+  transition:left .42s cubic-bezier(.22,.8,.22,1),top .42s cubic-bezier(.22,.8,.22,1);
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.18))
+}
+.cursor svg{width:100%;height:100%}
+.ring{
+  position:absolute;z-index:64;width:18px;height:18px;border:2px solid rgba(18,63,49,.45);
+  border-radius:50%;opacity:0;pointer-events:none
+}
+.ring.pop{animation:pop .38s ease-out}
+@keyframes pop{0%{opacity:1;transform:scale(.5)}100%{opacity:0;transform:scale(2.2)}}
+.press{transform:scale(.97);filter:brightness(.95)}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<button class="replay" id="replay">Replay demo</button>
+<div class="toast" id="toast">Trip started</div>
+
+<div class="phoneWrap">
+<div class="phone">
+<div class="screen">
+
+<!-- Assigned -->
+<section class="page show" id="assigned">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Joss Dicker · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+
+  <div class="status">
+    <div class="stat"><div class="statTop"><span class="dot"></span>GPS</div><div class="statSub">±43 m</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>SCREEN</div><div class="statSub">Staying awake</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>DISPATCH</div><div class="statSub">Connected</div></div>
+  </div>
+
+  <div class="tripHero">
+    <div class="kicker">NEXT TRIP · ALPHA Bus · AM</div>
+    <div class="routeTitle">Northside - Northfield Ave.</div>
+    <div class="tripSub">Leaves 4:15 PM · first stop PU1 - Beech Spring Rd.</div>
+    <div class="late">3 min <small>late</small></div>
+  </div>
+
+  <button class="bigAction green" id="startTrip">Start trip</button>
+
+  <div class="routeStops">
+    <div class="stopsHead"><span>ROUTE STOPS</span><span>0 of 2 done</span></div>
+    <div class="stopList">
+      <div class="stop"><div class="left"><div class="num">1</div><span>PU1 - Beech Spring Rd.</span></div></div>
+      <div class="stop"><div class="left"><div class="num">2</div><span>School</span></div></div>
+    </div>
+  </div>
+  <div class="details">▸ Details</div>
+</section>
+
+<!-- Stop 1 -->
+<section class="page" id="stop1">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Joss Dicker · ALPHA Bus · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+
+  <div class="status">
+    <div class="stat"><div class="statTop"><span class="dot"></span>GPS</div><div class="statSub">±43 m</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>SCREEN</div><div class="statSub">Staying awake</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>DISPATCH</div><div class="statSub">Sent 10s ago</div></div>
+  </div>
+
+  <div class="tripHero green">
+    <div class="kicker">NEXT STOP · 1 OF 2</div>
+    <div class="routeTitle">PU1 - Beech Spring Rd.</div>
+    <div class="late">70 m <small>away</small></div>
+    <div class="tripSub">Arrival records itself when you stop at the pickup.</div>
+  </div>
+
+  <button class="outlineAction" id="arrive1">Arrived at PU1 - Beech Spring Rd.</button>
+
+  <div class="routeStops">
+    <div class="stopsHead"><span>ROUTE STOPS</span><span>0 of 2 done</span></div>
+    <div class="stopList">
+      <div class="stop next"><div class="left"><div class="num next">1</div><b>PU1 - Beech Spring Rd.</b></div><b style="color:#66716b">Next</b></div>
+      <div class="stop"><div class="left"><div class="num">2</div><span>School</span></div></div>
+    </div>
+  </div>
+  <div class="details">▸ Details</div>
+</section>
+
+<!-- GPS warning / school -->
+<section class="page" id="school">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Joss Dicker · ALPHA Bus · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+
+  <div class="status">
+    <div class="stat" style="background:#f8e7e5"><div class="statTop"><span class="dot bad"></span>GPS</div><div class="statSub">No fix 50s</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>SCREEN</div><div class="statSub">Staying awake</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>DISPATCH</div><div class="statSub">Sent 50s ago</div></div>
+  </div>
+
+  <div class="warn">
+    <b>GPS stopped updating. Keep Bussin open and on screen.</b>
+    <button class="bigAction" id="restartGps">Restart GPS</button>
+  </div>
+
+  <div class="tripHero green">
+    <div class="kicker">NEXT STOP · 2 OF 2</div>
+    <div class="routeTitle">School</div>
+    <div class="late">200 m <small>away</small></div>
+    <div class="tripSub">Arrival records itself when you stop at the pickup.</div>
+  </div>
+
+  <button class="outlineAction" id="arriveSchool">Arrived at School</button>
+
+  <div class="routeStops">
+    <div class="stopsHead"><span>ROUTE STOPS</span><span>1 of 2 done</span></div>
+    <div class="stopList">
+      <div class="stop"><div class="left"><div class="num done">1</div><span>PU1 - Beech Spring Rd.</span></div><span style="color:#6f7872">Tapped 4:19 PM</span></div>
+      <div class="stop next"><div class="left"><div class="num next">2</div><b>School</b></div><b style="color:#66716b">Next</b></div>
+    </div>
+  </div>
+  <div class="details">▸ Details</div>
+</section>
+
+<!-- Finish -->
+<section class="page" id="finish">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Joss Dicker · ALPHA Bus · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+
+  <div class="status">
+    <div class="stat"><div class="statTop"><span class="dot"></span>GPS</div><div class="statSub">±226 m</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>SCREEN</div><div class="statSub">Staying awake</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>DISPATCH</div><div class="statSub">Sent 14s ago</div></div>
+  </div>
+
+  <div class="tripHero green">
+    <div class="kicker">LAST STOP · 2 OF 2</div>
+    <div class="routeTitle">School</div>
+    <div class="late" style="font-size:40px">Arrived <small>4:21 PM</small></div>
+    <div class="tripSub">Everyone off? Finish the trip to free the bus.</div>
+  </div>
+
+  <button class="bigAction lime" id="finishTrip">Finish trip</button>
+
+  <div class="routeStops">
+    <div class="stopsHead"><span>ROUTE STOPS</span><span>2 of 2 done</span></div>
+    <div class="stopList">
+      <div class="stop"><div class="left"><div class="num done">1</div><span>PU1 - Beech Spring Rd.</span></div><span style="color:#6f7872">Tapped 4:19 PM</span></div>
+      <div class="stop"><div class="left"><div class="num done">2</div><span>School</span></div><span style="color:#6f7872">Tapped 4:21 PM</span></div>
+    </div>
+  </div>
+  <div class="details">▸ Details</div>
+</section>
+
+<!-- Completed -->
+<section class="page" id="completed">
+  <div class="top">
+    <div><div class="brand">BUSSIN</div><div class="brandSub">Joss Dicker · The Bus App</div></div>
+    <div class="signout">Sign out</div>
+  </div>
+
+  <div class="status">
+    <div class="stat"><div class="statTop"><span class="dot"></span>GPS</div><div class="statSub">±226 m</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>SCREEN</div><div class="statSub">Staying awake</div></div>
+    <div class="stat"><div class="statTop"><span class="dot"></span>DISPATCH</div><div class="statSub">Connected</div></div>
+  </div>
+
+  <div class="completeCard">
+    <div class="kicker">TRIP COMPLETE</div>
+    <h2>Nice work.</h2>
+    <p>Dispatch can now assign your next trip. Keep this screen open to get it.</p>
+  </div>
+  <div class="details">▸ Details</div>
+</section>
+
+<div class="ring" id="ring"></div>
+<div class="cursor" id="cursor">
+<svg viewBox="0 0 24 30"><path d="M2 1 L2 24 L8 18 L12 28 L16 26 L12 17 L21 17 Z" fill="white" stroke="#17211c" stroke-width="1.5"/></svg>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const stage=$('#stage'),cursor=$('#cursor'),ring=$('#ring'),toast=$('#toast');
+const pages={assigned:$('#assigned'),stop1:$('#stop1'),school:$('#school'),finish:$('#finish'),completed:$('#completed')};
+
+function pt(el,x=.5,y=.5){
+  const a=stage.getBoundingClientRect(),r=el.getBoundingClientRect();
+  return{x:r.left-a.left+r.width*x,y:r.top-a.top+r.height*y}
+}
+async function move(el,x=.5,y=.5){
+  const p=pt(el,x,y);cursor.style.opacity='1';cursor.style.left=(p.x-3)+'px';cursor.style.top=(p.y-3)+'px';await sleep(420)
+}
+async function click(el){
+  await move(el);const p=pt(el);ring.style.left=(p.x-9)+'px';ring.style.top=(p.y-9)+'px';
+  ring.classList.remove('pop');void ring.offsetWidth;ring.classList.add('pop');
+  el.classList.add('press');await sleep(120);el.classList.remove('press');await sleep(180)
+}
+function showPage(k){
+  Object.values(pages).forEach(p=>p.classList.remove('show'));pages[k].classList.add('show')
+}
+function showToast(msg){
+  toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),700)
+}
+function reset(){
+  showPage('assigned');cursor.style.opacity='1';cursor.style.left='740px';cursor.style.top='590px'
+}
+async function run(){
+  reset();await sleep(800);
+
+  // Start assigned trip.
+  await click($('#startTrip'));
+  showToast('Trip started');
+  await sleep(650);
+  showPage('stop1');
+  await sleep(1200);
+
+  // Manual arrival at stop 1.
+  await click($('#arrive1'));
+  showToast('Arrival recorded');
+  await sleep(650);
+
+  // Move to final stop and demonstrate GPS recovery.
+  showPage('school');
+  await sleep(900);
+  await click($('#restartGps'));
+  showToast('GPS restarted');
+  await sleep(750);
+
+  // Arrive at school.
+  await click($('#arriveSchool'));
+  showToast('Arrival recorded');
+  await sleep(650);
+  showPage('finish');
+  await sleep(1100);
+
+  // Finish trip.
+  await click($('#finishTrip'));
+  showToast('Trip finished');
+  await sleep(650);
+  showPage('completed');
+  cursor.style.opacity='0';
+}
+$('#replay').addEventListener('click',run);
+document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();run()}});
+window.addEventListener('load',run);
+</script>
+</body>
+</html>

@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bussin — Members staff setup demo</title>
+<style>
+:root{
+  --ink:#14201b; --muted:#6d7670; --line:#d5dbd6; --bg:#f4f5f2;
+  --green:#153f33; --green2:#246145; --soft:#eef5f0;
+  --gold:#f6e7b5; --goldText:#8b6112; --blue:#2f70c9;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#d9ddd9;color:var(--ink)}
+body{display:grid;place-items:center;overflow:hidden}
+.stage{position:relative;width:min(100vw,177.8vh);aspect-ratio:16/9;background:var(--bg);overflow:hidden}
+.replay{position:absolute;z-index:99;left:14px;top:14px;border:1px solid rgba(255,255,255,.35);background:rgba(20,28,24,.82);color:#fff;border-radius:8px;padding:8px 12px;font-weight:750;opacity:0;transition:.2s}
+.stage:hover .replay{opacity:1}
+
+/* shell */
+.sidebar{position:absolute;left:0;top:0;bottom:0;width:0;background:#e7ebe7}
+.main{position:absolute;inset:0;background:#f3f4f1}
+.topbar{height:52px;border-bottom:1px solid #d6dcd7;padding:22px 30px;font-size:10px;font-weight:900;letter-spacing:.18em;color:#55625c}
+.content{padding:28px 96px}
+.eyebrow{font-size:10px;letter-spacing:.22em;font-weight:900;color:#6a756f}
+h1{font-size:38px;margin:8px 0 5px}.sub{color:#6f7872;font-size:14px}
+.stats{display:grid;grid-template-columns:1.2fr 1.2fr 1.2fr;gap:10px;margin-top:18px}
+.stat{height:96px;border:1px solid #d5dbd6;border-radius:12px;padding:15px;background:#f8f9f7}
+.stat.primary{background:var(--green);color:#fff;border-color:var(--green)}
+.k{font-size:9px;font-weight:900;letter-spacing:.18em;color:#69756f}.primary .k{color:#cfddd6}
+.n{font-size:29px;font-weight:850;margin:8px 0 2px}.l{font-size:12px;color:#7a837e}.primary .l{color:#b8cbc2}
+.tabs{display:flex;gap:30px;border-bottom:1px solid #cfd6d1;margin-top:20px}
+.tab{padding:0 10px 10px;font-size:13px;font-weight:800;color:#5d6862}.tab.active{border-bottom:2px solid var(--green);color:#173a2f}
+.searchLabel{margin:16px 0 7px;font-size:9px;font-weight:900;letter-spacing:.16em;color:#66726b}
+.search{width:240px;height:40px;border:1px solid #cfd6d1;border-radius:8px;background:#f8f9f7;padding:11px;color:#878d89;font-size:12px}
+.table{margin-top:12px;border:1px solid #d1d7d2;border-radius:12px;overflow:hidden;background:#f8f9f7}
+.thead,.trow{display:grid;grid-template-columns:1.6fr 1fr .7fr 120px;align-items:center;padding:0 14px}
+.thead{height:34px;border-bottom:1px solid #d6dcd7;font-size:9px;font-weight:900;letter-spacing:.16em;color:#6b756f}
+.trow{height:58px;font-size:13px}
+.empty{grid-column:1/-1;text-align:center;color:#737b76}
+.person{display:flex;align-items:center;gap:10px;font-weight:780}
+.avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--blue);color:#fff;font-weight:900}
+.badge{justify-self:end;border-radius:999px;padding:6px 10px;font-size:9px;font-weight:900;letter-spacing:.1em}
+.setup{background:var(--gold);color:var(--goldText)}
+.active{background:#dff2e7;color:#2d6d4c}
+
+/* modal/drawer */
+.veil{position:absolute;inset:0 500px 0 0;background:rgba(34,43,38,.22)}
+.drawer{position:absolute;right:0;top:0;width:500px;height:100%;background:#fff;border-left:1px solid #e0e4e1;padding:46px 24px 26px}
+.close{position:absolute;right:18px;top:16px;border:1px solid #d6ddd8;background:#fff;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:750;color:#5c6761}
+.drawer h2{font-size:28px;margin:10px 0 14px}.desc{font-size:12px;color:#707973;margin-bottom:16px}
+label{display:block;font-size:9px;font-weight:900;letter-spacing:.16em;color:#647069;margin:12px 0 6px}
+input{width:100%;height:40px;border:1px solid #cfd6d1;border-radius:8px;background:white;padding:0 12px;font-size:13px;outline:none}
+input.focus{border:2px solid #164536;box-shadow:0 0 0 2px rgba(22,69,54,.08)}
+.fieldrow{display:flex;gap:8px}.generate{width:96px;border:1px solid #d3d9d4;border-radius:8px;background:#fff;color:#1b493b;font-weight:800}
+.help{font-size:11px;color:#7a837e;margin-top:5px}
+.create{margin-top:14px;width:100%;height:39px;border:0;border-radius:7px;background:var(--green2);color:#fff;font-weight:850}
+.press{transform:scale(.985);filter:brightness(.94)}
+
+/* success banner */
+.successBanner{display:none;background:#e7f4ea;border:1px solid #b8d9c0;border-radius:10px;padding:12px;color:#2c6d49;font-size:12px;font-weight:750;line-height:1.25;margin-bottom:14px}
+.successBanner.show{display:block}
+.successBanner code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#fff;padding:1px 3px;border-radius:3px;color:#285c43}
+
+/* detail drawer */
+.detail{display:none}
+.detail.show{display:block}
+.createPanel.hide{display:none}
+.detailHeader{display:flex;align-items:center;gap:14px;margin:12px 0 8px}
+.detailAvatar{width:44px;height:44px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-weight:900}
+.detail h2{font-size:27px;margin:0}
+.detailBadge{display:inline-block;margin:2px 0 14px}
+.grid{border:1px solid var(--line);border-radius:10px;overflow:hidden;display:grid;grid-template-columns:1fr 1fr}
+.cell{padding:12px;border-right:1px solid #e0e4e1;border-bottom:1px solid #e0e4e1}.cell:nth-child(2n){border-right:0}.cell:nth-child(n+3){border-bottom:0}
+.cell .lab{font-size:9px;font-weight:900;letter-spacing:.16em;color:#6a756f}.cell .val{font-size:13px;font-weight:800;margin-top:5px}
+.note{font-size:12px;color:#6f7872;line-height:1.6;margin:14px 0 16px}
+.next{display:flex;justify-content:space-between;align-items:center;font-weight:850;font-size:14px;margin-top:10px}
+.noTrips{font-size:12px;color:#77807a;margin-top:10px}
+.fadeSwap{animation:fade .45s ease}
+@keyframes fade{0%{opacity:.15;transform:translateY(3px)}100%{opacity:1;transform:none}}
+
+/* cursor */
+.cursor{position:absolute;z-index:70;width:20px;height:26px;transition:left .42s cubic-bezier(.22,.8,.22,1),top .42s cubic-bezier(.22,.8,.22,1);filter:drop-shadow(0 2px 2px rgba(0,0,0,.18))}
+.cursor svg{width:100%;height:100%}
+.ring{position:absolute;z-index:69;width:18px;height:18px;border:2px solid rgba(18,63,49,.45);border-radius:50%;opacity:0;pointer-events:none}
+.ring.pop{animation:pop .38s ease-out}
+@keyframes pop{0%{opacity:1;transform:scale(.5)}100%{opacity:0;transform:scale(2.2)}}
+.toast{position:absolute;left:50%;top:16px;transform:translateX(-50%) translateY(-8px);z-index:80;background:#1e2522;color:#fff;border-radius:8px;padding:8px 13px;font-size:11px;font-weight:750;opacity:0;transition:.25s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<button class="replay" id="replay">Replay demo</button>
+<div class="toast" id="toast">Staff login created</div>
+
+<main class="main">
+  <div class="topbar">BUSSIN / MEMBERS</div>
+  <div class="content">
+    <div class="eyebrow">STAFF</div>
+    <h1>Members</h1>
+    <div class="sub">Staff logins for people who run bus trips.</div>
+
+    <div class="stats">
+      <div class="stat primary"><div class="k">ALL STAFF</div><div class="n" id="allCount">0</div><div class="l">logins</div></div>
+      <div class="stat"><div class="k">ACTIVE</div><div class="n" id="activeCount">0</div><div class="l">personal password</div></div>
+      <div class="stat"><div class="k">SETUP REQUIRED</div><div class="n" id="setupCount">0</div><div class="l">temporary password</div></div>
+    </div>
+
+    <div class="tabs"><div class="tab active">Staff logins</div><div class="tab">Schedule, next 7 days</div></div>
+    <div class="searchLabel">SEARCH</div>
+    <div class="search">Name, username or email</div>
+
+    <div class="table">
+      <div class="thead"><span>NAME</span><span>USERNAME</span><span>EMAIL</span><span>STATUS</span></div>
+      <div class="trow" id="row"><div class="empty">No staff match this view.</div></div>
+    </div>
+  </div>
+</main>
+
+<div class="veil"></div>
+
+<section class="drawer">
+  <button class="close">Close</button>
+
+  <div class="createPanel" id="createPanel">
+    <div class="eyebrow">MEMBERS</div>
+    <h2>Create staff login</h2>
+    <div class="successBanner" id="successBanner">
+      Created Joss Dicker<br>
+      Give them username <code>joss</code> and the temporary password <code>PnNt5XuHCn28qeFB</code>.
+    </div>
+    <div class="desc">They must change the temporary password the first time they sign in.</div>
+
+    <label>NAME</label>
+    <input id="name">
+    <label>USERNAME</label>
+    <input id="username">
+    <div class="help">3 to 32 characters: letters, numbers, underscore.</div>
+    <label>EMAIL (OPTIONAL)</label>
+    <input id="email">
+    <label>TEMPORARY PASSWORD</label>
+    <div class="fieldrow">
+      <input id="password" readonly>
+      <button class="generate" id="generate">Generate</button>
+    </div>
+    <div class="help">12 characters or more.</div>
+    <button class="create" id="create">Create staff login</button>
+  </div>
+
+  <div class="detail" id="detail">
+    <div class="eyebrow">STAFF</div>
+    <div class="detailHeader">
+      <div class="detailAvatar">JD</div>
+      <h2>Joss Dicker</h2>
+    </div>
+    <div class="badge setup detailBadge" id="detailBadge">SETUP REQUIRED</div>
+
+    <div class="grid">
+      <div class="cell"><div class="lab">USERNAME</div><div class="val">@joss</div></div>
+      <div class="cell"><div class="lab">EMAIL</div><div class="val">—</div></div>
+      <div class="cell"><div class="lab">STATUS</div><div class="val" id="detailStatus">Setup required</div></div>
+      <div class="cell"><div class="lab">PASSWORD</div><div class="val" id="detailPassword">Temporary</div></div>
+    </div>
+
+    <div class="note" id="detailNote">Has not set a personal password yet. They must change the temporary password at first sign-in.</div>
+    <div class="next"><span>Next 7 days</span><span style="font-size:11px;color:#6d7670">0 trips</span></div>
+    <div class="noTrips">No trips assigned.</div>
+  </div>
+</section>
+
+<div class="ring" id="ring"></div>
+<div class="cursor" id="cursor">
+<svg viewBox="0 0 24 30"><path d="M2 1 L2 24 L8 18 L12 28 L16 26 L12 17 L21 17 Z" fill="white" stroke="#17211c" stroke-width="1.5"/></svg>
+</div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const stage=$('#stage'),cursor=$('#cursor'),ring=$('#ring'),toast=$('#toast');
+const name=$('#name'),username=$('#username'),email=$('#email'),password=$('#password');
+const generate=$('#generate'),create=$('#create'),row=$('#row');
+const createPanel=$('#createPanel'),detail=$('#detail'),successBanner=$('#successBanner');
+
+function point(el,x=.5,y=.5){
+  const a=stage.getBoundingClientRect(),r=el.getBoundingClientRect();
+  return {x:r.left-a.left+r.width*x,y:r.top-a.top+r.height*y}
+}
+async function move(el,x=.5,y=.5){
+  const p=point(el,x,y);cursor.style.left=(p.x-3)+'px';cursor.style.top=(p.y-3)+'px';await sleep(450)
+}
+async function click(el){
+  await move(el);const p=point(el);
+  ring.style.left=(p.x-9)+'px';ring.style.top=(p.y-9)+'px';
+  ring.classList.remove('pop');void ring.offsetWidth;ring.classList.add('pop');
+  el.classList.add('press');await sleep(130);el.classList.remove('press');await sleep(170)
+}
+async function type(el,text,speed=72){
+  el.classList.add('focus');await move(el,.18,.5);await sleep(160);el.value='';
+  for(const ch of text){el.value+=ch;await sleep(speed)}
+  await sleep(220);el.classList.remove('focus')
+}
+function setRowSetup(){
+  row.innerHTML='<div class="person"><div class="avatar">JD</div><span>Joss Dicker</span></div><span>@joss</span><span>—</span><span class="badge setup">SETUP REQUIRED</span>';
+}
+function setRowActive(){
+  row.innerHTML='<div class="person"><div class="avatar">JD</div><span>Joss Dicker</span></div><span>@joss</span><span>—</span><span class="badge active">ACTIVE</span>';
+}
+function reset(){
+  name.value='';username.value='';email.value='';password.value='';
+  $('#allCount').textContent='0';$('#activeCount').textContent='0';$('#setupCount').textContent='0';
+  row.innerHTML='<div class="empty">No staff match this view.</div>';
+  successBanner.classList.remove('show');
+  createPanel.classList.remove('hide');detail.classList.remove('show');
+  $('#detailBadge').className='badge setup detailBadge';$('#detailBadge').textContent='SETUP REQUIRED';
+  $('#detailStatus').textContent='Setup required';$('#detailPassword').textContent='Temporary';
+  $('#detailNote').textContent='Has not set a personal password yet. They must change the temporary password at first sign-in.';
+  cursor.style.left='1450px';cursor.style.top='145px';toast.classList.remove('show');
+}
+async function run(){
+  reset();await sleep(650);
+
+  await type(name,'Joss Dicker',65);
+  await type(username,'joss',90);
+  await sleep(300);
+
+  await click(generate);
+  password.value='PnNt5XuHCn28qeFB';
+  await sleep(700);
+
+  await click(create);
+  $('#allCount').textContent='1';$('#setupCount').textContent='1';setRowSetup();
+  successBanner.classList.add('show');
+  toast.classList.add('show');await sleep(650);toast.classList.remove('show');
+  await sleep(800);
+
+  await click(row);
+  createPanel.classList.add('hide');detail.classList.add('show');
+  await sleep(1800);
+
+  // Staff completes first sign-in and sets a personal password:
+  $('#activeCount').textContent='1';$('#setupCount').textContent='0';setRowActive();
+  $('#detailBadge').className='badge active detailBadge';$('#detailBadge').textContent='ACTIVE';
+  $('#detailStatus').textContent='Active';$('#detailPassword').textContent='Personal';
+  $('#detailNote').textContent='Signed in with a personal password.';
+  detail.classList.remove('fadeSwap');void detail.offsetWidth;detail.classList.add('fadeSwap');
+  cursor.style.opacity='0';
+}
+$('#replay').addEventListener('click',run);
+document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();run()}});
+window.addEventListener('load',run);
+</script>
+</body>
+</html>

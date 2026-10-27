@@ -1,0 +1,787 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bussin Dispatch + Transit Walkthrough</title>
+<style>
+  :root{
+    --bg:#f4f5f1; --line:#d4dbd5; --muted:#6f7872; --ink:#16221d;
+    --green:#173f34; --green2:#2c8a58; --red:#cb4b4d; --gold:#eadca8;
+    --goldText:#8b6318; --soft:#eef3ee;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#dfe2dd;color:var(--ink)}
+  body{display:grid;place-items:center;overflow:hidden}
+  .stage{position:relative;width:min(100vw,177.8vh);aspect-ratio:16/9;background:var(--bg);overflow:hidden}
+  .replay{
+    position:absolute;left:14px;top:14px;z-index:120;border:1px solid rgba(255,255,255,.35);
+    background:rgba(20,28,24,.82);color:#fff;border-radius:8px;padding:8px 12px;font-weight:800;
+    opacity:0;transition:.2s
+  }
+  .stage:hover .replay{opacity:1}
+  .toast{
+    position:absolute;left:50%;top:16px;transform:translateX(-50%) translateY(-8px);
+    z-index:115;background:#202722;color:#fff;border-radius:8px;padding:8px 14px;
+    font-size:12px;font-weight:800;opacity:0;transition:.25s
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .page{
+    position:absolute;inset:0;padding:0;background:var(--bg);opacity:0;transform:translateX(24px);
+    transition:opacity .45s ease, transform .45s ease;pointer-events:none
+  }
+  .page.show{opacity:1;transform:none;pointer-events:auto}
+  .topbar{
+    height:52px;border-bottom:1px solid var(--line);padding:18px 28px;
+    font-size:10px;font-weight:900;letter-spacing:.20em;color:#5a6660
+  }
+  .content{padding:28px 84px}
+  .eyebrow{font-size:10px;font-weight:900;letter-spacing:.22em;color:#6a766f}
+  h1{margin:8px 0 6px;font-size:42px;line-height:1}
+  .sub{font-size:14px;color:var(--muted)}
+  .btn,.smallbtn,.ghostbtn{
+    border:1px solid var(--line);background:#fff;border-radius:9px;color:var(--ink);
+    font-weight:850
+  }
+  .btn{height:42px;padding:0 16px;font-size:14px}
+  .btn.primary{background:var(--green);color:#fff;border-color:var(--green)}
+  .btn.bad{color:#b04341;border-color:#e0a3a0}
+  .smallbtn{height:32px;padding:0 12px;font-size:12px}
+  .ghostbtn{height:48px;padding:0 18px;font-size:16px}
+  .press{transform:scale(.985);filter:brightness(.95)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}
+  .stat{height:96px;border:1px solid var(--line);border-radius:13px;background:#fff;padding:16px}
+  .k{font-size:9px;font-weight:900;letter-spacing:.18em;color:#6d7872}
+  .n{font-size:30px;font-weight:900;margin:8px 0 2px}
+  .l{font-size:12px;color:#7a837d}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+  .toolbarRight{display:flex;gap:10px;align-items:center}
+  .chip{padding:8px 12px;border-radius:999px;background:#e8efe9;font-size:12px;font-weight:800;color:#2c714d}
+  .seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+  .seg span{padding:9px 14px;font-size:14px;font-weight:800;color:#66706b}
+  .seg .on{background:var(--green);color:#fff}
+  .dateBox{height:42px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 14px;font-weight:650}
+  .needs{margin-top:16px}
+  .sectionTitle{font-size:14px;font-weight:900;margin:0 0 10px}
+  .needsCard{
+    width:380px;border:1px solid var(--line);border-radius:14px;background:#fff;padding:14px;
+    box-shadow:inset 4px 0 0 #2a7a53
+  }
+  .needsCard.warn{box-shadow:inset 4px 0 0 #c08a2f}
+  .needsCard h3{margin:0 0 6px;font-size:14px}
+  .needsCard p{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45}
+  .liveBoardGrid{display:grid;grid-template-columns:320px 1fr 330px;gap:12px;margin-top:18px}
+  .panel{
+    border:1px solid var(--line);border-radius:16px;background:#fff;overflow:hidden
+  }
+  .panelHead{
+    display:flex;justify-content:space-between;align-items:center;padding:13px 16px;
+    border-bottom:1px solid var(--line);font-size:14px;font-weight:900
+  }
+  .panelHead small{font-size:11px;font-weight:700;color:#7b837e}
+  .busItem{padding:14px 16px;border-top:1px solid #e0e5e1}
+  .busItem:first-child{border-top:0}
+  .busItem .title{font-weight:850;font-size:14px}
+  .busItem .meta{font-size:12px;color:var(--muted);margin-top:3px}
+  .busItem .row{display:flex;justify-content:space-between;gap:10px}
+  .sidePill{padding:5px 8px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.08em;background:#edf0ec;color:#65706b}
+  .sidePill.gold{background:#f4e7bc;color:var(--goldText)}
+  .sidePill.green{background:#e2f1e7;color:#2a6c4b}
+  .sidePill.red{background:#f7dfdf;color:#a5403d}
+  .mapPanel{position:relative;min-height:470px;background:#eef0ec}
+  .mapHeader{position:absolute;left:0;right:0;top:0;height:40px;padding:11px 16px;border-bottom:1px solid var(--line);background:#fff;display:flex;justify-content:space-between;font-weight:900}
+  .mapHeader small{font-weight:700;color:#7b837e}
+  .map{
+    position:absolute;left:0;right:0;top:40px;bottom:0;background:
+      linear-gradient(65deg, transparent 0 48%, #d8dcd8 48% 50%, transparent 50% 100%),
+      linear-gradient(120deg, transparent 0 42%, #dbe0dc 42% 44%, transparent 44% 100%),
+      linear-gradient(20deg, transparent 0 58%, #e0e4e0 58% 60%, transparent 60% 100%),
+      #f4f5f2;
+    overflow:hidden
+  }
+  .road{position:absolute;background:#fff;border:1px solid #e3e7e3;border-radius:999px;transform-origin:left center}
+  .r1{width:390px;height:12px;left:30px;top:80px;transform:rotate(63deg)}
+  .r2{width:420px;height:12px;left:250px;top:40px;transform:rotate(110deg)}
+  .r3{width:420px;height:12px;left:190px;top:320px;transform:rotate(25deg)}
+  .r4{width:300px;height:12px;left:420px;top:120px;transform:rotate(130deg)}
+  .r5{width:290px;height:12px;left:520px;top:290px;transform:rotate(90deg)}
+  .pond{position:absolute;width:95px;height:80px;left:355px;top:250px;background:#cfd8df;border-radius:45% 55% 42% 58% / 54% 40% 60% 46%;opacity:.75}
+  svg.route{position:absolute;inset:0}
+  .detailPanel{padding:16px}
+  .detailHead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .dot{width:14px;height:14px;border-radius:4px;background:var(--red)}
+  .dot.green{background:#2a8d58}
+  .detailHead h2{margin:0;font-size:26px;line-height:1}
+  .detailMeta{font-size:12px;color:var(--muted);margin-top:6px}
+  .alert{
+    margin:12px 0;border:1px solid #e6c772;background:#faf4de;color:#9a6d18;
+    border-radius:10px;padding:12px;font-weight:800;font-size:13px
+  }
+  .detailGrid{
+    margin:12px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    display:grid;grid-template-columns:1fr 1fr
+  }
+  .cell{padding:12px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .cell:nth-child(2n){border-right:0}.cell:nth-last-child(-n+2){border-bottom:0}
+  .cell .k{margin-bottom:6px}.cell b{font-size:15px}
+  .mutedLine{font-size:12px;color:var(--muted);margin:10px 0}
+  .assignRow{display:flex;gap:8px;margin:10px 0 12px}
+  .fakeSelect{flex:1;height:40px;border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px 12px;font-size:14px}
+  .actions{display:flex;gap:8px;margin-bottom:14px}
+  .stopRow{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;color:#2b342f}
+  .stopLeft{display:flex;align-items:center;gap:9px}
+  .ringDot{width:16px;height:16px;border-radius:50%;border:3px solid var(--red);background:#fff}
+  .ringDot.green{border-color:#2a8d58}
+  .drawerVeil{position:absolute;inset:0 0 0 0;background:rgba(27,37,32,.12);display:none;z-index:20}
+  .drawer{
+    position:absolute;top:0;right:0;width:520px;height:100%;background:#fff;border-left:1px solid #e0e4e1;
+    padding:44px 24px;display:none;z-index:25
+  }
+  .drawer.show,.drawerVeil.show{display:block}
+  .close{position:absolute;right:18px;top:16px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:800;color:#5d6761}
+  .drawer h2{margin:8px 0 14px;font-size:28px}
+  label{display:block;font-size:9px;font-weight:900;letter-spacing:.18em;color:#67726c;margin:12px 0 6px}
+  input,select{
+    width:100%;height:40px;border:1px solid #cfd6d1;border-radius:8px;background:#fff;
+    padding:0 12px;font-size:13px;color:#2a322f;outline:none
+  }
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  /* My Bus */
+  .mybusWrap{padding:0 0 0 0}
+  .mybusInner{width:920px;margin-left:86px}
+  .busChips{display:flex;gap:8px;margin:14px 0}
+  .busTab{padding:9px 14px;border-radius:999px;border:1px solid var(--line);font-weight:850;background:#fff}
+  .busTab.on{background:var(--green);color:#fff;border-color:var(--green)}
+  .online{display:flex;gap:10px;align-items:center;color:#2c714d;font-weight:800;font-size:14px;margin:4px 0 14px}
+  .online .miniDot{width:9px;height:9px;border-radius:50%;background:#2c8a58;box-shadow:0 0 0 4px #dfeee4}
+  .hero{
+    width:640px;border:1px solid var(--line);border-radius:18px;background:#fff;padding:18px 18px 24px
+  }
+  .hero .eyebrow{margin-bottom:4px}
+  .heroTitle{font-size:28px;font-weight:900}
+  .heroSub{font-size:14px;color:var(--muted);margin-top:2px}
+  .heroActions{margin-top:12px;display:grid;gap:12px}
+  .heroActions .btn,.heroActions .ghostbtn{width:100%}
+  .stopsBox{width:640px;margin-top:18px}
+  .stopsHead{display:flex;justify-content:space-between;margin-bottom:10px;font-size:14px;font-weight:900}
+  .myStop{display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:13px}
+  .myStop .left{display:flex;gap:10px;align-items:center}
+  /* Transit */
+  .transitGrid{display:grid;grid-template-columns:380px 1fr;gap:0;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#fff;margin-top:18px}
+  .tripList{border-right:1px solid var(--line)}
+  .searchBox{padding:14px;border-bottom:1px solid var(--line)}
+  .searchInput{height:40px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:#7e8680}
+  .listItem{padding:14px;border-top:1px solid #e1e5e1;background:#f5f7f4}
+  .listItem.active{box-shadow:inset 4px 0 0 var(--green)}
+  .listRow{display:flex;align-items:center;gap:12px}
+  .circle{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:900;color:#fff;background:#2c8a58}
+  .circle.red{background:#cc4b4d}
+  .tripTitle{font-weight:850}
+  .rightDetail{padding:22px}
+  .timesGrid{border:1px solid var(--line);border-radius:12px;overflow:hidden;display:grid;grid-template-columns:repeat(3,1fr);margin-top:14px}
+  .timeCell{padding:14px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .timeCell:nth-child(3n){border-right:0}.timeCell:nth-last-child(-n+3){border-bottom:0}
+  .tabsSmall{display:flex;gap:26px;border-bottom:1px solid var(--line);margin-top:14px;padding:0 10px}
+  .tabsSmall span{padding:12px 0;font-weight:800;color:#65706b}
+  .tabsSmall .on{color:#173f34;border-bottom:2px solid var(--green)}
+  .event{display:grid;grid-template-columns:70px 22px 1fr;gap:10px;align-items:start;padding:14px 0}
+  .lineCol{position:relative;height:100%}
+  .lineCol:before{content:"";position:absolute;left:9px;top:0;bottom:-14px;width:2px;background:#d7ddd8}
+  .node{position:absolute;left:4px;top:2px;width:12px;height:12px;border-radius:50%;border:3px solid var(--green);background:#fff}
+  /* cursor */
+  .cursor{
+    position:absolute;z-index:130;width:20px;height:26px;pointer-events:none;
+    transition:left .42s cubic-bezier(.22,.8,.22,1), top .42s cubic-bezier(.22,.8,.22,1);
+    filter:drop-shadow(0 2px 2px rgba(0,0,0,.18))
+  }
+  .cursor svg{width:100%;height:100%}
+  .clickRing{
+    position:absolute;z-index:129;width:18px;height:18px;border:2px solid rgba(18,63,49,.45);
+    border-radius:50%;opacity:0;pointer-events:none
+  }
+  .clickRing.pop{animation:pop .38s ease-out}
+  @keyframes pop{0%{opacity:1;transform:scale(.5)}100%{opacity:0;transform:scale(2.2)}}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <button class="replay" id="replay">Replay demo</button>
+  <div class="toast" id="toast">Saved</div>
+
+  <!-- PAGE 1: Dispatch clean -->
+  <section class="page show" id="dispatchClean">
+    <div class="topbar">BUSSIN / DISPATCH</div>
+    <div class="content">
+      <div class="toolbar">
+        <div>
+          <div class="eyebrow">OPERATIONS</div>
+          <h1>Dispatch</h1>
+          <div class="sub">What needs attention now, then everything currently moving.</div>
+        </div>
+        <div class="toolbarRight">
+          <div class="chip">● LIVE</div>
+          <div class="seg"><span>Yesterday</span><span class="on">Today</span><span>Tomorrow</span></div>
+          <div class="dateBox">09/30/2026</div>
+          <button class="btn primary" id="planOpenBtn">+ Plan trip</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">NEEDS ATTENTION</div><div class="n" id="needsCount">0</div><div class="l">0 urgent · 0 follow-up</div></div>
+        <div class="stat"><div class="k">RUNNING</div><div class="n" id="runCount">0</div><div class="l">Buses on the road</div></div>
+        <div class="stat"><div class="k">LATER</div><div class="n" id="laterCount">0</div><div class="l" id="laterText">Nothing else planned</div></div>
+        <div class="stat"><div class="k">FLEET READY</div><div class="n">2/2</div><div class="l">All reporting</div></div>
+      </div>
+      <div class="needs">
+        <div class="sectionTitle">Needs attention</div>
+        <div class="needsCard"><h3>Nothing needs you</h3><p>Every bus is on schedule and reporting.</p></div>
+      </div>
+      <div class="needs" style="margin-top:20px">
+        <div class="sectionTitle">Live board</div>
+        <div class="liveBoardGrid">
+          <div class="panel">
+            <div class="panelHead"><span>Today's buses</span><small>Sorted by what needs you</small></div>
+            <div class="busItem" style="height:252px;display:grid;place-items:center;color:#7b837e">No trips today.</div>
+          </div>
+          <div class="panel mapPanel">
+            <div class="mapHeader"><span>Live map</span><small>Road paths · buses glide between fixes</small></div>
+            <div class="map">
+              <div class="road r1"></div><div class="road r2"></div><div class="road r3"></div><div class="road r4"></div><div class="road r5"></div><div class="pond"></div>
+            </div>
+          </div>
+          <div class="panel detailPanel" style="display:grid;place-items:center;color:#7b837e">Select a bus.</div>
+        </div>
+      </div>
+    </div>
+    <div class="drawerVeil" id="planVeil"></div>
+    <aside class="drawer" id="planDrawer">
+      <button class="close">Close</button>
+      <div class="eyebrow">DISPATCH</div>
+      <h2>Plan a trip</h2>
+      <label>BUS</label><select><option>BETA Bus</option></select>
+      <label>ROUTE</label><select><option>Northside - Northfield Ave. · AM (2 stops)</option></select>
+      <div class="two">
+        <div><label>DATE</label><input value="09/30/2026"></div>
+        <div><label>DEPARTURE TIME</label><input value="04:25 PM"></div>
+      </div>
+      <button class="btn primary" id="planSubmitBtn" style="width:100%;margin-top:12px">Plan trip</button>
+    </aside>
+  </section>
+
+  <!-- PAGE 2: Dispatch planned -->
+  <section class="page" id="dispatchPlanned">
+    <div class="topbar">BUSSIN / DISPATCH</div>
+    <div class="content">
+      <div class="toolbar">
+        <div>
+          <div class="eyebrow">OPERATIONS</div>
+          <h1>Dispatch</h1>
+          <div class="sub">What needs attention now, then everything currently moving.</div>
+        </div>
+        <div class="toolbarRight">
+          <div class="chip">● LIVE</div>
+          <div class="seg"><span>Yesterday</span><span class="on">Today</span><span>Tomorrow</span></div>
+          <div class="dateBox">09/30/2026</div>
+          <button class="btn primary">+ Plan trip</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">NEEDS ATTENTION</div><div class="n" style="color:#b84441" id="plannedNeed">1</div><div class="l">0 urgent · 1 follow-up</div></div>
+        <div class="stat"><div class="k">RUNNING</div><div class="n">0</div><div class="l">Buses on the road</div></div>
+        <div class="stat"><div class="k">LATER</div><div class="n">1</div><div class="l">Next at 4:25 PM</div></div>
+        <div class="stat"><div class="k">FLEET READY</div><div class="n">2/2</div><div class="l">All reporting</div></div>
+      </div>
+      <div class="needs">
+        <div class="sectionTitle">Needs attention</div>
+        <div class="needsCard warn">
+          <h3>● BETA Bus · No driver</h3>
+          <p>Northside - Northfield Ave. AM leaves at 4:25 PM with no assigned staff.</p>
+          <button class="btn primary small" id="assignCardBtn" style="height:32px;padding:0 14px">Assign driver</button>
+        </div>
+      </div>
+      <div class="needs" style="margin-top:20px">
+        <div class="sectionTitle">Live board</div>
+        <div class="liveBoardGrid">
+          <div class="panel">
+            <div class="panelHead"><span>Today's buses</span><small>Sorted by what needs you</small></div>
+            <div class="busItem">
+              <div class="row">
+                <div>
+                  <div class="title">BETA Bus · Northside - Northfield Ave. AM</div>
+                  <div class="meta">Planned · Joss Dicker · 4:25 PM</div>
+                </div>
+                <div class="sidePill gold">4:25 PM</div>
+              </div>
+            </div>
+            <div class="busItem">
+              <div class="row">
+                <div>
+                  <div class="title">ALPHA Bus</div>
+                  <div class="meta">No trip on this day</div>
+                </div>
+                <div class="sidePill">IDLE</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel mapPanel">
+            <div class="mapHeader"><span>Live map</span><small>Road paths · buses glide between fixes</small></div>
+            <div class="map">
+              <div class="road r1"></div><div class="road r2"></div><div class="road r3"></div><div class="road r4"></div><div class="road r5"></div><div class="pond"></div>
+              <svg class="route" viewBox="0 0 820 470" preserveAspectRatio="none">
+                <path d="M370 175 C392 205, 444 188, 456 228 S430 320, 380 348 S322 301, 334 266" stroke="#2a8d58" stroke-width="7" stroke-linecap="round" fill="none" stroke-dasharray="8 14"/>
+                <circle cx="366" cy="173" r="8" fill="#fff" stroke="#2a8d58" stroke-width="4"/>
+                <circle cx="334" cy="266" r="8" fill="#fff" stroke="#2a8d58" stroke-width="4"/>
+              </svg>
+            </div>
+          </div>
+          <div class="panel detailPanel">
+            <div class="detailHead"><div class="dot green"></div><h2>BETA Bus</h2><div class="sidePill">AM</div></div>
+            <div class="detailMeta"><span class="sidePill gold" id="statusPill">PLANNED</span> &nbsp; Northside - Northfield Ave. · departs 4:25 PM</div>
+            <div class="alert" id="driverAlert">HEADS UP<br>No driver assigned</div>
+            <div class="detailGrid">
+              <div class="cell"><div class="k">DRIVER</div><b id="driverValue">Unassigned</b></div>
+              <div class="cell"><div class="k">PHONE</div><b id="phoneValue">None</b></div>
+              <div class="cell"><div class="k">GPS</div><b>Starts with trip</b></div>
+              <div class="cell"><div class="k">PROGRESS</div><b>0 of 2 stops</b></div>
+            </div>
+            <div class="mutedLine" id="assignHint">Assign staff before starting this trip.</div>
+            <div class="assignRow">
+              <div class="fakeSelect">Joss Dicker</div>
+              <button class="btn primary" id="assignBtn">Assign</button>
+            </div>
+            <div class="actions">
+              <button class="btn primary" id="startBtn" style="opacity:.45">Start trip</button>
+              <button class="btn bad">Cancel trip</button>
+            </div>
+            <div class="sectionTitle" style="margin-bottom:4px">Stops</div>
+            <div class="stopRow"><div class="stopLeft"><div class="ringDot green"></div><span>1. PU1 - Beech Spring Rd.</span></div><span style="color:#87918b">Planned</span></div>
+            <div class="stopRow"><div class="stopLeft"><div class="ringDot green"></div><span>2. School</span></div><span style="color:#87918b">Planned</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 3: running live board -->
+  <section class="page" id="dispatchRunning">
+    <div class="topbar">BUSSIN / DISPATCH</div>
+    <div class="content">
+      <div class="toolbar">
+        <div>
+          <div class="eyebrow">OPERATIONS</div>
+          <h1>Dispatch</h1>
+          <div class="sub">What needs attention now, then everything currently moving.</div>
+        </div>
+        <div class="toolbarRight">
+          <div class="chip">● LIVE</div>
+          <div class="seg"><span>Yesterday</span><span class="on">Today</span><span>Tomorrow</span></div>
+          <div class="dateBox">09/30/2026</div>
+          <button class="btn primary">+ Plan trip</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">NEEDS ATTENTION</div><div class="n">0</div><div class="l">0 urgent · 0 follow-up</div></div>
+        <div class="stat"><div class="k">RUNNING</div><div class="n">1</div><div class="l">Buses on the road</div></div>
+        <div class="stat"><div class="k">LATER</div><div class="n">0</div><div class="l">Nothing else planned</div></div>
+        <div class="stat"><div class="k">FLEET READY</div><div class="n">2/2</div><div class="l">All reporting</div></div>
+      </div>
+      <div class="needs">
+        <div class="sectionTitle">Needs attention</div>
+        <div class="needsCard"><h3>Nothing needs you</h3><p>Every bus is on schedule and reporting.</p></div>
+      </div>
+      <div class="needs" style="margin-top:20px">
+        <div class="sectionTitle">Live board</div>
+        <div class="liveBoardGrid">
+          <div class="panel">
+            <div class="panelHead"><span>Today's buses</span><small>Sorted by what needs you</small></div>
+            <div class="busItem">
+              <div class="row">
+                <div>
+                  <div class="title">BETA Bus · Northside - Northfield Ave. AM</div>
+                  <div class="meta">Running · Joss Dicker · 4:25 PM</div>
+                </div>
+                <div class="sidePill green">RUNNING</div>
+              </div>
+            </div>
+            <div class="busItem">
+              <div class="row">
+                <div>
+                  <div class="title">ALPHA Bus</div>
+                  <div class="meta">No trip on this day</div>
+                </div>
+                <div class="sidePill">IDLE</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel mapPanel">
+            <div class="mapHeader"><span>Live map</span><small>Road paths · buses glide between fixes</small></div>
+            <div class="map">
+              <div class="road r1"></div><div class="road r2"></div><div class="road r3"></div><div class="road r4"></div><div class="road r5"></div><div class="pond"></div>
+              <svg class="route" viewBox="0 0 820 470" preserveAspectRatio="none">
+                <path d="M370 175 C392 205, 444 188, 456 228 S430 320, 380 348 S322 301, 334 266" stroke="#2a8d58" stroke-width="7" stroke-linecap="round" fill="none"/>
+                <circle cx="366" cy="173" r="8" fill="#fff" stroke="#2a8d58" stroke-width="4"/>
+                <circle cx="334" cy="266" r="8" fill="#fff" stroke="#2a8d58" stroke-width="4"/>
+              </svg>
+              <div style="position:absolute;left:300px;top:250px;background:#20322b;color:#fff;border-radius:11px;padding:9px 12px;font-weight:800;border:4px solid #d7ebde;box-shadow:0 4px 10px rgba(0,0,0,.12)">Bus BE</div>
+            </div>
+          </div>
+          <div class="panel detailPanel">
+            <div class="detailHead"><div class="dot green"></div><h2>BETA Bus</h2><div class="sidePill">AM</div></div>
+            <div class="detailMeta"><span class="sidePill green">RUNNING</span> &nbsp; Northside - Northfield Ave. · departs 4:25 PM</div>
+            <div class="detailGrid">
+              <div class="cell"><div class="k">DRIVER</div><b>Joss Dicker</b></div>
+              <div class="cell"><div class="k">PHONE</div><b style="color:#2c714d">Online · seen just now</b></div>
+              <div class="cell"><div class="k">GPS</div><b>just now</b></div>
+              <div class="cell"><div class="k">PROGRESS</div><b>0 of 2 stops</b></div>
+            </div>
+            <div class="mutedLine">Live location · updated 4:25 PM</div>
+            <div class="actions">
+              <button class="btn" style="opacity:.45">Complete trip</button>
+              <button class="btn bad">Cancel trip</button>
+            </div>
+            <div class="sectionTitle" style="margin-bottom:4px">Stops</div>
+            <div class="stopRow"><div class="stopLeft"><div class="ringDot green"></div><span>1. PU1 - Beech Spring Rd.</span></div><span><b>4:25 PM</b> <span class="sidePill gold">MANUAL</span></span></div>
+            <div class="stopRow" style="padding-left:25px"><button class="smallbtn" id="recordDepartureBtn">Record departure</button></div>
+            <div class="stopRow"><div class="stopLeft"><div class="ringDot green"></div><span>2. School</span></div><span style="color:#87918b">ETA 4:28 PM · 2 min</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 4: My Bus running -->
+  <section class="page" id="myBusRunning">
+    <div class="topbar">BUSSIN / MY BUS</div>
+    <div class="content mybusWrap">
+      <div class="mybusInner">
+        <div class="eyebrow">DRIVER / MY BUS</div>
+        <h1 style="font-size:36px">BETA Bus</h1>
+        <div class="sub">Northside - Northfield Ave. AM · Joss Dicker</div>
+        <div class="busChips"><div class="busTab">ALPHA Bus</div><div class="busTab on">BETA Bus</div></div>
+        <div class="online"><div class="miniDot"></div><span>just now</span><span>Phone online</span></div>
+        <div class="hero">
+          <div class="eyebrow">NEXT STOP</div>
+          <div class="heroTitle">PU1 - Beech Spring Rd.</div>
+          <div class="heroSub">ETA 4:28 PM · traffic</div>
+          <div class="heroActions">
+            <button class="ghostbtn" id="leavingBtn" style="background:var(--green);color:#fff;border-color:var(--green)">Leaving PU1 - Beech Spring Rd.</button>
+            <button class="ghostbtn">Not here yet, undo arrival</button>
+          </div>
+        </div>
+        <div class="stopsBox">
+          <div class="stopsHead"><span>Stops</span><span style="color:#6c756f;font-size:13px">0 of 2 done</span></div>
+          <div class="myStop"><div class="left"><div class="ringDot green"></div><b>PU1 - Beech Spring Rd.</b></div><b style="color:#6b756f">Arrived 4:25 PM</b></div>
+          <div class="myStop"><div class="left"><div class="ringDot green"></div><span>School</span></div><span></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 5: Transit history -->
+  <section class="page" id="transitPage">
+    <div class="topbar">BUSSIN / TRANSIT</div>
+    <div class="content">
+      <div class="eyebrow">HISTORY</div>
+      <h1>Transit</h1>
+      <div class="sub">See each trip and every recorded event.</div>
+      <div class="transitGrid">
+        <div class="tripList">
+          <div class="searchBox">
+            <div class="searchInput">Search bus, route or driver</div>
+            <div style="display:flex;gap:10px;margin-top:10px"><div class="searchInput" style="width:70%">All statuses</div><div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800">□ Exceptions</div></div>
+            <div style="font-size:12px;color:#73807a;margin-top:10px">2 of 2 trips, last 3 days</div>
+          </div>
+          <div style="padding:10px 14px;font-size:10px;font-weight:900;letter-spacing:.18em;color:#77827c;border-bottom:1px solid var(--line)">TODAY · WED, SEP 30</div>
+          <div class="listItem active">
+            <div class="listRow">
+              <div class="circle">BE</div>
+              <div>
+                <div class="tripTitle">4:25 PM · Northside - Northfield Ave. AM</div>
+                <div style="font-size:12px;color:#6f7872;margin-top:4px"><span class="sidePill green">ACTIVE</span> &nbsp; Joss Dicker</div>
+                <div style="margin-top:8px" class="sidePill gold">1 MANUAL ARRIVAL</div>
+              </div>
+            </div>
+          </div>
+          <div class="listItem">
+            <div class="listRow">
+              <div class="circle red">AL</div>
+              <div>
+                <div class="tripTitle">4:15 PM · Northside - Northfield Ave. AM</div>
+                <div style="font-size:12px;color:#6f7872;margin-top:4px"><span class="sidePill">COMPLETED</span> &nbsp; Joss Dicker</div>
+                <div style="margin-top:8px;display:flex;gap:8px"><span class="sidePill gold">2 MANUAL ARRIVALS</span><span class="sidePill gold">GPS GAP 1M 1S</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="rightDetail">
+          <div class="detailHead"><div class="circle" style="width:42px;height:42px">BE</div><h2 style="font-size:22px">Northside - Northfield Ave. AM</h2></div>
+          <div class="detailMeta">BETA Bus · Joss Dicker · Today, Wed, Sep 30 &nbsp; <span class="sidePill green">ACTIVE</span></div>
+          <div style="margin-top:8px" class="sidePill gold">1 MANUAL ARRIVAL</div>
+          <div class="sectionTitle" style="margin-top:16px">Times</div>
+          <div class="timesGrid">
+            <div class="timeCell"><div class="k">SCHEDULED</div><b>4:25 PM</b></div>
+            <div class="timeCell"><div class="k">STARTED</div><b>4:23 PM</b></div>
+            <div class="timeCell"><div class="k">ELAPSED</div><b>3 min</b></div>
+            <div class="timeCell"><div class="k">DURATION</div><b>3 min</b></div>
+            <div class="timeCell"><div class="k">STOPS</div><b>1 of 2</b></div>
+            <div class="timeCell"><div class="k">ARRIVALS</div><b>0 auto · 1 manual</b></div>
+          </div>
+          <div class="tabsSmall"><span class="on">Event log</span><span>Stops</span><span>GPS captures (144)</span></div>
+          <div class="event">
+            <div style="font-size:13px;color:#6f7872">4:23 PM</div>
+            <div class="lineCol"><div class="node"></div></div>
+            <div><b>Trip started</b><div style="font-size:13px;color:#6f7872;margin-top:4px">On time</div></div>
+          </div>
+          <div class="event" style="padding-top:0">
+            <div style="font-size:13px;color:#6f7872">4:25 PM</div>
+            <div class="lineCol"><div class="node"></div></div>
+            <div><b>Arrived at PU1 - Beech Spring Rd.</b> <span class="sidePill gold">MANUAL</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 6: Dispatch completed -->
+  <section class="page" id="dispatchCompleted">
+    <div class="topbar">BUSSIN / DISPATCH</div>
+    <div class="content">
+      <div class="toolbar">
+        <div>
+          <div class="eyebrow">OPERATIONS</div>
+          <h1>Dispatch</h1>
+          <div class="sub">What needs attention now, then everything currently moving.</div>
+        </div>
+        <div class="toolbarRight">
+          <div class="chip">● LIVE</div>
+          <div class="seg"><span>Yesterday</span><span class="on">Today</span><span>Tomorrow</span></div>
+          <div class="dateBox">09/30/2026</div>
+          <button class="btn primary">+ Plan trip</button>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">NEEDS ATTENTION</div><div class="n">0</div><div class="l">0 urgent · 0 follow-up</div></div>
+        <div class="stat"><div class="k">RUNNING</div><div class="n">0</div><div class="l">Buses on the road</div></div>
+        <div class="stat"><div class="k">LATER</div><div class="n">0</div><div class="l">Nothing else planned</div></div>
+        <div class="stat"><div class="k">FLEET READY</div><div class="n">2/2</div><div class="l">All reporting</div></div>
+      </div>
+      <div class="needs">
+        <div class="sectionTitle">Needs attention</div>
+        <div class="needsCard"><h3>Nothing needs you</h3><p>Every bus is on schedule and reporting.</p></div>
+      </div>
+      <div class="needs" style="margin-top:20px">
+        <div class="sectionTitle">Live board</div>
+        <div class="liveBoardGrid">
+          <div class="panel">
+            <div class="panelHead"><span>Today's buses</span><small>Sorted by what needs you</small></div>
+            <div class="busItem">
+              <div class="row">
+                <div>
+                  <div class="title">ALPHA Bus · Northside - Northfield Ave. AM</div>
+                  <div class="meta">Finished Northside - Northfield Ave.</div>
+                </div>
+                <div class="sidePill">COMPLETED</div>
+              </div>
+            </div>
+            <div class="busItem">
+              <div class="row">
+                <div>
+                  <div class="title">BETA Bus · Northside - Northfield Ave. AM</div>
+                  <div class="meta">Finished Northside - Northfield Ave.</div>
+                </div>
+                <div class="sidePill">COMPLETED</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel mapPanel">
+            <div class="mapHeader"><span>Live map</span><small>Road paths · buses glide between fixes</small></div>
+            <div class="map">
+              <div class="road r1"></div><div class="road r2"></div><div class="road r3"></div><div class="road r4"></div><div class="road r5"></div><div class="pond"></div>
+              <svg class="route" viewBox="0 0 820 470" preserveAspectRatio="none">
+                <path d="M370 175 C392 205, 444 188, 456 228 S430 320, 380 348 S322 301, 334 266" stroke="#cb4b4d" stroke-width="7" stroke-linecap="round" fill="none"/>
+                <circle cx="366" cy="173" r="8" fill="#cb4b4d"/>
+                <circle cx="334" cy="266" r="8" fill="#cb4b4d"/>
+              </svg>
+            </div>
+          </div>
+          <div class="panel detailPanel">
+            <div class="detailHead"><div class="dot"></div><h2>ALPHA Bus</h2><div class="sidePill">AM</div></div>
+            <div class="detailMeta"><span class="sidePill">COMPLETED</span> &nbsp; Northside - Northfield Ave. · departs 4:15 PM</div>
+            <div class="detailGrid">
+              <div class="cell"><div class="k">DRIVER</div><b>Joss Dicker</b></div>
+              <div class="cell"><div class="k">PHONE</div><b>None</b></div>
+              <div class="cell"><div class="k">GPS</div><b>Starts with trip</b></div>
+              <div class="cell"><div class="k">PROGRESS</div><b>2 of 2 stops</b></div>
+            </div>
+            <div class="mutedLine">No live tracking</div>
+            <div class="sectionTitle" style="margin-bottom:4px">Stops</div>
+            <div class="stopRow"><div class="stopLeft"><div class="ringDot"></div><span>1. PU1 - Beech Spring Rd.</span></div><span><b>4:19 PM</b> <span class="sidePill gold">MANUAL</span></span></div>
+            <div class="stopRow"><div class="stopLeft"><div class="ringDot"></div><span>2. School</span></div><span><b>4:21 PM</b> <span class="sidePill gold">MANUAL</span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAGE 7: My Bus finished -->
+  <section class="page" id="myBusFinished">
+    <div class="topbar">BUSSIN / MY BUS</div>
+    <div class="content mybusWrap">
+      <div class="mybusInner">
+        <div class="eyebrow">DRIVER / MY BUS</div>
+        <h1 style="font-size:36px">ALPHA Bus</h1>
+        <div class="sub">Northside - Northfield Ave. AM · Joss Dicker</div>
+        <div class="busChips"><div class="busTab on">ALPHA Bus</div><div class="busTab">BETA Bus</div></div>
+        <div class="online" style="color:#8c948f"><div class="miniDot" style="background:#c5ceca;box-shadow:none"></div><span>4m ago</span></div>
+        <div class="hero">
+          <div class="heroTitle">Trip finished.</div>
+          <div class="heroSub">Northside - Northfield Ave. AM</div>
+        </div>
+        <div class="stopsBox">
+          <div class="stopsHead"><span>Stops</span><span style="color:#6c756f;font-size:13px">2 of 2 done</span></div>
+          <div class="myStop"><div class="left"><div class="ringDot"></div><span>PU1 - Beech Spring Rd.</span></div><b style="color:#6b756f">Arrived 4:19 PM</b></div>
+          <div class="myStop"><div class="left"><div class="ringDot"></div><span>School</span></div><b style="color:#6b756f">Arrived 4:21 PM</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="clickRing" id="clickRing"></div>
+  <div class="cursor" id="cursor">
+    <svg viewBox="0 0 24 30"><path d="M2 1 L2 24 L8 18 L12 28 L16 26 L12 17 L21 17 Z" fill="white" stroke="#17211c" stroke-width="1.5"/></svg>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const stage = $('#stage');
+const cursor = $('#cursor');
+const ring = $('#clickRing');
+const toast = $('#toast');
+const pages = {
+  clean: $('#dispatchClean'),
+  planned: $('#dispatchPlanned'),
+  running: $('#dispatchRunning'),
+  mybus: $('#myBusRunning'),
+  transit: $('#transitPage'),
+  completed: $('#dispatchCompleted'),
+  finished: $('#myBusFinished')
+};
+
+function point(el, x=.5, y=.5){
+  const a = stage.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  return {x:r.left-a.left+r.width*x, y:r.top-a.top+r.height*y};
+}
+async function moveTo(el,x=.5,y=.5){
+  const p = point(el,x,y);
+  cursor.style.opacity = 1;
+  cursor.style.left = (p.x-3)+'px';
+  cursor.style.top = (p.y-3)+'px';
+  await sleep(430);
+}
+async function click(el){
+  await moveTo(el);
+  const p = point(el);
+  ring.style.left = (p.x-9)+'px';
+  ring.style.top = (p.y-9)+'px';
+  ring.classList.remove('pop'); void ring.offsetWidth; ring.classList.add('pop');
+  el.classList.add('press'); await sleep(120); el.classList.remove('press'); await sleep(180);
+}
+function showPage(key){
+  Object.values(pages).forEach(p => p.classList.remove('show'));
+  pages[key].classList.add('show');
+}
+function showToast(msg){
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(()=>toast.classList.remove('show'), 720);
+}
+function resetState(){
+  showPage('clean');
+  $('#planVeil').classList.remove('show');
+  $('#planDrawer').classList.remove('show');
+  $('#needsCount').textContent = '0';
+  $('#runCount').textContent = '0';
+  $('#laterCount').textContent = '0';
+  $('#laterText').textContent = 'Nothing else planned';
+
+  $('#plannedNeed').textContent = '1';
+  $('#driverAlert').style.display = 'block';
+  $('#driverValue').textContent = 'Unassigned';
+  $('#phoneValue').textContent = 'None';
+  $('#assignHint').textContent = 'Assign staff before starting this trip.';
+  $('#startBtn').style.opacity = '.45';
+  $('#statusPill').textContent = 'PLANNED';
+  $('#statusPill').className = 'sidePill gold';
+  cursor.style.left = '1300px';
+  cursor.style.top = '120px';
+  cursor.style.opacity = '1';
+}
+async function run(){
+  resetState();
+  await sleep(700);
+
+  // open plan trip
+  await click($('#planOpenBtn'));
+  $('#planVeil').classList.add('show');
+  $('#planDrawer').classList.add('show');
+  await sleep(500);
+
+  // submit plan
+  await click($('#planSubmitBtn'));
+  $('#planVeil').classList.remove('show');
+  $('#planDrawer').classList.remove('show');
+  showPage('planned');
+  showToast('Trip planned');
+  await sleep(900);
+
+  // assign driver
+  await click($('#assignBtn'));
+  $('#driverAlert').style.display = 'none';
+  $('#driverValue').textContent = 'Joss Dicker';
+  $('#phoneValue').textContent = 'Not reporting · last seen 1m ago';
+  $('#assignHint').textContent = 'Tracking has not started';
+  $('#startBtn').style.opacity = '1';
+  $('#plannedNeed').textContent = '0';
+  showToast('Driver assigned');
+  await sleep(850);
+
+  // start trip
+  await click($('#startBtn'));
+  showPage('running');
+  showToast('Trip started');
+  await sleep(1100);
+
+  // record departure
+  await click($('#recordDepartureBtn'));
+  showToast('Departure recorded');
+  await sleep(700);
+
+  // driver view
+  showPage('mybus');
+  await sleep(1000);
+  await click($('#leavingBtn'));
+  showToast('Leaving stop');
+  await sleep(700);
+
+  // transit
+  showPage('transit');
+  await sleep(1700);
+
+  // completed dispatch
+  showPage('completed');
+  showToast('Trip completed');
+  await sleep(1500);
+
+  // final driver finished
+  showPage('finished');
+  cursor.style.opacity = '0';
+}
+$('#replay').addEventListener('click', run);
+document.addEventListener('keydown', e => { if(e.code === 'Space'){ e.preventDefault(); run(); }});
+window.addEventListener('load', run);
+</script>
+</body>
+</html>

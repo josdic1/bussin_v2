@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bussin — Fleet + Route Setup Demo</title>
+<style>
+:root{
+  --ink:#16211c; --muted:#6d7670; --line:#d5dbd6; --bg:#f4f5f1;
+  --green:#153f33; --green2:#225f45; --soft:#edf3ee;
+  --gold:#f6e9bf; --goldText:#8a6218; --red:#d34b52; --blue:#2d6cc2;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#dfe2de;color:var(--ink)}
+body{display:grid;place-items:center;overflow:hidden}
+.stage{position:relative;width:min(100vw,177.8vh);aspect-ratio:16/9;background:var(--bg);overflow:hidden}
+.replay{position:absolute;z-index:120;left:14px;top:14px;border:1px solid rgba(255,255,255,.35);background:rgba(20,28,24,.82);color:white;border-radius:8px;padding:8px 12px;font-weight:750;opacity:0;transition:.2s}
+.stage:hover .replay{opacity:1}
+.toast{position:absolute;z-index:110;left:50%;top:16px;transform:translateX(-50%) translateY(-10px);background:#202722;color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:750;opacity:0;transition:.25s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.sidebar{position:absolute;left:0;top:0;bottom:0;width:220px;background:#eef1ec;border-right:1px solid #d6dcd7;padding:16px}
+.brand{display:flex;gap:10px;align-items:center;margin-bottom:26px}
+.logo{width:38px;height:38px;border-radius:11px;background:var(--green);color:#c9ef00;display:grid;place-items:center;font-weight:900;font-size:20px}
+.brandtext b{display:block;letter-spacing:.14em}.brandtext span{font-size:12px;color:#67716b}
+.section{font-size:9px;letter-spacing:.23em;font-weight:900;color:#718079;margin:22px 0 9px}
+.nav{display:flex;align-items:center;gap:10px;padding:10px 4px;border-radius:10px;font-size:14px;font-weight:700;color:#48534d}
+.nav i{width:25px;height:25px;border-radius:8px;background:#dce4dd;display:grid;place-items:center;font-style:normal;font-size:10px}
+.nav.active{background:white;border:1px solid #d4dad5}
+
+.main{position:absolute;left:220px;right:0;top:0;bottom:0;background:#f4f5f1}
+.topbar{height:52px;border-bottom:1px solid #d7dcd8;padding:20px 28px;font-size:10px;font-weight:900;letter-spacing:.18em;color:#58645e}
+.content{padding:28px 88px}
+.eyebrow{font-size:10px;letter-spacing:.22em;font-weight:900;color:#6a756f}
+h1{font-size:40px;line-height:1;margin:8px 0 6px}.sub{font-size:14px;color:#6d7670}
+.stats{display:grid;grid-template-columns:1.1fr 1fr 1fr 1fr;gap:10px;margin-top:18px}
+.stat{height:98px;border:1px solid #d5dbd6;border-radius:12px;background:#f8f9f7;padding:16px}.stat.primary{background:var(--green);color:white;border-color:var(--green)}
+.k{font-size:9px;font-weight:900;letter-spacing:.18em;color:#6d7872}.primary .k{color:#cfdcd6}
+.n{font-size:29px;font-weight:900;margin:8px 0 2px}.l{font-size:12px;color:#7c847f}.primary .l{color:#bdcdc5}
+.searchLabel{font-size:9px;font-weight:900;letter-spacing:.16em;color:#6a756f;margin:16px 0 7px}
+.search{width:240px;height:40px;border:1px solid #cfd6d1;border-radius:8px;background:#f8f9f7;padding:11px;color:#858c88;font-size:12px}
+.table{margin-top:12px;border:1px solid #d1d7d2;border-radius:12px;overflow:hidden;background:#f8f9f7}
+.thead,.trow{display:grid;grid-template-columns:1.1fr .95fr .85fr .85fr .9fr .8fr;align-items:center;padding:0 14px}
+.thead{height:34px;border-bottom:1px solid #d6dcd7;font-size:9px;font-weight:900;letter-spacing:.16em;color:#6b756f}
+.trow{height:58px;font-size:13px}
+.busName{font-weight:850;border-left:4px solid var(--red);padding-left:10px}
+.pill{justify-self:start;padding:6px 9px;border-radius:999px;background:#e7ede8;color:#53615a;font-size:9px;font-weight:900;letter-spacing:.08em}
+.routeCard{margin-top:18px;border:1px solid var(--line);border-radius:12px;background:white;overflow:hidden}
+.routeHead{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);font-weight:850;font-size:14px}
+.routeRow{padding:14px 16px;display:flex;justify-content:space-between;align-items:flex-start}
+.routeTitle{font-weight:850;font-size:14px}.routeMeta{font-size:11px;color:#7c847f;margin-top:3px}
+.routeActions{display:flex;gap:7px;margin-top:8px}.smallbtn{border:1px solid #d3d9d4;background:white;border-radius:7px;padding:7px 10px;font-weight:750;font-size:11px}.delete{border-color:#e3a0a5;color:#c14449}
+.routeBadge{background:var(--gold);color:var(--goldText);padding:6px 9px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.1em}
+
+/* drawers */
+.veil{position:absolute;inset:0 500px 0 0;background:rgba(34,43,38,.2)}
+.drawer{position:absolute;right:0;top:0;width:500px;height:100%;background:#fff;border-left:1px solid #e0e4e1;padding:44px 24px 28px}
+.close{position:absolute;right:18px;top:16px;border:1px solid #d6ddd8;background:white;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:750;color:#5d6761}
+.drawer h2{font-size:28px;margin:8px 0 14px}
+.drawer p{font-size:12px;color:#6f7872;line-height:1.5}
+label{display:block;font-size:9px;font-weight:900;letter-spacing:.16em;color:#657069;margin:12px 0 6px}
+input,select{width:100%;height:40px;border:1px solid #cfd6d1;border-radius:8px;background:#fff;padding:0 12px;font-size:13px;color:#29322e;outline:none}
+input.focus{border:2px solid #164536;box-shadow:0 0 0 2px rgba(22,69,54,.08)}
+.btn{height:40px;border:0;border-radius:8px;background:var(--green);color:#fff;font-weight:850}
+.full{width:100%;margin-top:10px}
+.press{transform:scale(.985);filter:brightness(.94)}
+.routesIntro .btn{width:140px;margin-top:12px}
+.routesIntro .muted{margin-top:10px}
+.formPanel,.routesIntro,.routeEditor{display:none}.show{display:block}
+
+/* route editor full-width overlay */
+.editorPage{position:absolute;inset:0;background:#f7f8f4;padding:16px 68px;display:none;z-index:60;overflow:auto}
+.editorPage.show{display:block}
+.editorTop{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.editorTitle{font-size:34px;font-weight:900}.editorSub{font-size:12px;color:#6e7771;margin-top:4px}
+.editorGrid{display:grid;grid-template-columns:1.05fr .95fr;gap:10px}
+.savedRoutes{border:1px solid var(--line);border-radius:12px;background:#fff;align-self:start}
+.savedRoutes .routeHead{font-size:13px}
+.formCard{border:1px solid var(--line);border-radius:12px;background:#fff;padding:16px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.map{height:255px;border:1px solid #d8ddd9;border-radius:12px;margin-top:14px;position:relative;overflow:hidden;background:
+linear-gradient(145deg,transparent 0 47%,#dce1dd 47% 50%,transparent 50% 100%),
+linear-gradient(25deg,transparent 0 42%,#dfe4e0 42% 45%,transparent 45% 100%),
+#f4f5f2}
+.road{position:absolute;background:#fff;border:1px solid #e1e5e2;border-radius:999px;transform-origin:left center}
+.r1{width:280px;height:12px;left:30px;top:80px;transform:rotate(29deg)}
+.r2{width:350px;height:12px;left:120px;top:190px;transform:rotate(-14deg)}
+.r3{width:220px;height:12px;right:25px;top:100px;transform:rotate(96deg)}
+.pin{position:absolute;width:24px;height:24px;background:#a8562d;border-radius:50% 50% 50% 0;transform:rotate(-45deg);left:52%;top:47%;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.pin:after{content:"";position:absolute;width:8px;height:8px;background:#fff;border-radius:50%;left:8px;top:8px}
+.pin.green{background:var(--green)}
+.selectBox{margin-top:10px;background:#e9f5ec;border:1px solid #b9d7c1;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.45}
+.addStop{margin-top:8px;width:100%}
+.stopList{margin-top:10px;display:grid;gap:8px}
+.stop{border:1px solid var(--line);border-radius:10px;background:#fff;padding:8px;display:grid;grid-template-columns:30px 1fr}
+.num{width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:900;margin-top:4px}
+.stopName{height:34px;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:12px}
+.coords{font-size:9px;color:#7d8580;margin:4px 0}
+.stopActions{display:flex;gap:6px}.tiny{padding:6px 9px;border:1px solid #d6ddd8;border-radius:6px;background:#fff;font-size:10px;font-weight:750}
+.saveRoute{margin-top:10px;width:100%;height:40px;border:0;border-radius:8px;background:#aab5af;color:#fff;font-weight:850}
+.saveRoute.ready{background:var(--green)}
+
+/* cursor */
+.cursor{position:absolute;z-index:130;width:20px;height:26px;transition:left .42s cubic-bezier(.22,.8,.22,1),top .42s cubic-bezier(.22,.8,.22,1);filter:drop-shadow(0 2px 2px rgba(0,0,0,.18))}
+.cursor svg{width:100%;height:100%}
+.ring{position:absolute;z-index:129;width:18px;height:18px;border:2px solid rgba(18,63,49,.45);border-radius:50%;opacity:0}.ring.pop{animation:pop .38s ease-out}
+@keyframes pop{0%{opacity:1;transform:scale(.5)}100%{opacity:0;transform:scale(2.2)}}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<button class="replay" id="replay">Replay demo</button>
+<div class="toast" id="toast">Saved</div>
+
+<aside class="sidebar">
+  <div class="brand"><div class="logo">B</div><div class="brandtext"><b>BUSSIN</b><span>The Bus App</span></div></div>
+  <div class="section">LIVE OPERATIONS</div>
+  <div class="nav"><i>D</i>Dispatch</div>
+  <div class="nav"><i>MB</i>My Bus</div>
+  <div class="nav active"><i>F</i>Fleet</div>
+  <div class="nav"><i>RT</i>Routes</div>
+  <div class="section">PEOPLE AND RECORDS</div>
+  <div class="nav"><i>M</i>Members</div>
+  <div class="nav"><i>R</i>Riders</div>
+  <div class="nav"><i>T</i>Transit</div>
+</aside>
+
+<main class="main">
+  <div class="topbar">BUSSIN / FLEET</div>
+  <div class="content">
+    <div class="eyebrow">RESOURCES</div>
+    <h1>Fleet</h1>
+    <div class="sub">Buses, current work, assigned staff and GPS freshness.</div>
+    <div class="stats">
+      <div class="stat primary"><div class="k">ALL BUSES</div><div class="n" id="allBuses">0</div><div class="l">fleet</div></div>
+      <div class="stat"><div class="k">IN SERVICE</div><div class="n">0</div><div class="l">live now</div></div>
+      <div class="stat"><div class="k">PLANNED</div><div class="n">0</div><div class="l">today</div></div>
+      <div class="stat"><div class="k">AVAILABLE</div><div class="n" id="available">0</div><div class="l">no trips</div></div>
+    </div>
+    <div class="searchLabel">SEARCH</div><div class="search">Bus, route or driver</div>
+    <div class="table">
+      <div class="thead"><span>BUS</span><span>STATUS</span><span>ROUTE</span><span>DRIVER</span><span>PROGRESS</span><span>NEXT STOP</span></div>
+      <div class="trow" id="busRow"><div style="grid-column:1/-1;text-align:center;color:#737b76">No buses yet.</div></div>
+    </div>
+  </div>
+</main>
+
+<div class="veil"></div>
+<section class="drawer">
+  <button class="close">Close</button>
+
+  <div class="formPanel show" id="busForm">
+    <div class="eyebrow">FLEET</div>
+    <h2>Add bus</h2>
+    <label>BUS NAME</label>
+    <input id="busName">
+    <button class="btn full" id="addBus">Add bus</button>
+  </div>
+
+  <div class="routesIntro" id="routesIntro">
+    <div class="eyebrow">FLEET</div>
+    <h2>Routes</h2>
+    <p>Routes stay reachable from Fleet. Buses are assigned to trips, not permanently to routes.</p>
+    <button class="btn" id="openEditor">Open route editor</button>
+    <p class="muted" id="routeCountText">No routes yet.</p>
+  </div>
+
+  <div class="routeEditor" id="busDetail">
+    <div class="eyebrow">BUS</div>
+    <h2><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#d1474f;margin-right:9px"></span>ALPHA Bus</h2>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px"><span class="pill">AVAILABLE</span><span style="font-size:12px;color:#6f7872">Bus record active</span></div>
+    <div style="border:1px solid var(--line);border-radius:10px;overflow:hidden;display:grid;grid-template-columns:1fr 1fr">
+      <div style="padding:12px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)"><div class="k">CURRENT ROUTE</div><b>—</b></div>
+      <div style="padding:12px;border-bottom:1px solid var(--line)"><div class="k">PERIOD</div><b>—</b></div>
+      <div style="padding:12px;border-right:1px solid var(--line)"><div class="k">DRIVER</div><b>—</b></div>
+      <div style="padding:12px"><div class="k">LAST GPS</div><b>—</b></div>
+    </div>
+    <h3 style="font-size:14px;margin-top:18px">Today's trips <span style="float:right;font-size:11px;color:#7a837e">0</span></h3>
+    <p>No trips for this bus today.</p>
+  </div>
+</section>
+
+<section class="editorPage" id="editorPage">
+  <div class="editorTop">
+    <div><div class="eyebrow">RESOURCES</div><div class="editorTitle">Routes</div><div class="editorSub">The stops each bus visits. Road paths generate automatically after you save.</div></div>
+  </div>
+
+  <div class="editorGrid">
+    <div class="savedRoutes">
+      <div class="routeHead"><span>Saved routes</span><span style="font-size:10px;color:#7a837e" id="savedTotal">0 total</span></div>
+      <div id="savedBody" style="padding:14px 16px;color:#7a837e;font-size:12px">No routes yet.</div>
+    </div>
+
+    <div class="formCard">
+      <h3 style="margin:0 0 6px;font-size:17px" id="formTitle">Add a route</h3>
+      <div class="two">
+        <div><label>ROUTE FAMILY</label><input id="family"></div>
+        <div><label>SERVICE PERIOD</label><select id="period"><option>AM</option><option>PM</option></select></div>
+      </div>
+      <label>ROUTE NAME</label><input id="routeName">
+      <label>NEXT STOP NAME</label><input id="stopName">
+      <label>FIND AN ADDRESS OR PLACE</label><input id="address">
+      <button class="smallbtn" style="width:100%;margin-top:8px">Use my current location for this stop</button>
+      <div class="selectBox" id="selectedBox" style="display:none">
+        <b>Selected:</b> 310 Beech Spring Road, South Orange, NJ 07079, United States of America<br>
+        Check the orange pin sits on the actual pickup point. Drag it if needed.
+        <button class="btn addStop" id="addStop">Add stop at this pin</button>
+      </div>
+      <p style="font-size:11px;color:#7a837e;margin-top:14px">Pick a suggestion, click the map to place a stop, or drag a saved marker to correct it. Address search by Geoapify.</p>
+      <div class="map" id="map">
+        <div class="road r1"></div><div class="road r2"></div><div class="road r3"></div>
+        <div class="pin" id="pin"></div>
+      </div>
+      <div class="stopList" id="stopList"></div>
+      <button class="saveRoute" id="saveRoute">Save route</button>
+    </div>
+  </div>
+</section>
+
+<div class="ring" id="ring"></div>
+<div class="cursor" id="cursor"><svg viewBox="0 0 24 30"><path d="M2 1 L2 24 L8 18 L12 28 L16 26 L12 17 L21 17 Z" fill="white" stroke="#17211c" stroke-width="1.5"/></svg></div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const stage=$('#stage'),cursor=$('#cursor'),ring=$('#ring'),toast=$('#toast');
+const busForm=$('#busForm'),routesIntro=$('#routesIntro'),busDetail=$('#busDetail'),editorPage=$('#editorPage');
+const busName=$('#busName'),addBus=$('#addBus'),openEditor=$('#openEditor');
+const family=$('#family'),period=$('#period'),routeName=$('#routeName'),stopName=$('#stopName'),address=$('#address');
+const selectedBox=$('#selectedBox'),addStop=$('#addStop'),saveRoute=$('#saveRoute'),stopList=$('#stopList'),savedBody=$('#savedBody');
+
+function point(el,x=.5,y=.5){const a=stage.getBoundingClientRect(),r=el.getBoundingClientRect();return{x:r.left-a.left+r.width*x,y:r.top-a.top+r.height*y}}
+async function move(el,x=.5,y=.5){const p=point(el,x,y);cursor.style.left=(p.x-3)+'px';cursor.style.top=(p.y-3)+'px';await sleep(430)}
+async function click(el){await move(el);const p=point(el);ring.style.left=(p.x-9)+'px';ring.style.top=(p.y-9)+'px';ring.classList.remove('pop');void ring.offsetWidth;ring.classList.add('pop');el.classList.add('press');await sleep(130);el.classList.remove('press');await sleep(180)}
+async function type(el,text,speed=60){el.classList.add('focus');await move(el,.18,.5);await sleep(140);el.value='';for(const ch of text){el.value+=ch;await sleep(speed)}await sleep(180);el.classList.remove('focus')}
+function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),650)}
+function reset(){
+  busForm.className='formPanel show';routesIntro.className='routesIntro';busDetail.className='routeEditor';
+  editorPage.classList.remove('show');
+  busName.value='';family.value='';routeName.value='';stopName.value='';address.value='';selectedBox.style.display='none';stopList.innerHTML='';saveRoute.classList.remove('ready');
+  $('#allBuses').textContent='0';$('#available').textContent='0';
+  $('#busRow').innerHTML='<div style="grid-column:1/-1;text-align:center;color:#737b76">No buses yet.</div>';
+  savedBody.textContent='No routes yet.';$('#savedTotal').textContent='0 total';$('#routeCountText').textContent='No routes yet.';$('#formTitle').textContent='Add a route';
+  cursor.style.left='1380px';cursor.style.top='145px';cursor.style.opacity='1';
+}
+async function run(){
+  reset();await sleep(650);
+
+  // 1. Add bus
+  await type(busName,'ALPHA Bus',75);
+  await sleep(300);
+  await click(addBus);
+  $('#allBuses').textContent='1';$('#available').textContent='1';
+  $('#busRow').innerHTML='<div class="busName">ALPHA Bus</div><span class="pill">AVAILABLE</span><span>No trip</span><span>Unassigned</span><span>—</span><span>—</span>';
+  showToast('Bus added');
+  await sleep(700);
+
+  // 2. Show bus detail briefly
+  busForm.classList.remove('show');busDetail.classList.add('show');
+  await sleep(1200);
+
+  // 3. Routes menu
+  busDetail.classList.remove('show');routesIntro.classList.add('show');
+  await sleep(900);
+  await click(openEditor);
+  routesIntro.classList.remove('show');
+  editorPage.classList.add('show');
+  await sleep(700);
+
+  // 4. Fill route form
+  await type(family,'Northside',65);
+  routeName.value='Northside - Northfield Ave.';
+  stopName.value='PU1 - Beech Spring Rd.';
+  await move(routeName,.25,.5);await sleep(250);
+  await move(stopName,.3,.5);await sleep(250);
+  await type(address,'310 Beech Spring Road South Orange, NJ',45);
+  await sleep(700);
+
+  // 5. Select address / confirm pin
+  selectedBox.style.display='block';
+  await sleep(700);
+  await click(addStop);
+  stopList.innerHTML='<div class="stop"><div class="num">1</div><div><div class="stopName">PU1 - Beech Spring Rd.</div><div class="coords">40.751111, -74.264037</div><div class="stopActions"><button class="tiny">Up</button><button class="tiny">Down</button><button class="tiny" style="color:#c14449">Remove</button></div></div></div>';
+  saveRoute.classList.add('ready');
+  $('#pin').classList.add('green');
+  await sleep(650);
+
+  // add second stop like screenshot
+  stopList.insertAdjacentHTML('beforeend','<div class="stop"><div class="num">2</div><div><div class="stopName">School</div><div class="coords">40.752751, -74.263405</div><div class="stopActions"><button class="tiny">Up</button><button class="tiny">Down</button><button class="tiny" style="color:#c14449">Remove</button></div></div></div>');
+  await sleep(450);
+
+  // 6. Save route
+  await click(saveRoute);
+  $('#savedTotal').textContent='1 total';
+  savedBody.innerHTML='<div class="routeRow"><div><div class="routeTitle">Northside AM</div><div class="routeMeta">Northside - Northfield Ave. · 2 stops · Active</div><div class="routeActions"><button class="smallbtn" id="editBtn">Edit</button><button class="smallbtn">Deactivate</button><button class="smallbtn delete">Delete</button></div></div><span class="routeBadge">STRAIGHT LINES</span></div>';
+  $('#routeCountText').textContent='1 route';
+  showToast('Route saved');
+  await sleep(900);
+
+  // 7. Edit route view
+  const editBtn=$('#editBtn');
+  await click(editBtn);
+  $('#formTitle').textContent='Edit route';
+  family.value='Northside';routeName.value='Northside - Northfield Ave.';stopName.value='';address.value='';
+  selectedBox.style.display='none';
+  saveRoute.textContent='Save changes';
+  await sleep(2400);
+  cursor.style.opacity='0';
+}
+$('#replay').addEventListener('click',run);
+document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();run()}});
+window.addEventListener('load',run);
+</script>
+</body>
+</html>

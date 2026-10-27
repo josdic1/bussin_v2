@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bussin — Staff first sign-in demo</title>
+<style>
+  :root{
+    --bg:#e8e9e4;
+    --card:#f7f8f5;
+    --line:#cfd5cf;
+    --ink:#1e2924;
+    --muted:#6c746e;
+    --green:#153f33;
+    --green-2:#275e3d;
+    --lime:#c9f000;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:linear-gradient(180deg,#dfe2dd,#e8e9e4);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
+  body{display:grid;place-items:center;overflow:hidden}
+  .stage{
+    position:relative;
+    width:min(100vw, 1200px);
+    height:min(100vh, 760px);
+    overflow:hidden;
+    background:#dde0db;
+  }
+  .toolbar{
+    position:absolute;left:14px;top:14px;z-index:20;display:flex;gap:8px
+  }
+  .replay{
+    border:1px solid rgba(255,255,255,.35);
+    background:rgba(18,27,23,.82);color:white;border-radius:8px;
+    padding:8px 12px;font-weight:750;font-size:13px
+  }
+  .hint{
+    position:absolute;right:14px;top:14px;z-index:20;
+    padding:8px 12px;border-radius:8px;background:rgba(18,27,23,.78);
+    color:#fff;font-size:12px;font-weight:650
+  }
+
+  .phoneWrap{
+    position:absolute;inset:0;display:grid;place-items:center;
+  }
+  .phone{
+    width:380px;height:648px;border-radius:30px;background:#222;
+    box-shadow:0 24px 90px rgba(0,0,0,.22), inset 0 0 0 2px rgba(255,255,255,.05);
+    padding:3px;overflow:hidden;position:relative;
+  }
+  .screen{
+    position:relative;width:100%;height:100%;border-radius:28px;background:var(--bg);overflow:hidden;
+  }
+  .page{
+    position:absolute;inset:0;padding:26px 16px 18px;opacity:0;transform:translateX(22px);
+    transition:opacity .45s ease, transform .45s ease;
+    pointer-events:none;
+  }
+  .page.show{opacity:1;transform:translateX(0);pointer-events:auto}
+  .page.exit-left{opacity:0;transform:translateX(-26px)}
+  .logoBlock{
+    width:44px;height:44px;border-radius:14px;background:var(--green);
+    color:var(--lime);display:grid;place-items:center;font-size:18px;font-weight:900;
+    margin-bottom:22px;
+  }
+  .eyebrow{font-size:11px;letter-spacing:.26em;font-weight:900;color:#6b746f;margin-bottom:8px}
+  h1{margin:0 0 8px;font-size:33px;line-height:1.02}
+  .sub{font-size:15px;line-height:1.35;color:var(--muted);margin-bottom:26px}
+  label{
+    display:block;margin:15px 0 8px;font-size:11px;letter-spacing:.19em;font-weight:900;color:#5d6660
+  }
+  .input{
+    height:44px;border:1px solid var(--line);border-radius:11px;background:#f3f4f1;
+    display:flex;align-items:center;padding:0 13px;font-size:14px;color:var(--ink);position:relative;
+    transition:border-color .2s ease, box-shadow .2s ease, background .2s ease;
+  }
+  .input.focus{border-color:#9db6d3;background:#dfe6f1;box-shadow:0 0 0 2px rgba(80,110,170,.08)}
+  .input.password{letter-spacing:.18em}
+  .btn{
+    margin-top:22px;width:100%;height:48px;border-radius:13px;border:0;background:var(--green);
+    color:white;font-size:17px;font-weight:800
+  }
+  .btn.press{transform:scale(.985);filter:brightness(.94)}
+  .signout{margin-top:16px;font-size:14px;font-weight:700;color:#67706a;text-decoration:underline}
+
+  /* home page */
+  .topbar{
+    display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px
+  }
+  .brandTitle{font-weight:900;letter-spacing:.16em;font-size:15px}
+  .brandSub{margin-top:4px;color:#62706a;font-size:12px;font-weight:700}
+  .link{color:#66706b;text-decoration:underline;font-size:14px;font-weight:700}
+  .statusRow{
+    display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;border:1px solid var(--line);
+    border-radius:18px;padding:12px;background:#f2f3f0;margin:8px 0 10px
+  }
+  .status{
+    padding:0 10px;border-right:1px solid #daddd8
+  }
+  .status:last-child{border-right:0}
+  .statusTop{display:flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.18em;font-weight:900}
+  .dot{width:8px;height:8px;border-radius:50%;background:#2f8250}
+  .statusSub{font-size:11px;color:#56635d;margin-top:2px}
+  .hero{
+    border:1px solid var(--line);border-radius:18px;background:#f4f5f2;padding:18px 16px;margin-top:8px
+  }
+  .micro{font-size:11px;letter-spacing:.22em;font-weight:900;color:#67716b}
+  .hero h2{margin:8px 0 10px;font-size:29px;line-height:1.05}
+  .hero p{margin:0;color:var(--muted);font-size:15px;line-height:1.35}
+  .detailBox{
+    margin-top:10px;border:1px solid var(--line);border-radius:14px;background:#f4f5f2;
+    padding:13px 16px;font-weight:800;color:#5d6761
+  }
+
+  /* card layout pages */
+  .centerCard{
+    position:absolute;left:16px;right:16px;top:26px;bottom:28px;
+    background:#f8f8f6;border:1px solid var(--line);border-radius:18px;padding:32px 32px 20px;
+  }
+  .cardInner{max-width:286px;margin:0 auto}
+  .setPage h1,.loginPage h1{font-size:31px}
+  .toast{
+    position:absolute;left:50%;top:18px;transform:translateX(-50%) translateY(-8px);
+    background:#1e2522;color:#fff;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:700;
+    opacity:0;transition:.28s;z-index:15
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* cursor / tap */
+  .tap{
+    position:absolute;z-index:16;width:28px;height:28px;border-radius:50%;
+    border:2px solid rgba(21,63,51,.5);background:rgba(255,255,255,.18);
+    left:0;top:0;opacity:0;transform:scale(.5);pointer-events:none
+  }
+  .tap.pop{animation:tap .42s ease-out}
+  @keyframes tap{
+    0%{opacity:1;transform:scale(.5)}
+    100%{opacity:0;transform:scale(2.1)}
+  }
+  .finger{
+    position:absolute;z-index:17;width:22px;height:22px;border-radius:50%;
+    background:rgba(21,63,51,.22);border:1px solid rgba(21,63,51,.28);pointer-events:none;
+    left:0;top:0;transition:left .42s cubic-bezier(.22,.8,.22,1),top .42s cubic-bezier(.22,.8,.22,1),opacity .2s
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="toolbar"><button class="replay" id="replay">Replay demo</button></div>
+  <div class="hint">Auto-plays • press Space to replay</div>
+  <div class="toast" id="toast">Password updated</div>
+
+  <div class="phoneWrap">
+    <div class="phone">
+      <div class="screen" id="screen">
+
+        <!-- LOGIN -->
+        <section class="page loginPage show" id="loginPage">
+          <div class="centerCard">
+            <div class="cardInner">
+              <div class="logoBlock">B</div>
+              <div class="eyebrow">BUSSIN</div>
+              <h1>Sign in</h1>
+              <div class="sub">Enter your Bussin username or email.</div>
+
+              <label>USERNAME OR EMAIL</label>
+              <div class="input" id="loginUser"></div>
+
+              <label>PASSWORD</label>
+              <div class="input password" id="loginPw"></div>
+
+              <button class="btn" id="signinBtn">Sign in</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- SET PASSWORD -->
+        <section class="page setPage" id="setPage">
+          <div class="centerCard">
+            <div class="cardInner">
+              <div class="logoBlock">B</div>
+              <div class="eyebrow">BUSSIN</div>
+              <h1>Set your password</h1>
+              <div class="sub">Change the starter password before using Bussin.</div>
+
+              <label>CURRENT PASSWORD</label>
+              <div class="input password" id="currentPw"></div>
+
+              <label>NEW PASSWORD</label>
+              <div class="input password" id="newPw"></div>
+
+              <label>CONFIRM NEW PASSWORD</label>
+              <div class="input password" id="confirmPw"></div>
+
+              <button class="btn" id="changeBtn">Change password</button>
+              <div class="signout">Sign out</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- HOME -->
+        <section class="page homePage" id="homePage">
+          <div class="topbar">
+            <div>
+              <div class="brandTitle">BUSSIN</div>
+              <div class="brandSub">Joss Dicker · The Bus App</div>
+            </div>
+            <div class="link">Sign out</div>
+          </div>
+
+          <div class="statusRow">
+            <div class="status">
+              <div class="statusTop"><span class="dot"></span><span>GPS</span></div>
+              <div class="statusSub">±40 m</div>
+            </div>
+            <div class="status">
+              <div class="statusTop"><span class="dot"></span><span>SCREEN</span></div>
+              <div class="statusSub">Staying awake</div>
+            </div>
+            <div class="status">
+              <div class="statusTop"><span class="dot"></span><span>DISPATCH</span></div>
+              <div class="statusSub">Connected</div>
+            </div>
+          </div>
+
+          <div class="hero">
+            <div class="micro">NO TRIP YET</div>
+            <h2>Nothing assigned</h2>
+            <p>Dispatch has not assigned you a trip. This screen updates by itself.</p>
+          </div>
+
+          <div class="detailBox">▸ Details</div>
+        </section>
+
+        <div class="tap" id="tap"></div>
+        <div class="finger" id="finger"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (s)=>document.querySelector(s);
+const stage = $('#stage');
+const finger = $('#finger');
+const tapRing = $('#tap');
+const toast = $('#toast');
+
+const loginPage = $('#loginPage');
+const setPage = $('#setPage');
+const homePage = $('#homePage');
+
+const loginUser = $('#loginUser');
+const loginPw = $('#loginPw');
+const currentPw = $('#currentPw');
+const newPw = $('#newPw');
+const confirmPw = $('#confirmPw');
+
+const signinBtn = $('#signinBtn');
+const changeBtn = $('#changeBtn');
+
+const TEMP_PW = 'MapleBus4721';
+const NEW_PW = 'GreenRoute24';
+
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+function rectInStage(el){
+  const sr = stage.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  return {left:r.left - sr.left, top:r.top - sr.top, width:r.width, height:r.height};
+}
+async function moveFinger(el, x=.5, y=.5){
+  const r = rectInStage(el);
+  finger.style.opacity = 1;
+  finger.style.left = (r.left + r.width * x - 11) + 'px';
+  finger.style.top = (r.top + r.height * y - 11) + 'px';
+  await sleep(440);
+}
+async function tap(el){
+  await moveFinger(el);
+  const r = rectInStage(el);
+  tapRing.style.left = (r.left + r.width/2 - 14) + 'px';
+  tapRing.style.top = (r.top + r.height/2 - 14) + 'px';
+  tapRing.classList.remove('pop'); void tapRing.offsetWidth; tapRing.classList.add('pop');
+  el.classList.add('press'); await sleep(130); el.classList.remove('press'); await sleep(180);
+}
+async function fillBox(el, text, opts={}){
+  const {mask=false,speed=82} = opts;
+  el.classList.add('focus');
+  await moveFinger(el,.18,.52);
+  await sleep(180);
+  el.textContent = '';
+  for(let i=0;i<text.length;i++){
+    el.textContent += mask ? '•' : text[i];
+    await sleep(speed);
+  }
+  await sleep(230);
+  el.classList.remove('focus');
+}
+function showPage(next, current){
+  if(current){
+    current.classList.remove('show');
+    current.classList.add('exit-left');
+    setTimeout(()=>current.classList.remove('exit-left'), 520);
+  }
+  next.classList.add('show');
+}
+function reset(){
+  loginPage.className = 'page loginPage show';
+  setPage.className = 'page setPage';
+  homePage.className = 'page homePage';
+  loginUser.textContent = '';
+  loginPw.textContent = '';
+  currentPw.textContent = '';
+  newPw.textContent = '';
+  confirmPw.textContent = '';
+  finger.style.opacity = 0;
+  toast.classList.remove('show');
+}
+async function run(){
+  reset();
+  await sleep(700);
+
+  await fillBox(loginUser, 'joss', {mask:false, speed:95});
+  await sleep(220);
+  await fillBox(loginPw, TEMP_PW, {mask:true, speed:68});
+  await sleep(380);
+  await tap(signinBtn);
+  await sleep(420);
+
+  showPage(setPage, loginPage);
+  await sleep(620);
+
+  await fillBox(currentPw, TEMP_PW, {mask:true, speed:62});
+  await sleep(180);
+  await fillBox(newPw, NEW_PW, {mask:true, speed:74});
+  await sleep(180);
+  await fillBox(confirmPw, NEW_PW, {mask:true, speed:74});
+  await sleep(360);
+  await tap(changeBtn);
+  toast.classList.add('show');
+  await sleep(700);
+  toast.classList.remove('show');
+  await sleep(260);
+
+  showPage(homePage, setPage);
+  finger.style.opacity = 0;
+}
+$('#replay').addEventListener('click', run);
+document.addEventListener('keydown', e=>{ if(e.code === 'Space'){ e.preventDefault(); run(); }});
+window.addEventListener('load', run);
+</script>
+</body>
+</html>
