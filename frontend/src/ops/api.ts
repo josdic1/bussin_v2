@@ -1,4 +1,13 @@
-import type { z } from "zod";
+import { ZodError, type z } from "zod";
+import { CHECK_EVENT } from "../UpdateBanner";
+
+// Data this page doesn't recognize almost always means Bussin was updated while the
+// tab was open. Say that in plain words, and check the version so the reload bar shows.
+export const OUTDATED = "Bussin was just updated. Reload the page to continue.";
+function outdated(): Error {
+  window.dispatchEvent(new Event(CHECK_EVENT));
+  return new Error(OUTDATED);
+}
 
 async function errorFrom(response: Response, fallback: string) {
   const body: unknown = await response.json().catch(() => null);
@@ -11,7 +20,9 @@ export async function getJson<T extends z.ZodType>(
 ): Promise<z.infer<T>> {
   const response = await fetch(url, { credentials: "same-origin", signal });
   if (!response.ok) throw await errorFrom(response, `Could not load ${url}`);
-  return schema.parse(await response.json());
+  const parsed = schema.safeParse(await response.json());
+  if (!parsed.success) throw outdated();
+  return parsed.data;
 }
 
 /** Write request. Resolves to the parsed JSON body; rejects with the server's message. */
@@ -29,5 +40,6 @@ export async function send(
 }
 
 export function message(cause: unknown, fallback: string) {
+  if (cause instanceof ZodError) return outdated().message;
   return cause instanceof Error ? cause.message : fallback;
 }

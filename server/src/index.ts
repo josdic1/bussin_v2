@@ -18,6 +18,18 @@ import { closeListener } from "./db/listen.js";
 import { frontendStatic, securityHeaders } from "./http.js";
 import { closeAllStreams } from "./sse.js";
 import { startAutoFinish } from "./trips/autoFinish.js";
+import { readFile } from "node:fs/promises";
+
+async function readFrontendBuild(): Promise<string | null> {
+  try {
+    const raw = await readFile(new URL("../../frontend/dist/version.json", import.meta.url), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && "build" in parsed && typeof parsed.build === "string"
+      ? parsed.build : null;
+  } catch {
+    return null;
+  }
+}
 
 const tenant = await readTenant();
 
@@ -50,6 +62,13 @@ app.use("/api/data", dataRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });
+});
+
+// Which web build this server is serving. Open tabs compare it with their own
+// build and offer a reload after a deploy. null in development.
+const frontendBuild = isProduction ? await readFrontendBuild() : null;
+app.get("/api/version", (_request, response) => {
+  response.json({ build: frontendBuild });
 });
 
 if (isProduction) {

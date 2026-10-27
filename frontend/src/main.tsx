@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router";
 import { App } from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ErrorBoundary, claimAutoReload } from "./ErrorBoundary";
+import { UpdateBanner } from "./UpdateBanner";
 import "./styles.css";
 import "./ops/ops.css";
 
@@ -18,6 +19,7 @@ createRoot(root).render(
         <AuthProvider>
           <App />
         </AuthProvider>
+        <UpdateBanner />
       </BrowserRouter>
     </ErrorBoundary>
   </StrictMode>
