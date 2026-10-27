@@ -29,3 +29,22 @@
 .ops .dm-table .dm-num{width:44px;text-align:right;color:var(--soft);font-variant-numeric:tabular-nums;background:#fafbf9}
 .ops .dm-table th.dm-num{padding:9px 12px;font-size:9px;color:var(--soft)}
 .ops .dm-table td.dm-empty{color:var(--soft)}
+
+/* ---------- Editing ---------- */
+.ops .dm-ro{color:var(--muted);font-size:12px}
+.ops .dm-table td.dm-edit{cursor:text}
+.ops .dm-table td.dm-edit:hover{box-shadow:inset 0 0 0 1px var(--line)}
+.ops .dm-table td.dm-edit:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--green)}
+.ops .dm-table td.dm-open{padding:0;box-shadow:inset 0 0 0 2px var(--green);background:#fff}
+.ops .dm-table td.dm-open input,.ops .dm-table td.dm-open select{height:34px;width:100%;min-width:140px;border:0;border-radius:0;background:transparent;font-size:12px;padding:0 12px}
+.ops .dm-table td.dm-open input:focus,.ops .dm-table td.dm-open select:focus{outline:none}
+.ops .dm-table tr.dm-locked td{color:var(--soft)}
+
+/* Feedback: saving, saved (green flash), refused (red until dismissed or fixed). */
+.ops .dm-table td.dm-saving{color:var(--muted)}
+.ops .dm-table td.dm-saved{background:#e9f6ee;transition:background .6s}
+.ops .dm-table td.dm-error{background:#fdecea;box-shadow:inset 0 0 0 2px #d92d20;color:#912018}
+.ops .dm-tag{margin-left:8px;font-size:10px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.ops .dm-saved .dm-tag{color:#1a7f45}
+.ops .dm-problem{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#fdecea;border-bottom:1px solid #f4c7c3;color:#912018;font-size:13px}
+.ops .dm-problem b{font-weight:850}

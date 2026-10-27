@@ -751,10 +751,39 @@ export const dataTablesResponseSchema = z.strictObject({
 });
 export const dataCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export type DataCell = z.infer<typeof dataCellSchema>;
+// How a column can be edited in the grid. null = read-only.
+export const dataEditKindSchema = z.enum(["text", "email", "phone", "stop-AM", "stop-PM"]).nullable();
+export type DataEditKind = z.infer<typeof dataEditKindSchema>;
+export const dataColumnSchema = z.strictObject({ key: z.string(), label: z.string(), edit: dataEditKindSchema });
+export type DataColumn = z.infer<typeof dataColumnSchema>;
+export const dataRowSchema = z.strictObject({
+  id: z.string(),
+  cells: z.record(z.string(), dataCellSchema),
+  // Why this row can't be edited here (for example, it came from a roster file). null = editable.
+  locked: z.string().nullable()
+});
+export type DataRow = z.infer<typeof dataRowSchema>;
 export const dataTableResponseSchema = z.strictObject({
   key: dataTableKeySchema,
   label: z.string(),
-  columns: z.array(z.strictObject({ key: z.string(), label: z.string() })),
-  rows: z.array(z.strictObject({ id: z.string(), cells: z.record(z.string(), dataCellSchema) }))
+  columns: z.array(dataColumnSchema),
+  rows: z.array(dataRowSchema)
 });
 export type DataTable = z.infer<typeof dataTableResponseSchema>;
+
+// One cell edit. "from" is what the grid showed, so a change made by someone else
+// in the meantime is caught instead of silently overwritten.
+export const dataEditSchema = z.strictObject({
+  column: z.string().min(1).max(40),
+  from: z.string().max(500),
+  value: z.string().max(500)
+});
+export type DataEdit = z.infer<typeof dataEditSchema>;
+export const dataEditResponseSchema = z.strictObject({ row: dataRowSchema });
+
+// Choices for the AM and PM stop dropdowns: active routes only.
+export const dataStopOptionSchema = z.strictObject({ value: z.string(), label: z.string() });
+export const dataStopOptionsResponseSchema = z.strictObject({
+  AM: z.array(dataStopOptionSchema),
+  PM: z.array(dataStopOptionSchema)
+});
