@@ -169,6 +169,10 @@ export const createPlannedTripSchema = z.strictObject({
   departureAt: z.string().datetime({ offset: true })
 });
 
+export const updatePlannedTripSchema = createPlannedTripSchema.extend({
+  expected: createPlannedTripSchema
+});
+
 export const tripActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("start") }),
   z.strictObject({ type: z.literal("arrive"), stopId: z.string().uuid() }),

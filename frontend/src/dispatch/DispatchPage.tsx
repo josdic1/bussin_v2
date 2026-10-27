@@ -247,7 +247,8 @@ export function DispatchPage() {
 
   const detail = (id: string) => {
     const found = rowForTrip(rows, id);
-    return found ? <TripDetail row={found.row} trip={found.trip} staff={board.staff} now={now} actions={actions}
+    return found ? <TripDetail row={found.row} trip={found.trip} staff={board.staff} buses={board.buses} routes={board.routes} now={now} actions={actions}
+      onEdited={(departureAt) => { setDay(localDate(new Date(departureAt))); board.reload(); }}
       editable={day === today} onOpenTrip={openTrip} onChanged={board.reload} toast={toast} riders={riderCount(found.trip.id)} />
       : <NoMatch>That trip is not on this day.</NoMatch>;
   };

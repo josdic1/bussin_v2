@@ -5,6 +5,7 @@ import {
   boardResponseSchema,
   routeGeometriesResponseSchema,
   createPlannedTripSchema,
+  updatePlannedTripSchema,
   dispatchStaffResponseSchema,
   dispatchGpsAuditResponseSchema,
   historyResponseSchema,
@@ -18,6 +19,7 @@ import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js"
 import { pool } from "../db/pool.js";
 import { snapshotTripRiders } from "../families/access.js";
 import { applyTripAction } from "../trips/actions.js";
+import { editPlannedTrip } from "../trips/edit.js";
 import { subscribeToDispatchLocations } from "./live.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
 import { openStream } from "../sse.js";
@@ -714,6 +716,37 @@ dispatchRoutes.post(
     }
   }
 );
+
+dispatchRoutes.put("/trips/:id", requireSameOrigin, requireRole("admin", "dispatch"), async (request, response) => {
+  const tripId = tripIdSchema.safeParse(request.params.id);
+  const input = updatePlannedTripSchema.safeParse(request.body);
+  if (!tripId.success || !input.success) {
+    response.status(400).json({ error: "Choose a valid trip, route, bus and departure time." });
+    return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const outcome = await editPlannedTrip(client, tripId.data, currentMember(response).id, input.data);
+    if (!outcome.ok) {
+      await client.query("ROLLBACK");
+      response.status(outcome.httpStatus).json({ error: outcome.error });
+      return;
+    }
+    await client.query("COMMIT");
+    response.json({ saved: true });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error.code === "40P01" || error.code === "23505" || error.code === "23503")) {
+      response.status(409).json({ error: "This trip or its roster changed. Refresh and try again." });
+      return;
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+});
 
 const historyQuerySchema = z.strictObject({
   from: z.string().datetime({ offset: true }),
