@@ -17,8 +17,9 @@ import { syncPlannedTripRiders } from "../families/access.js";
 // plain text. Columns with an "edit" kind can be changed from the grid.
 // Hidden helper columns start with "_" (never shown) or end in "Ref" (dropdown values).
 //
-// Editable today: rider names and AM/PM stops, guardian name/phone/email, bus label.
-// Routes, stops and staff stay read-only here; they have their own pages with more rules.
+// Editable today: rider names and AM/PM stops, guardian name/phone/email, bus label,
+// staff name and email. Routes and stops stay read-only here; they have their own page.
+// Staff username, roles and status stay locked: they decide who can sign in and what they can do.
 
 type Table = { label: string; columns: DataColumn[]; sql: string; countSql: string };
 
@@ -114,15 +115,15 @@ const TABLES: Record<DataTableKey, Table> = {
   members: {
     label: "Staff",
     columns: [
-      col("name", "Name"), col("username", "Username"),
-      col("email", "Email"), col("roles", "Roles"), col("status", "Status")
+      col("name", "Name", "text"), col("username", "Username"),
+      col("email", "Email", "email"), col("roles", "Roles"), col("status", "Status")
     ],
     sql: `SELECT m.id, m.display_name AS name, m.username, m.email,
                  (SELECT string_agg(initcap(mr.role), ', ' ORDER BY mr.role) FROM member_roles mr
                    WHERE mr.member_id = m.id AND mr.revoked_at IS NULL) AS roles,
                  CASE WHEN m.suspended_at IS NOT NULL THEN 'Suspended'
                       WHEN m.activated_at IS NULL THEN 'Invited' ELSE 'Active' END AS status,
-                 'Change staff logins on the Members page.' AS "_locked"
+                 NULL::text AS "_locked"
             FROM members m
            WHERE EXISTS (SELECT 1 FROM member_roles mr WHERE mr.member_id = m.id
                            AND mr.revoked_at IS NULL AND mr.role <> 'family')
@@ -281,11 +282,34 @@ async function editBus(client: PoolClient, row: DataRow, column: string, from: s
   return { column, old: from, value: next };
 }
 
+// Staff: display name and email only. Email can be blank only for a login that has a
+// username, since it's one of the two ways to sign in.
+async function editMember(client: PoolClient, row: DataRow, column: string, from: string, value: string): Promise<EditResult> {
+  if (column !== "name" && column !== "email") throw new EditError(400, "Only Name and Email can be changed here.");
+  if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
+  if (column === "name") {
+    const next = check(name120, value);
+    await client.query(`UPDATE members SET display_name = $2 WHERE id = $1`, [row.id, next]);
+    return { column, old: from, value: next };
+  }
+  const next = check(optionalEmail, value);
+  if (!next && !row.cells.username) throw new EditError(400, "This person signs in with their email, so it can't be blank.");
+  if (next) {
+    const taken = await client.query(`SELECT 1 FROM members WHERE email = $1 AND id <> $2`, [next, row.id]);
+    if (taken.rowCount) throw new EditError(409, "Another login already uses that email.");
+  }
+  await client.query(`UPDATE members SET email = $2 WHERE id = $1`, [row.id, next]);
+  return { column, old: from || null, value: next };
+}
+
 const EDITORS: Partial<Record<DataTableKey, typeof editRider>> = {
   riders: editRider,
   guardians: editGuardian,
-  buses: editBus
+  buses: editBus,
+  members: editMember
 };
+
+const LOCK_TABLE: Record<string, string> = { riders: "riders", guardians: "guardians", buses: "buses", members: "members" };
 
 function refuse(response: Response, status: number, error: string, row?: DataRow) {
   response.status(status).json(row ? { error, row } : { error });
@@ -310,7 +334,7 @@ dataRoutes.patch("/:table/:id", requireSameOrigin, requireRole("admin"), async (
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const lockTable = table.data === "riders" ? "riders" : table.data === "guardians" ? "guardians" : "buses";
+    const lockTable = LOCK_TABLE[table.data]!;
     const exists = await client.query(`SELECT 1 FROM ${lockTable} WHERE id = $1 FOR UPDATE`, [id.data]);
     if (!exists.rowCount) {
       await client.query("ROLLBACK");
