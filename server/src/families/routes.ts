@@ -13,6 +13,7 @@ import { pool } from "../db/pool.js";
 import type { PoolClient } from "pg";
 import { syncPlannedTripRiders } from "./access.js";
 import { hashPassword } from "../auth/sessions.js";
+import { rosterCsv } from "./exportCsv.js";
 
 export const familyRoutes = Router();
 const idSchema = z.string().uuid();
@@ -291,6 +292,9 @@ familyRoutes.get("/coverage", requireRole("admin"), async (_request, response) =
     pmOnly: result.rows.filter((row) => !row.am && row.pm).length
   }));
 });
+
+// The whole roster as a spreadsheet download.
+familyRoutes.get("/roster.csv", requireRole("admin"), rosterCsv);
 
 familyRoutes.get("/roster", requireRole("admin"), async (_request, response) => {
   const client = await pool.connect();

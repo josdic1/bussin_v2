@@ -428,6 +428,7 @@ export function FamiliesPage() {
   if (mode === "desktop") {
     return <>
       <Head eyebrow="Families" title="Riders & guardians" sub="Assignments and family access in one place." actions={<>
+        <a className="btn" href="/api/families/roster.csv" download>Download CSV</a>
         <button type="button" className="btn" onClick={() => setOverlay({ type: "guardianForm", id: null })}>Add guardian</button>
         <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "riderForm", id: null })}>Add rider</button></>} />
       {status}
