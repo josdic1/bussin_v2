@@ -3,6 +3,7 @@ import { reportSchema, type Report, type ReportKey } from "@bussin/shared";
 import { getJson, message } from "../ops/api";
 import { useAuth } from "../auth/AuthProvider";
 import { ErrorNote, Head } from "../ops/ui";
+import { Visualize } from "./Visualize";
 import "./reports.css";
 
 // Reports, Analyze mode: pick a ready-made report and a period, look at the
@@ -94,6 +95,7 @@ function Sheet({ report, camp }: { report: Report; camp: string }) {
 export function ReportsPage() {
   const { tenant } = useAuth();
   const camp = tenant?.name ?? "Bussin";
+  const [mode, setMode] = useState<"analyze" | "visualize">("analyze");
   const [key, setKey] = useState<ReportKey>("run-sheet");
   const [span, setSpan] = useState<Span>("day");
   const [from, setFrom] = useState(() => startOf("day", new Date()));
@@ -108,6 +110,7 @@ export function ReportsPage() {
   }).toString(), [from, span]);
 
   useEffect(() => {
+    if (mode !== "analyze") return;
     const controller = new AbortController();
     setLoading(true); setError("");
     getJson(`/api/reports/${key}?${query}`, reportSchema, controller.signal)
@@ -115,31 +118,37 @@ export function ReportsPage() {
       .catch((cause) => { if (!controller.signal.aborted) { setReport(null); setError(message(cause, "Could not build that report.")); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [key, query]);
+  }, [key, query, mode]);
 
   const pickSpan = (next: Span) => { setSpan(next); setFrom(startOf(next, from)); };
+  // Visualize works in weeks and months; a single day has nothing to chart.
+  const pickMode = (next: "analyze" | "visualize") => {
+    setMode(next);
+    if (next === "visualize" && span === "day") pickSpan("week");
+  };
+  const dated = mode === "visualize" || meta.dated;
   const rows = report?.sections.reduce((n, s) => n + s.rows.length, 0) ?? 0;
 
   return <div className="rp">
     <div className="no-print">
       <Head eyebrow="Records" title="Reports" sub="Pick a report and a period. The preview is exactly what prints." />
       <div className="rp-modes" role="tablist" aria-label="Report mode">
-        <button type="button" role="tab" aria-selected="true" className="on">Analyze</button>
-        <button type="button" role="tab" aria-selected="false" disabled>Visualize<em>Next</em></button>
+        <button type="button" role="tab" aria-selected={mode === "analyze"} className={mode === "analyze" ? "on" : ""} onClick={() => pickMode("analyze")}>Analyze</button>
+        <button type="button" role="tab" aria-selected={mode === "visualize"} className={mode === "visualize" ? "on" : ""} onClick={() => pickMode("visualize")}>Visualize</button>
         <button type="button" role="tab" aria-selected="false" disabled>Build your own<em>Next</em></button>
       </div>
     </div>
 
-    <div className="rp-body">
-      <nav className="rp-pick no-print" aria-label="Reports">
+    <div className={`rp-body${mode === "visualize" ? " solo" : ""}`}>
+      {mode === "analyze" && <nav className="rp-pick no-print" aria-label="Reports">
         {REPORTS.map((r) => <button key={r.key} type="button" className={r.key === key ? "on" : ""} onClick={() => setKey(r.key)}>
           <i>{r.mark}</i><span><b>{r.title}</b><small>{r.blurb}</small></span></button>)}
-      </nav>
+      </nav>}
 
       <div className="rp-main">
         <div className="rp-bar no-print">
-          {meta.dated ? <>
-            <div className="rp-seg" role="group" aria-label="Period">{(["day", "week", "month"] as const).map((s) =>
+          {dated ? <>
+            <div className="rp-seg" role="group" aria-label="Period">{(mode === "visualize" ? ["week", "month"] as const : ["day", "week", "month"] as const).map((s) =>
               <button key={s} type="button" className={s === span ? "on" : ""} aria-pressed={s === span} onClick={() => pickSpan(s)}>
                 {s === "day" ? "Day" : s === "week" ? "Week" : "Month"}</button>)}</div>
             <div className="rp-nav">
@@ -150,12 +159,16 @@ export function ReportsPage() {
             <button type="button" className="btn sm" onClick={() => setFrom(startOf(span, new Date()))}>Today</button>
           </> : <span className="rp-note">Current roster, no dates</span>}
           <span className="rp-grow" />
-          <span className="rp-note">{loading ? "Building…" : report ? `${rows} ${rows === 1 ? "row" : "rows"}` : ""}</span>
-          <button type="button" className="btn" disabled={!report || loading} onClick={() => report && downloadCsv(report, camp)}>Download CSV</button>
-          <button type="button" className="btn btn-primary" disabled={!report || loading} onClick={() => window.print()}>Print</button>
+          {mode === "analyze" ? <>
+            <span className="rp-note">{loading ? "Building…" : report ? `${rows} ${rows === 1 ? "row" : "rows"}` : ""}</span>
+            <button type="button" className="btn" disabled={!report || loading} onClick={() => report && downloadCsv(report, camp)}>Download CSV</button>
+            <button type="button" className="btn btn-primary" disabled={!report || loading} onClick={() => window.print()}>Print</button>
+          </> : <button type="button" className="btn" onClick={() => window.print()}>Print</button>}
         </div>
-        <ErrorNote text={error} />
-        <div className={`rp-paper${loading ? " loading" : ""}`}>{report && <Sheet report={report} camp={camp} />}</div>
+        {mode === "analyze" ? <>
+          <ErrorNote text={error} />
+          <div className={`rp-paper${loading ? " loading" : ""}`}>{report && <Sheet report={report} camp={camp} />}</div>
+        </> : <Visualize query={query} />}
       </div>
     </div>
   </div>;

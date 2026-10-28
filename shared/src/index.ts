@@ -975,3 +975,30 @@ export const reportSchema = z.strictObject({
   }))
 });
 export type Report = z.infer<typeof reportSchema>;
+
+// Visualize: the numbers behind the Reports dashboard, one period at a time.
+export const insightsSchema = z.strictObject({
+  period: z.string(),
+  days: z.array(z.strictObject({
+    day: z.string(),            // YYYY-MM-DD in the viewer's zone
+    label: z.string(),          // "Mon 26"
+    trips: z.number().int(),
+    rode: z.number().int(),
+    noShow: z.number().int(),
+    notRiding: z.number().int(),
+    unchecked: z.number().int(),
+    avgLength: z.number().nullable(), // minutes, finished trips only
+    departed: z.number().int(),
+    onTime: z.number().int()
+  })),
+  totals: z.strictObject({
+    trips: z.number().int(), ran: z.number().int(), rode: z.number().int(), noShow: z.number().int(),
+    notRiding: z.number().int(), uniqueRiders: z.number().int(), attendance: z.number().nullable(),
+    onTime: z.number().nullable(), avgLength: z.number().nullable(), avgLate: z.number().nullable(), missingLead: z.number().int()
+  }),
+  lateness: z.array(z.strictObject({ label: z.string(), count: z.number().int() })),
+  routes: z.array(z.strictObject({ route: z.string(), seats: z.number().int(), rode: z.number().int() })),
+  leads: z.array(z.strictObject({ name: z.string(), trips: z.number().int() })),
+  headsUp: z.array(z.strictObject({ tone: z.enum(["bad", "warn", "good"]), title: z.string(), text: z.string() }))
+});
+export type Insights = z.infer<typeof insightsSchema>;

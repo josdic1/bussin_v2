@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { reportKeySchema, reportSchema, type Report, type ReportKey } from "@bussin/shared";
+import { insightsSchema, reportKeySchema, reportSchema, type Insights, type Report, type ReportKey } from "@bussin/shared";
 import { requireRole } from "../auth/guard.js";
 import { deriveRiderState, type RiderEventRow } from "../check/state.js";
 import { pool } from "../db/pool.js";
@@ -28,6 +28,7 @@ function formatters(tz: string) {
   const short = make({ weekday: "short", month: "short", day: "numeric" });
   const key = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
   return {
+    tz,
     clock: (d: Date | null) => (d ? clock.format(d) : null),
     day: (d: Date) => day.format(d),
     short: (d: Date) => short.format(d),
@@ -148,8 +149,11 @@ const RESULT: Record<string, string> = {
   expected: "Not checked", aboard: "Rode", dropped: "Rode", no_show: "No-show", not_riding: "Not riding"
 };
 
-async function attendance(from: Date, to: Date, fmt: Fmt): Promise<Pick<Report, "summary" | "sections">> {
-  const seats = await pool.query<{ tripId: string; riderId: string; rider: string; stop: string; route: string; bus: string; status: string; departureAt: Date }>(
+type SeatRow = { tripId: string; riderId: string; rider: string; stop: string; route: string; bus: string; status: string; departureAt: Date };
+
+/** Every rider seat on non-cancelled trips in the window, with its Ride Check result. */
+async function loadSeats(from: Date, to: Date) {
+  const seats = await pool.query<SeatRow>(
     `SELECT tr.trip_id AS "tripId", r.id AS "riderId", r.given_name || ' ' || r.family_name AS rider, s.label AS stop,
             t.route_name AS route, b.label AS bus, t.status, t.departure_at AS "departureAt"
        FROM trip_riders tr JOIN trips t ON t.id = tr.trip_id JOIN riders r ON r.id = tr.rider_id
@@ -167,13 +171,21 @@ async function attendance(from: Date, to: Date, fmt: Fmt): Promise<Pick<Report, 
   );
   const grouped = new Map<string, RiderEventRow[]>();
   for (const e of events.rows) grouped.set(`${e.tripId}|${e.riderId}`, [...(grouped.get(`${e.tripId}|${e.riderId}`) ?? []), e]);
+  return seats.rows.map((seat) => {
+    const state = deriveRiderState(grouped.get(`${seat.tripId}|${seat.riderId}`) ?? []);
+    const result = seat.status === "planned" && state.state === "expected" ? "Scheduled" : RESULT[state.state] ?? state.state;
+    return { ...seat, state, result };
+  });
+}
 
+async function attendance(from: Date, to: Date, fmt: Fmt): Promise<Pick<Report, "summary" | "sections">> {
+  const seats = { rows: await loadSeats(from, to) };
+  const seatCount = seats.rows.length;
   const perRider = new Map<string, { rider: string; trips: number; rode: number; noShow: number; notRiding: number; unchecked: number }>();
   const rows: Row[] = [];
   let rode = 0; let noShow = 0; let notRiding = 0; let unchecked = 0; let upcoming = 0;
   for (const seat of seats.rows) {
-    const state = deriveRiderState(grouped.get(`${seat.tripId}|${seat.riderId}`) ?? []);
-    const result = seat.status === "planned" && state.state === "expected" ? "Scheduled" : RESULT[state.state] ?? state.state;
+    const { state, result } = seat;
     if (result === "Rode") rode += 1; else if (result === "No-show") noShow += 1;
     else if (result === "Not riding") notRiding += 1; else if (result === "Not checked") unchecked += 1; else upcoming += 1;
     const tally = perRider.get(seat.riderId) ?? { rider: seat.rider, trips: 0, rode: 0, noShow: 0, notRiding: 0, unchecked: 0 };
@@ -188,7 +200,7 @@ async function attendance(from: Date, to: Date, fmt: Fmt): Promise<Pick<Report, 
   }
   return {
     summary: [
-      { label: "Rider seats", value: String(seats.rowCount ?? 0), tone: null },
+      { label: "Rider seats", value: String(seatCount), tone: null },
       { label: "Rode", value: String(rode), tone: null },
       { label: "No-shows", value: String(noShow), tone: noShow ? "bad" : "good" },
       { label: "Not riding (told ahead)", value: String(notRiding), tone: null },
@@ -337,6 +349,122 @@ async function ridersByRoute(): Promise<Pick<Report, "summary" | "sections">> {
     ]
   };
 }
+
+// ---------- Visualize: the numbers for the dashboard ----------
+
+async function insights(from: Date, to: Date, fmt: Fmt, period: string): Promise<Insights> {
+  const trips = (await loadTrips(from, to)).filter((t) => t.status !== "cancelled");
+  const seats = await loadSeats(from, to);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: fmt.tz, weekday: "short", day: "numeric" });
+  const short = { format: (d: Date) => {
+    const p = parts.formatToParts(d);
+    return `${p.find((x) => x.type === "weekday")?.value} ${p.find((x) => x.type === "day")?.value}`;
+  } };
+
+  // Every day in the window, even empty ones, so the calendar has no holes.
+  const days = new Map<string, Insights["days"][number]>();
+  for (let at = new Date(from.getTime() + 12 * 3_600_000); at < to; at = new Date(at.getTime() + 86_400_000)) {
+    days.set(fmt.dayKey(at), { day: fmt.dayKey(at), label: short.format(at), trips: 0, rode: 0, noShow: 0, notRiding: 0,
+      unchecked: 0, avgLength: null, departed: 0, onTime: 0 });
+  }
+  const lengths = new Map<string, number[]>();
+  const lateList: number[] = [];
+  for (const t of trips) {
+    const day = days.get(fmt.dayKey(t.departureAt));
+    if (!day) continue;
+    day.trips += 1;
+    if (t.startedAt) {
+      const late = Math.max(0, minutes(t.departureAt, t.startedAt) ?? 0);
+      lateList.push(late);
+      day.departed += 1;
+      if (late <= ON_TIME_MINUTES) day.onTime += 1;
+    }
+    if (t.startedAt && t.endedAt) lengths.set(day.day, [...(lengths.get(day.day) ?? []), minutes(t.startedAt, t.endedAt)!]);
+  }
+  for (const [key, list] of lengths) days.get(key)!.avgLength = Math.round(list.reduce((a, b) => a + b, 0) / list.length);
+
+  // past = seats on trips that already ran, minus days the family said "not riding".
+  const routeTally = new Map<string, { seats: number; rode: number; past: number }>();
+  const riderNoShows = new Map<string, number>();
+  const riders = new Set<string>();
+  for (const seat of seats) {
+    const day = days.get(fmt.dayKey(seat.departureAt));
+    const tally = routeTally.get(seat.route) ?? { seats: 0, rode: 0, past: 0 };
+    tally.seats += 1;
+    if (seat.result !== "Scheduled" && seat.result !== "Not riding") tally.past += 1;
+    if (seat.result === "Rode") { tally.rode += 1; riders.add(seat.riderId); }
+    routeTally.set(seat.route, tally);
+    if (!day) continue;
+    if (seat.result === "Rode") day.rode += 1;
+    else if (seat.result === "No-show") { day.noShow += 1; riderNoShows.set(seat.rider, (riderNoShows.get(seat.rider) ?? 0) + 1); }
+    else if (seat.result === "Not riding") day.notRiding += 1;
+    else if (seat.result === "Not checked") day.unchecked += 1;
+  }
+
+  const all = [...days.values()];
+  const sum = (pick: (d: Insights["days"][number]) => number) => all.reduce((n, d) => n + pick(d), 0);
+  const rode = sum((d) => d.rode); const noShow = sum((d) => d.noShow);
+  const departed = sum((d) => d.departed); const onTime = sum((d) => d.onTime);
+  const allLengths = [...lengths.values()].flat();
+  const avg = (list: number[]) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
+  const missingLead = trips.filter((t) => !t.lead && t.status === "planned").length;
+
+  const leadTally = new Map<string, number>();
+  for (const t of trips) if (t.lead) leadTally.set(t.lead, (leadTally.get(t.lead) ?? 0) + 1);
+
+  // Heads up: the few things worth a look, worst first.
+  const headsUp: Insights["headsUp"] = [];
+  if (missingLead) headsUp.push({ tone: "bad", title: `${missingLead} upcoming ${missingLead === 1 ? "trip has" : "trips have"} no lead`,
+    text: "A trip can't start without a lead counselor. Assign one on Dispatch." });
+  const worstRider = [...riderNoShows].sort((a, b) => b[1] - a[1])[0];
+  if (worstRider && worstRider[1] >= 2) headsUp.push({ tone: "warn", title: `${worstRider[0]}: ${worstRider[1]} no-shows`,
+    text: "Worth a call home to check whether the bus is still needed." });
+  const routeRates = [...routeTally].filter(([, t]) => t.past >= 4);
+  const lowRoute = routeRates.map(([route, t]) => ({ route, rate: t.rode / t.past })).sort((a, b) => a.rate - b.rate)[0];
+  const unchecked = sum((d) => d.unchecked);
+  if (unchecked) headsUp.push({ tone: "warn", title: `${unchecked} ${unchecked === 1 ? "rider was" : "riders were"} never checked`,
+    text: "Ride Check was not finished on some trips, so attendance is incomplete." });
+  if (lowRoute && lowRoute.rate < 0.6) headsUp.push({ tone: "warn", title: `${lowRoute.route} rides at ${Math.round(lowRoute.rate * 100)}%`,
+    text: "Fewer than 6 in 10 scheduled seats were used. The route may need a look." });
+  const lateDays = all.filter((d) => d.departed >= 2 && d.onTime / d.departed < 0.75);
+  if (lateDays.length) headsUp.push({ tone: "warn", title: `Late starts on ${lateDays.length} ${lateDays.length === 1 ? "day" : "days"}`,
+    text: `Under 75% of buses left on time on ${lateDays.map((d) => d.label).join(", ")}.` });
+  if (!headsUp.length && trips.length) headsUp.push({ tone: "good", title: "Nothing needs attention",
+    text: "Every trip had a lead, attendance was checked, and buses left on time." });
+
+  return {
+    period,
+    days: all,
+    totals: {
+      trips: trips.length, ran: departed, rode, noShow, notRiding: sum((d) => d.notRiding), uniqueRiders: riders.size,
+      attendance: rode + noShow ? rode / (rode + noShow) : null, onTime: departed ? onTime / departed : null,
+      avgLength: avg(allLengths), avgLate: avg(lateList), missingLead
+    },
+    lateness: [
+      { label: `On time (0 to ${ON_TIME_MINUTES} min)`, count: lateList.filter((m) => m <= ON_TIME_MINUTES).length },
+      { label: "6 to 15 min late", count: lateList.filter((m) => m > ON_TIME_MINUTES && m <= 15).length },
+      { label: "16 to 30 min late", count: lateList.filter((m) => m > 15 && m <= 30).length },
+      { label: "Over 30 min late", count: lateList.filter((m) => m > 30).length }
+    ],
+    routes: [...routeTally].map(([route, t]) => ({ route, seats: t.seats, rode: t.rode })).sort((a, b) => b.seats - a.seats || a.route.localeCompare(b.route)),
+    leads: [...leadTally].map(([name, count]) => ({ name, trips: count })).sort((a, b) => b.trips - a.trips || a.name.localeCompare(b.name)).slice(0, 6),
+    headsUp
+  };
+}
+
+reportRoutes.get("/insights", requireRole("admin", "dispatch"), async (request, response) => {
+  const from = new Date(String(request.query.from ?? ""));
+  const to = new Date(String(request.query.to ?? ""));
+  const tz = String(request.query.tz ?? "America/New_York");
+  try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); } catch {
+    response.status(400).json({ error: "Unknown time zone." }); return;
+  }
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from || to.getTime() - from.getTime() > MAX_DAYS * 86_400_000) {
+    response.status(400).json({ error: `Choose a period of up to ${MAX_DAYS} days.` });
+    return;
+  }
+  response.json(insightsSchema.parse(await insights(from, to, formatters(tz), String(request.query.period ?? "").slice(0, 80))));
+});
 
 const TITLES: Record<ReportKey, string> = {
   "run-sheet": "Run sheet", attendance: "Attendance", "trip-times": "Trip times", crew: "Crew and leads", riders: "Riders by route"

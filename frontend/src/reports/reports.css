@@ -79,3 +79,85 @@
   .ops .rp-kpis div{background:#fff;padding:9px 10px}
   .ops .rp-kpis b{font-size:19px}
 }
+
+/* ---------- Visualize ---------- */
+.ops .rp-body.solo{grid-template-columns:1fr}
+.ops .vz{transition:opacity .15s}
+.ops .vz.loading{opacity:.45}
+
+/* Hero + tiles */
+.ops .vz-top{display:grid;grid-template-columns:300px minmax(0,1fr);gap:14px;margin-bottom:14px}
+.ops .vz-hero{padding:22px 24px;border-radius:18px;background:var(--green);color:#fff;display:flex;flex-direction:column;justify-content:center}
+.ops .vz-hero p{margin:0;font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--lime)}
+.ops .vz-hero b{display:block;font-size:64px;line-height:1;letter-spacing:-.03em;margin:8px 0 10px}
+.ops .vz-hero span{font-size:12.5px;line-height:1.45;color:rgba(255,255,255,.78)}
+.ops .vz-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.ops .vz-tiles div{padding:16px 18px;border:1px solid var(--line);border-radius:16px;background:#fff}
+.ops .vz-tiles span{display:block;font-size:12px;font-weight:700;color:var(--muted)}
+.ops .vz-tiles b{display:block;margin-top:6px;font-size:28px;letter-spacing:-.02em;line-height:1.1}
+.ops .vz-tiles small{font-size:14px;font-weight:700;color:var(--muted)}
+.ops .vz-tiles .bad b{color:var(--bad)}
+
+/* Cards */
+.ops .vz-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.ops .vz-card{padding:18px 20px 16px;border:1px solid var(--line);border-radius:18px;background:#fff;min-width:0}
+.ops .vz-card.wide{grid-column:span 2}
+.ops .vz-card header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}
+.ops .vz-card h3{margin:0;font-size:15px}
+.ops .vz-card header p,.ops .vz-card header .vz-legend{margin:4px 0 0;font-size:12px;color:var(--muted)}
+.ops .vz-toggle{border:1px solid var(--line);border-radius:999px;background:#fff;padding:4px 10px;font-size:11px;font-weight:800;color:var(--ink);cursor:pointer}
+.ops .vz-toggle:hover{border-color:var(--green)}
+.ops .vz-plot,.ops .vz-cal-wrap{position:relative}
+.ops .vz-grid line.vz-grid,.ops .vz-plot .vz-grid{stroke:#e1e0d9;stroke-width:1}
+.ops .vz-plot .vz-base{stroke:#c3c2b7;stroke-width:1}
+.ops .vz-plot .vz-cross{stroke:#898781;stroke-width:1}
+.ops .vz-plot .vz-axis{font-size:10.5px;fill:#898781;font-variant-numeric:tabular-nums}
+.ops .vz-plot rect:focus{outline:none}
+.ops .vz-legend{display:flex;flex-wrap:wrap;gap:12px}
+.ops .vz-legend span{display:inline-flex;align-items:center;gap:6px}
+.ops .vz-legend i{width:10px;height:10px;border-radius:3px}
+
+/* Tooltip: value first, label second, line key */
+.ops .vz-tip{position:absolute;z-index:5;transform:translate(-50%,calc(-100% - 10px));pointer-events:none;min-width:110px;padding:8px 10px;border-radius:10px;background:#0b0b0b;color:#fff;font-size:12px;box-shadow:0 8px 20px -10px rgba(0,0,0,.4)}
+.ops .vz-tip p{margin:0 0 4px;font-size:10.5px;font-weight:700;color:#c3c2b7}
+.ops .vz-tip div{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.ops .vz-tip i{width:10px;height:2px;border-radius:1px}
+.ops .vz-tip span{color:#c3c2b7}
+
+/* Horizontal bars, value at the tip */
+.ops .vz-hbars{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.ops .vz-hbars li{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr) 30px;align-items:center;gap:10px;font-size:12.5px}
+.ops .vz-hl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ops .vz-heads{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.ops .vz-track{height:10px;border-radius:0 4px 4px 0;background:transparent}
+.ops .vz-track i{display:block;height:100%;min-width:2px;border-radius:0 4px 4px 0}
+.ops .vz-hbars b{text-align:right;font-variant-numeric:tabular-nums}
+
+/* Calendar heat */
+.ops .vz-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.ops .vz-dow{text-align:center;font-size:10px;font-weight:800;color:#898781}
+.ops .vz-day{aspect-ratio:1;border:0;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;cursor:default;max-width:44px;justify-self:center;width:100%}
+.ops .vz-day:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.ops .vz-scale{display:flex;align-items:center;gap:3px;margin-top:12px;font-size:10.5px;color:#898781}
+.ops .vz-scale i{width:16px;height:8px;border-radius:2px}
+.ops .vz-scale span{margin:0 4px}
+.ops .vz-scale .none{margin-left:10px}
+
+/* Heads up */
+.ops .vz-heads{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.ops .vz-heads li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;align-items:start}
+.ops .vz-flag{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;font-size:12px;font-weight:900;color:#fff;background:#898781}
+.ops .vz-heads .bad .vz-flag{background:#d03b3b}
+.ops .vz-heads .warn .vz-flag{background:#fab219;color:#0b0b0b}
+.ops .vz-heads .good .vz-flag{background:#0ca30c}
+.ops .vz-heads b{display:block;font-size:13px}
+.ops .vz-heads p{margin:2px 0 0;font-size:12px;line-height:1.4;color:var(--muted)}
+
+.ops .vz-table{width:100%;border-collapse:collapse;font-size:12px}
+.ops .vz-table th{text-align:left;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:5px 6px;border-bottom:1px solid var(--line)}
+.ops .vz-table td{padding:5px 6px;border-bottom:1px solid var(--line2);font-variant-numeric:tabular-nums}
+.ops .vz-empty{margin:0;color:var(--muted);font-size:13px}
+
+@media (max-width:1200px){.ops .vz-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ops .vz-top{grid-template-columns:1fr}}
+@media (max-width:760px){.ops .vz-grid{grid-template-columns:1fr}.ops .vz-card.wide{grid-column:auto}.ops .vz-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media print{.ops .vz-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ops .vz-card{break-inside:avoid}.ops .vz-toggle{display:none}}
