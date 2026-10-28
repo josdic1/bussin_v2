@@ -122,14 +122,14 @@ type Card = { key: string; sev: "high" | "med" | "clear"; title: string; pill: s
 
 function alertCard(row: BusRow, alert: Alert, open: (id: string) => void, start: (trip: BoardTrip) => void): Card {
   const trip = row.trip!;
-  const actions: Card["actions"] = [{ label: alert.kind === "nodriver" ? "Assign driver" : "Open bus", primary: true, run: () => open(trip.id) }];
+  const actions: Card["actions"] = [{ label: alert.kind === "nodriver" ? "Assign crew" : "Open bus", primary: true, run: () => open(trip.id) }];
   if ((alert.kind === "late" || alert.kind === "due") && trip.assignedStaff) actions.push({ label: "Start trip", run: () => start(trip) });
   const text = alert.kind === "gps"
     ? `${alert.text}. ${trip.assignedStaff ? `${trip.assignedStaff.displayName}'s phone` : "The phone"} is not sending location.`
-    : alert.kind === "nodriver" ? `${routeWithPeriod(trip.routeName, trip.servicePeriod)} leaves ${time(trip.departureAt)} with no assigned staff.`
-      : `${routeWithPeriod(trip.routeName, trip.servicePeriod)} was scheduled for ${time(trip.departureAt)}. ${alert.text}.`;
+    : alert.kind === "nodriver" ? `${routeWithPeriod(trip.routeName, trip.servicePeriod)} leaves ${time(trip.departureAt)}. ${alert.text}.`
+      : `${routeWithPeriod(trip.routeName, trip.servicePeriod)} was scheduled for ${time(trip.departureAt)}. ${alert.text.replace(/\.$/, "")}.`;
   return {
-    key: `${row.bus.id}-${alert.kind}`, sev: alert.sev, title: `${row.bus.label} · ${alert.short}`,
+    key: `${row.bus.id}-${alert.kind}-${alert.short}`, sev: alert.sev, title: `${row.bus.label} · ${alert.short}`,
     pill: alert.sev === "high" ? "Urgent" : `Before ${time(trip.departureAt)}`, text, actions
   };
 }

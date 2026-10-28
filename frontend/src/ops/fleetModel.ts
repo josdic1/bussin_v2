@@ -135,12 +135,15 @@ export function presence(trip: BoardTrip, now: number) {
     : { ok: false, text: `Phone: NOT REPORTING · last seen ${ago}` };
 }
 
+// Which trip a bus card shows. A trip that should have left but never started comes
+// before the next upcoming one: it needs a decision (start it or cancel it), so it
+// must never hide behind a later trip.
 export function featuredTrip(trips: BoardTrip[], now: number) {
   const rank = (trip: BoardTrip) => trip.status === "active" ? 0
-    : trip.status === "planned" && Date.parse(trip.departureAt) >= now ? 1
+    : trip.status === "planned" && Date.parse(trip.departureAt) < now ? 1
       : trip.status === "planned" ? 2 : trip.status === "completed" ? 3 : 4;
   return [...trips].sort((a, b) => rank(a) - rank(b) ||
-    (rank(a) <= 1 ? Date.parse(a.departureAt) - Date.parse(b.departureAt)
+    (rank(a) <= 2 ? Date.parse(a.departureAt) - Date.parse(b.departureAt)
       : Date.parse(b.departureAt) - Date.parse(a.departureAt)))[0] ?? null;
 }
 
@@ -167,11 +170,17 @@ export function fleetRows(buses: Bus[], trips: BoardTrip[], now: number): BusRow
           ? { sev: "high", kind: "gps", text: `GPS silent for ${ageShort(latestGps, now)}`, short: `GPS silent ${ageShort(latestGps, now)}` }
           : { sev: "high", kind: "gps", text: "No GPS received since the trip started", short: "No GPS yet" });
       }
-      const late = trip ? timing(trip, now) : null;
-      if (late?.kind === "overdue") alerts.push({ sev: "high", kind: "late", text: `Not started, ${late.minutes} min past departure`, short: `${late.minutes} min late` });
-      else if (late?.kind === "due") alerts.push({ sev: "med", kind: "due", text: "Departure due now", short: "Due now" });
-      if (trip && (trip.status === "planned" || trip.status === "active") && !trip.assignedStaff) {
-        alerts.push({ sev: "med", kind: "nodriver", text: "No driver assigned", short: "No driver" });
+      // Every trip on this bus that never started counts, not just the one on the card.
+      for (const item of busTrips) {
+        const late = timing(item, now);
+        const which = item.id === trip?.id ? "" : ` (${item.routeName})`;
+        if (late?.kind === "overdue") alerts.push({ sev: "high", kind: "late",
+          text: `Never started${which}, ${late.minutes} min past departure. Start it or cancel it.`, short: `${late.minutes} min late` });
+        else if (late?.kind === "due") alerts.push({ sev: "med", kind: "due", text: `Departure due now${which}`, short: "Due now" });
+      }
+      if (trip && (trip.status === "planned" || trip.status === "active")) {
+        if (!trip.assignedStaff) alerts.push({ sev: "med", kind: "nodriver", text: "No lead counselor assigned", short: "No lead" });
+        if (!trip.driver) alerts.push({ sev: "med", kind: "nodriver", text: "No driver set", short: "No driver" });
       }
 
       const eta = trip ? nextEta(trip) : null;
