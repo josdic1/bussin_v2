@@ -784,9 +784,13 @@ export const dataTablesResponseSchema = z.strictObject({
 export const dataCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export type DataCell = z.infer<typeof dataCellSchema>;
 // How a column can be edited in the grid. null = read-only.
-export const dataEditKindSchema = z.enum(["text", "email", "phone", "stop-AM", "stop-PM", "active"]).nullable();
+// choice: pick from `options`. number: whole number. pin: "latitude, longitude".
+export const dataEditKindSchema = z.enum(["text", "email", "phone", "stop-AM", "stop-PM", "choice", "number", "pin"]).nullable();
 export type DataEditKind = z.infer<typeof dataEditKindSchema>;
-export const dataColumnSchema = z.strictObject({ key: z.string(), label: z.string(), edit: dataEditKindSchema });
+export const dataColumnSchema = z.strictObject({
+  key: z.string(), label: z.string(), edit: dataEditKindSchema,
+  options: z.array(z.string()).optional()
+});
 export type DataColumn = z.infer<typeof dataColumnSchema>;
 export const dataRowSchema = z.strictObject({
   id: z.string(),

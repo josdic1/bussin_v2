@@ -169,6 +169,10 @@ export function DataPage() {
       const result = await patchCell(table.key, row.id, { column: column.key, from, value });
       if (result.ok) {
         replaceRow(result.row);
+        // These edits change other rows too (stop order, a family shared by routes): refetch the table.
+        if ((table.key === "stops" && column.key === "order") || (table.key === "routes" && column.key === "family")) {
+          setReload((n) => n + 1);
+        }
         setState(key, { kind: "saved" });
         setProblem((p) => (p?.cell === key ? null : p));
         window.clearTimeout(flashTimers.current[key]);
@@ -295,15 +299,16 @@ export function DataPage() {
                 ].filter(Boolean).join(" ");
 
                 if (isEditing && column.edit) {
-                  if (column.edit === "active") {
+                  if (column.edit === "choice") {
                     const current = editing.draft;
+                    const options = column.options ?? [];
                     return <td key={column.key} className={cls}>
                       <select autoFocus aria-label={`${column.label} for ${rowName(row)}`} value={current}
                         onChange={(event) => void save(row, column, event.target.value)}
                         onBlur={() => setEditing(null)}
                         onKeyDown={(event) => onKey(event, row, column, current)}>
-                        <option value="Active">Active</option>
-                        <option value="Retired">Retired</option>
+                        {!options.includes(current) && <option value={current} disabled>{current || "(blank)"}</option>}
+                        {options.map((option) => <option key={option} value={option}>{option}</option>)}
                       </select>
                     </td>;
                   }
@@ -325,6 +330,8 @@ export function DataPage() {
                   return <td key={column.key} className={cls}>
                     <input autoFocus aria-label={`${column.label} for ${rowName(row)}`}
                       type={column.edit === "email" ? "email" : column.edit === "phone" ? "tel" : "text"}
+                      inputMode={column.edit === "number" ? "numeric" : column.edit === "pin" ? "decimal" : undefined}
+                      placeholder={column.edit === "pin" ? "40.7465, -74.2610" : undefined}
                       value={editing.draft}
                       onChange={(event) => setEditing({ ...editing, draft: event.target.value })}
                       onBlur={() => void save(row, column, editing.draft)}

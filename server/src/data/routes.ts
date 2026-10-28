@@ -9,6 +9,7 @@ import {
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { syncPlannedTripRiders } from "../families/access.js";
+import { generateAndStoreRouteGeometry } from "../routes/geometry.js";
 
 // Data mode: every table the office manages, as a plain grid.
 //
@@ -17,14 +18,17 @@ import { syncPlannedTripRiders } from "../families/access.js";
 // plain text. Columns with an "edit" kind can be changed from the grid.
 // Hidden helper columns start with "_" (never shown) or end in "Ref" (dropdown values).
 //
-// Editable today: rider names and AM/PM stops, guardian name/phone/email, driver
-// name/phone/status, bus label, staff name and email. Drivers can be added here too. Routes and stops stay read-only here; they have their own page.
-// Staff username, roles and status stay locked: they decide who can sign in and what they can do.
+// Every stored field is editable here. Read-only columns are counts and lists pulled
+// from other tables (a rider's guardians, a route's stop count), plus staff roles,
+// which are changed on the Members page. Drivers can be added here too.
+// Route and stop edits change future trips only: each trip keeps its own copy of its stops.
 
 type Table = { label: string; columns: DataColumn[]; sql: string; countSql: string };
 
 const ROW_LIMIT = 2000;
-const col = (key: string, label: string, edit: DataColumn["edit"] = null): DataColumn => ({ key, label, edit });
+const col = (key: string, label: string, edit: DataColumn["edit"] = null, options?: string[]): DataColumn =>
+  options ? { key, label, edit, options } : { key, label, edit };
+const ACTIVE_RETIRED = ["Active", "Retired"];
 
 const TABLES: Record<DataTableKey, Table> = {
   riders: {
@@ -43,8 +47,7 @@ const TABLES: Record<DataTableKey, Table> = {
                  (SELECT string_agg(g.name, ', ' ORDER BY g.name) FROM rider_guardian_links l
                     JOIN guardians g ON g.id = l.guardian_id WHERE l.rider_id = r.id) AS guardians,
                  CASE WHEN r.import_dataset IS NULL THEN 'Added in app' ELSE 'Imported' END AS source,
-                 CASE WHEN r.import_dataset IS NULL THEN NULL
-                      ELSE 'Imported from a roster file. Change it in the file and reimport.' END AS "_locked"
+                 NULL::text AS "_locked"
             FROM riders r
             LEFT JOIN rider_stop_assignments am ON am.rider_id = r.id AND am.direction = 'AM'
             LEFT JOIN routes amr ON amr.id = am.route_id
@@ -77,7 +80,7 @@ const TABLES: Record<DataTableKey, Table> = {
     label: "Drivers",
     columns: [
       col("name", "Driver", "text"), col("phone", "Phone", "phone"),
-      col("status", "Status", "active"), col("trips", "Trips driven")
+      col("status", "Status", "choice", ACTIVE_RETIRED), col("trips", "Trips driven")
     ],
     sql: `SELECT d.id, d.name, d.phone, CASE WHEN d.active THEN 'Active' ELSE 'Retired' END AS status,
                  (SELECT count(DISTINCT a.trip_id)::int FROM trip_driver_assignments a WHERE a.driver_id = d.id) AS trips,
@@ -87,7 +90,7 @@ const TABLES: Record<DataTableKey, Table> = {
   },
   buses: {
     label: "Buses",
-    columns: [col("label", "Bus", "text"), col("status", "Status")],
+    columns: [col("label", "Bus", "text"), col("status", "Status", "choice", ACTIVE_RETIRED)],
     sql: `SELECT id, label, CASE WHEN active THEN 'Active' ELSE 'Retired' END AS status,
                  NULL::text AS "_locked"
             FROM buses ORDER BY active DESC, label, id`,
@@ -96,28 +99,30 @@ const TABLES: Record<DataTableKey, Table> = {
   routes: {
     label: "Routes",
     columns: [
-      col("name", "Route"), col("period", "AM or PM"),
-      col("stops", "Stops"), col("riders", "Riders"), col("status", "Status")
+      col("name", "Route", "text"), col("family", "Family", "text"), col("period", "AM or PM", "choice", ["AM", "PM"]),
+      col("stops", "Stops"), col("riders", "Riders"), col("status", "Status", "choice", ["Active", "Off"])
     ],
-    sql: `SELECT r.id, r.name, r.service_period AS period,
+    sql: `SELECT r.id, r.name, f.name AS family, r.service_period AS period,
                  (SELECT count(*)::int FROM route_stops s WHERE s.route_id = r.id) AS stops,
                  (SELECT count(*)::int FROM rider_stop_assignments a WHERE a.route_id = r.id) AS riders,
                  CASE WHEN r.active THEN 'Active' ELSE 'Off' END AS status,
-                 'Change routes on the Routes page.' AS "_locked"
-            FROM routes r WHERE r.superseded_at IS NULL
+                 NULL::text AS "_locked"
+            FROM routes r JOIN route_families f ON f.id = r.route_family_id
+           WHERE r.superseded_at IS NULL
            ORDER BY r.active DESC, r.name, r.id`,
     countSql: "SELECT count(*)::int AS n FROM routes WHERE superseded_at IS NULL"
   },
   stops: {
     label: "Stops",
     columns: [
-      col("route", "Route"), col("order", "Order"),
-      col("label", "Stop"), col("pinned", "On map"), col("riders", "Riders")
+      col("route", "Route"), col("order", "Order", "number"),
+      col("label", "Stop", "text"), col("pin", "Map pin (lat, lng)", "pin"), col("riders", "Riders")
     ],
-    sql: `SELECT s.id, r.name AS route, s.position AS "order", s.label,
-                 CASE WHEN s.latitude IS NULL OR s.longitude IS NULL THEN 'No pin' ELSE 'Pinned' END AS pinned,
+    sql: `SELECT s.id, r.name AS route, s.route_id AS "routeRef", s.position AS "order", s.label,
+                 CASE WHEN s.latitude IS NULL OR s.longitude IS NULL THEN ''
+                      ELSE trim(to_char(s.latitude, 'FM990.000000')) || ', ' || trim(to_char(s.longitude, 'FM9990.000000')) END AS pin,
                  (SELECT count(*)::int FROM rider_stop_assignments a WHERE a.route_stop_id = s.id) AS riders,
-                 'Change stops on the Routes page.' AS "_locked"
+                 NULL::text AS "_locked"
             FROM route_stops s JOIN routes r ON r.id = s.route_id
            WHERE r.superseded_at IS NULL
            ORDER BY r.name, s.position, s.id`,
@@ -127,8 +132,8 @@ const TABLES: Record<DataTableKey, Table> = {
   members: {
     label: "Staff",
     columns: [
-      col("name", "Name", "text"), col("username", "Username"),
-      col("email", "Email", "email"), col("roles", "Roles"), col("status", "Status")
+      col("name", "Name", "text"), col("username", "Username", "text"),
+      col("email", "Email", "email"), col("roles", "Roles"), col("status", "Status", "choice", ["Active", "Suspended"])
     ],
     sql: `SELECT m.id, m.display_name AS name, m.username, m.email,
                  (SELECT string_agg(initcap(mr.role), ', ' ORDER BY mr.role) FROM member_roles mr
@@ -261,7 +266,8 @@ function sameAsShown(current: DataCell | undefined, shown: string): boolean {
 
 const STALE = "Someone else changed this a moment ago. The latest value is now showing; try again.";
 
-type EditResult = { column: string; old: string | null; value: string | null };
+// refreshRoute: a route whose road line must be redrawn once the edit is saved.
+type EditResult = { column: string; old: string | null; value: string | null; refreshRoute?: string };
 
 async function editRider(client: PoolClient, row: DataRow, column: string, from: string, value: string): Promise<EditResult> {
   if (row.locked) throw new EditError(409, row.locked);
@@ -314,8 +320,18 @@ async function editGuardian(client: PoolClient, row: DataRow, column: string, fr
 }
 
 async function editBus(client: PoolClient, row: DataRow, column: string, from: string, value: string): Promise<EditResult> {
-  if (column !== "label") throw new EditError(400, "That column can't be edited here.");
-  if (!sameAsShown(row.cells.label, from)) throw new EditError(409, STALE);
+  if (column !== "label" && column !== "status") throw new EditError(400, "That column can't be edited here.");
+  if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
+  if (column === "status") {
+    if (value !== "Active" && value !== "Retired") throw new EditError(400, "Pick Active or Retired.");
+    if (value === "Retired") {
+      const busy = await client.query(`SELECT 1 FROM trips WHERE bus_id = $1 AND status IN ('planned', 'active') LIMIT 1`, [row.id]);
+      if (busy.rowCount) throw new EditError(409, "This bus has a trip that hasn't finished. Move or cancel that trip first.");
+      await client.query(`UPDATE bus_devices SET revoked_at = GREATEST(now(), paired_at) WHERE bus_id = $1 AND revoked_at IS NULL`, [row.id]);
+    }
+    await client.query(`UPDATE buses SET active = $2 WHERE id = $1`, [row.id, value === "Active"]);
+    return { column, old: from, value };
+  }
   const next = check(name80, value);
   const taken = await client.query(`SELECT 1 FROM buses WHERE lower(label) = lower($1) AND id <> $2`, [next, row.id]);
   if (taken.rowCount) throw new EditError(409, `Another bus is already called "${next}".`);
@@ -323,11 +339,37 @@ async function editBus(client: PoolClient, row: DataRow, column: string, from: s
   return { column, old: from, value: next };
 }
 
-// Staff: display name and email only. Email can be blank only for a login that has a
-// username, since it's one of the two ways to sign in.
-async function editMember(client: PoolClient, row: DataRow, column: string, from: string, value: string): Promise<EditResult> {
-  if (column !== "name" && column !== "email") throw new EditError(400, "Only Name and Email can be changed here.");
+// Staff: name, username, email and Active/Suspended. Username and email are the two ways
+// to sign in, so one of them must stay. Roles are changed on the Members page.
+async function editMember(client: PoolClient, row: DataRow, column: string, from: string, value: string, me: string): Promise<EditResult> {
+  if (!["name", "username", "email", "status"].includes(column)) throw new EditError(400, "Roles are changed on the Members page.");
   if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
+  if (column === "username") {
+    const next = check(z.string().trim().toLowerCase()
+      .transform((v) => v || null)
+      .pipe(z.string().regex(/^[a-z0-9_]{3,32}$/, "3 to 32 characters: letters, numbers, underscore.").nullable()), value);
+    if (!next && !row.cells.email) throw new EditError(400, "This person signs in with their username, so it can't be blank.");
+    if (next) {
+      const taken = await client.query(`SELECT 1 FROM members WHERE lower(username) = $1 AND id <> $2`, [next, row.id]);
+      if (taken.rowCount) throw new EditError(409, "Another login already uses that username.");
+    }
+    await client.query(`UPDATE members SET username = $2 WHERE id = $1`, [row.id, next]);
+    return { column, old: from || null, value: next };
+  }
+  if (column === "status") {
+    if (value !== "Active" && value !== "Suspended") throw new EditError(400, "Pick Active or Suspended.");
+    if (value === "Suspended") {
+      if (row.id === me) throw new EditError(409, "You can't suspend yourself.");
+      const otherAdmins = await client.query(
+        `SELECT 1 FROM members m JOIN member_roles r ON r.member_id = m.id AND r.role = 'admin' AND r.revoked_at IS NULL
+          WHERE m.id <> $1 AND m.suspended_at IS NULL LIMIT 1`, [row.id]);
+      if (!otherAdmins.rowCount) throw new EditError(409, "Bussin needs at least one active admin.");
+      await client.query(`UPDATE members SET suspended_at = now() WHERE id = $1 AND suspended_at IS NULL`, [row.id]);
+    } else {
+      await client.query(`UPDATE members SET suspended_at = NULL WHERE id = $1`, [row.id]);
+    }
+    return { column, old: from, value };
+  }
   if (column === "name") {
     const next = check(name120, value);
     await client.query(`UPDATE members SET display_name = $2 WHERE id = $1`, [row.id, next]);
@@ -372,16 +414,92 @@ async function editDriver(client: PoolClient, row: DataRow, column: string, from
   return { column, old: from, value };
 }
 
-const EDITORS: Partial<Record<DataTableKey, typeof editRider>> = {
+// Routes: name, family, AM/PM and Active/Off. A family edit renames the family for all
+// of its routes. AM/PM can only change while no riders or trips use the route.
+async function editRoute(client: PoolClient, row: DataRow, column: string, from: string, value: string): Promise<EditResult> {
+  if (!["name", "family", "period", "status"].includes(column)) throw new EditError(400, "That column is a count. Change the stops or riders instead.");
+  if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
+  if (column === "name") {
+    const next = check(name120, value);
+    await client.query(`UPDATE routes SET name = $2 WHERE id = $1`, [row.id, next]);
+    return { column, old: from, value: next };
+  }
+  if (column === "family") {
+    const next = check(name80, value);
+    const taken = await client.query(
+      `SELECT 1 FROM route_families WHERE lower(trim(name)) = lower(trim($1))
+          AND id <> (SELECT route_family_id FROM routes WHERE id = $2)`, [next, row.id]);
+    if (taken.rowCount) throw new EditError(409, `Another family is already called "${next}".`);
+    await client.query(`UPDATE route_families SET name = $2 WHERE id = (SELECT route_family_id FROM routes WHERE id = $1)`, [row.id, next]);
+    return { column, old: from, value: next };
+  }
+  if (column === "period") {
+    if (value !== "AM" && value !== "PM") throw new EditError(400, "Pick AM or PM.");
+    const used = await client.query(
+      `SELECT EXISTS (SELECT 1 FROM rider_stop_assignments WHERE route_id = $1) AS riders,
+              EXISTS (SELECT 1 FROM trips WHERE route_id = $1) AS trips`, [row.id]);
+    if (used.rows[0].riders) throw new EditError(409, "Riders use this route. Move them off it before switching AM and PM.");
+    if (used.rows[0].trips) throw new EditError(409, "This route has trips. Make a new route for the other period.");
+    const clash = await client.query(
+      `SELECT 1 FROM routes WHERE route_family_id = (SELECT route_family_id FROM routes WHERE id = $1)
+          AND service_period = $2 AND superseded_at IS NULL AND id <> $1`, [row.id, value]);
+    if (clash.rowCount) throw new EditError(409, `This family already has a ${value} route.`);
+    await client.query(`UPDATE routes SET service_period = $2 WHERE id = $1`, [row.id, value]);
+    return { column, old: from, value };
+  }
+  if (value !== "Active" && value !== "Off") throw new EditError(400, "Pick Active or Off.");
+  await client.query(`UPDATE routes SET active = $2 WHERE id = $1`, [row.id, value === "Active"]);
+  return { column, old: from, value };
+}
+
+const pinSchema = z.string().trim()
+  .regex(/^-?\d{1,3}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?$/, "Type latitude, longitude. Example: 40.7465, -74.2610")
+  .transform((v) => v.split(",").map((part) => Number(part.trim())) as [number, number])
+  .refine(([lat, lng]) => Math.abs(lat) <= 90 && Math.abs(lng) <= 180, "That isn't a real place on the map.");
+
+// Stops: name, order on the route, and map pin. Trips already made keep their own copy.
+async function editStop(client: PoolClient, row: DataRow, column: string, from: string, value: string): Promise<EditResult> {
+  if (!["label", "order", "pin"].includes(column)) throw new EditError(400, "That column can't be edited here.");
+  if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
+  const routeId = String(row.cells.routeRef);
+  if (column === "label") {
+    const next = check(name120, value);
+    await client.query(`UPDATE route_stops SET label = $2 WHERE id = $1`, [row.id, next]);
+    return { column: "stop", old: from, value: next };
+  }
+  if (column === "pin") {
+    const [lat, lng] = check(pinSchema, value);
+    await client.query(`UPDATE route_stops SET latitude = $2, longitude = $3 WHERE id = $1`, [row.id, lat, lng]);
+    return { column: "map pin", old: from || null, value: `${lat}, ${lng}`, refreshRoute: routeId };
+  }
+  const stops = await client.query<{ id: string }>(
+    `SELECT id FROM route_stops WHERE route_id = $1 ORDER BY position FOR UPDATE`, [routeId]);
+  const target = check(z.string().trim().regex(/^\d+$/, "Type a whole number.").transform(Number)
+    .refine((n) => n >= 1 && n <= stops.rows.length, `Pick 1 to ${stops.rows.length}.`), value);
+  const order = stops.rows.map((stop) => stop.id).filter((id) => id !== row.id);
+  order.splice(target - 1, 0, row.id);
+  // Park every stop out of the way first so the unique (route, position) rule never trips.
+  await client.query(`UPDATE route_stops SET position = position + 10000 WHERE route_id = $1`, [routeId]);
+  for (const [index, id] of order.entries()) {
+    await client.query(`UPDATE route_stops SET position = $2 WHERE id = $1`, [id, index + 1]);
+  }
+  return { column, old: from, value: String(target), refreshRoute: routeId };
+}
+
+type Editor = (client: PoolClient, row: DataRow, column: string, from: string, value: string, me: string) => Promise<EditResult>;
+const EDITORS: Record<DataTableKey, Editor> = {
   drivers: editDriver,
   riders: editRider,
   guardians: editGuardian,
   buses: editBus,
+  routes: editRoute,
+  stops: editStop,
   members: editMember
 };
 
-const LOCK_TABLE: Record<string, string> = {
-  riders: "riders", guardians: "guardians", drivers: "drivers", buses: "buses", members: "members"
+const LOCK_TABLE: Record<DataTableKey, string> = {
+  riders: "riders", guardians: "guardians", drivers: "drivers", buses: "buses",
+  routes: "routes", stops: "route_stops", members: "members"
 };
 
 function refuse(response: Response, status: number, error: string, row?: DataRow) {
@@ -399,10 +517,6 @@ dataRoutes.patch("/:table/:id", requireSameOrigin, requireRole("admin"), async (
     return;
   }
   const editor = EDITORS[table.data];
-  if (!editor) {
-    refuse(response, 403, `${TABLES[table.data].label} can't be edited from Data mode.`);
-    return;
-  }
   const member = currentMember(response);
   const client = await pool.connect();
   try {
@@ -417,7 +531,7 @@ dataRoutes.patch("/:table/:id", requireSameOrigin, requireRole("admin"), async (
     const [before] = await readRows(client, table.data, id.data);
     let result: EditResult;
     try {
-      result = await editor(client, before!, edit.data.column, edit.data.from, edit.data.value);
+      result = await editor(client, before!, edit.data.column, edit.data.from, edit.data.value, member.id);
     } catch (error) {
       await client.query("ROLLBACK");
       if (error instanceof EditError) {
@@ -433,6 +547,10 @@ dataRoutes.patch("/:table/:id", requireSameOrigin, requireRole("admin"), async (
     );
     const [after] = await readRows(client, table.data, id.data);
     await client.query("COMMIT");
+    if (result.refreshRoute) {
+      const routeId = result.refreshRoute;
+      void generateAndStoreRouteGeometry(routeId).catch((error) => console.error(`Could not refresh geometry for route ${routeId}`, error));
+    }
     response.json(dataEditResponseSchema.parse({ row: after }));
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
