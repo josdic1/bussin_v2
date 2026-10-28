@@ -5,6 +5,7 @@ import {
   type Guardian, type Rider, type Route
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
+import { contactProblem, tidyEmail, tidyPhone } from "../ops/contact";
 import { PALETTE, plural } from "../ops/format";
 import { Overlay, useOps } from "../ops/OpsShell";
 import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, Seg, Tile } from "../ops/ui";
@@ -79,7 +80,7 @@ function GuardianPicker({ guardians, riders, value, onChange, lastName }: {
   async function create() {
     if (!draft) return;
     const parsed = guardianInputSchema.safeParse({ name: draft.name, email: draft.email.trim() || null, phone: draft.phone.trim() || null });
-    if (!parsed.success) { setError("Enter a name. Email and phone must be valid if filled in."); return; }
+    if (!parsed.success) { setError(contactProblem(parsed.error.issues)); return; }
     setSaving(true);
     setError("");
     try {
@@ -130,9 +131,11 @@ function GuardianPicker({ guardians, riders, value, onChange, lastName }: {
         onChange={(event) => setDraft({ ...draft, name: event.target.value })} onKeyDown={(event) => keep(event, () => void create())} /></label>
       <div className="rf2">
         <label><b className="lt">Email <span>(needed to log in)</span></b><input type="email" value={draft.email} autoCapitalize="none" autoComplete="off"
-          onChange={(event) => setDraft({ ...draft, email: event.target.value })} onKeyDown={(event) => keep(event, () => void create())} /></label>
+          onChange={(event) => setDraft({ ...draft, email: event.target.value })}
+          onBlur={() => setDraft({ ...draft, email: tidyEmail(draft.email) })} onKeyDown={(event) => keep(event, () => void create())} /></label>
         <label><b className="lt">Phone <span>(optional)</span></b><input type="tel" value={draft.phone} autoComplete="off"
-          onChange={(event) => setDraft({ ...draft, phone: event.target.value })} onKeyDown={(event) => keep(event, () => void create())} /></label>
+          onChange={(event) => setDraft({ ...draft, phone: event.target.value })}
+          onBlur={() => setDraft({ ...draft, phone: tidyPhone(draft.phone) })} onKeyDown={(event) => keep(event, () => void create())} /></label>
       </div>
       {error && <p className="rf-err" role="alert">{error}</p>}
       <div className="acts">
@@ -238,7 +241,7 @@ function GuardianForm({ guardian, riders, onSaved }: { guardian: Guardian | null
   async function submit(event: FormEvent) {
     event.preventDefault();
     const parsed = guardianInputSchema.safeParse({ name, email: email.trim() || null, phone: phone.trim() || null });
-    if (!parsed.success) { setError("Enter a guardian name, or correct the optional email and phone."); return; }
+    if (!parsed.success) { setError(contactProblem(parsed.error.issues)); return; }
     setSaving(true);
     setError("");
     try {
@@ -254,8 +257,9 @@ function GuardianForm({ guardian, riders, onSaved }: { guardian: Guardian | null
     <p className="rf-hint">Add an email to give this guardian a family login. No email means contact only, no login.</p>
     <label><b className="lt">Guardian name</b><input value={name} maxLength={120} autoComplete="off" onChange={(event) => setName(event.target.value)} /></label>
     <div className="rf2">
-      <label><b className="lt">Email <span>(needed to log in)</span></b><input type="email" value={email} autoCapitalize="none" autoComplete="off" onChange={(event) => setEmail(event.target.value)} /></label>
-      <label><b className="lt">Phone <span>(optional)</span></b><input type="tel" value={phone} autoComplete="off" onChange={(event) => setPhone(event.target.value)} /></label>
+      <label><b className="lt">Email <span>(needed to log in)</span></b><input type="email" value={email} autoCapitalize="none" autoComplete="off" onChange={(event) => setEmail(event.target.value)} onBlur={() => setEmail(tidyEmail(email))} /></label>
+      <label><b className="lt">Phone <span>(optional)</span></b><input type="tel" value={phone} autoComplete="off" placeholder="973-555-0123"
+        onChange={(event) => setPhone(event.target.value)} onBlur={() => setPhone(tidyPhone(phone))} /></label>
     </div>
     {!guardian && <label><b className="lt">Link to rider <span>(optional)</span></b><select value={riderId} onChange={(event) => setRiderId(event.target.value)}>
       <option value="">No rider yet</option>
@@ -345,6 +349,10 @@ export function FamiliesPage() {
   const attentionTotal = noRoute + pending;
   const attentionSub = `${noRoute} ${plural(noRoute, "rider", "riders")} with no route · ${pending} ${plural(pending, "account", "accounts")} awaiting setup`;
   const sortedGuardians = [...guardians].sort((a, b) => a.name.localeCompare(b.name));
+  // A shared phone is allowed (a home line); say who else has it so it isn't a surprise.
+  const sharedPhone = (guardian: Guardian) => guardian.phone
+    ? guardians.filter((other) => other.id !== guardian.id && other.phone === guardian.phone).map((other) => other.name).join(", ") || null
+    : null;
 
   async function accountAction(guardian: Guardian, action: GuardianAction) {
     setBusyGuardian(guardian.id);
@@ -463,7 +471,8 @@ export function FamiliesPage() {
           <tbody>{sortedGuardians.length ? sortedGuardians.map((guardian) => <tr key={guardian.id}>
             <td><strong>{guardian.name}</strong></td>
             <td>{guardian.email ?? <span className="dim">&mdash;</span>}</td>
-            <td>{guardian.phone ?? <span className="dim">&mdash;</span>}</td>
+            <td>{guardian.phone ?? <span className="dim">&mdash;</span>}
+              {sharedPhone(guardian) && <small className="shared-phone">Same phone as {sharedPhone(guardian)}</small>}</td>
             <td>{kidsOf(guardian.id).map((rider) => rider.givenName).join(", ") || <span className="dim">None</span>}</td>
             <td><Pill status={guardian.accountStatus} guardian /></td>
             <td><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{accountButtons(guardian)}

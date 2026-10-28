@@ -14,6 +14,7 @@ import type { PoolClient } from "pg";
 import { syncPlannedTripRiders } from "./access.js";
 import { hashPassword } from "../auth/sessions.js";
 import { rosterCsv } from "./exportCsv.js";
+import { emailTakenMessage, guardianEmailOwner } from "./contacts.js";
 
 export const familyRoutes = Router();
 const idSchema = z.string().uuid();
@@ -344,12 +345,18 @@ familyRoutes.get("/roster", requireRole("admin"), async (_request, response) => 
 familyRoutes.post("/guardians", requireSameOrigin, requireRole("admin"), async (request, response) => {
   const parsed = guardianInputSchema.extend({ riderId: idSchema.nullable() }).safeParse(request.body);
   if (!parsed.success) {
-    response.status(400).json({ error: "Enter a guardian name and optional valid email or phone." });
+    response.status(400).json({ error: contactError(parsed.error.issues) });
     return;
   }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const owner = await guardianEmailOwner(client, parsed.data.email, null);
+    if (owner) {
+      await client.query("ROLLBACK");
+      response.status(409).json({ error: emailTakenMessage(parsed.data.email!, owner) });
+      return;
+    }
     if (parsed.data.riderId) {
       const rider = await client.query(`SELECT id FROM riders WHERE id = $1 FOR UPDATE`, [parsed.data.riderId]);
       if (!rider.rowCount) {
@@ -598,7 +605,12 @@ familyRoutes.put("/guardians/:id", requireSameOrigin, requireRole("admin"), asyn
   const id = idSchema.safeParse(request.params.id);
   const parsed = guardianInputSchema.safeParse(request.body);
   if (!id.success || !parsed.success) {
-    response.status(400).json({ error: "Enter a guardian name and optional valid email or phone." });
+    response.status(400).json({ error: parsed.success ? "Guardian not found." : contactError(parsed.error.issues) });
+    return;
+  }
+  const owner = await guardianEmailOwner(pool, parsed.data.email, id.data);
+  if (owner) {
+    response.status(409).json({ error: emailTakenMessage(parsed.data.email!, owner) });
     return;
   }
   const result = await pool.query<{ id: string }>(
@@ -611,6 +623,15 @@ familyRoutes.put("/guardians/:id", requireSameOrigin, requireRole("admin"), asyn
   }
   response.json(result.rows[0]);
 });
+
+/** The first problem with a guardian's name, email or phone, in plain words. */
+function contactError(issues: { path: PropertyKey[]; message: string }[]): string {
+  const issue = issues[0];
+  const field = issue?.path[0];
+  if (field === "phone") return issue!.message;
+  if (field === "email") return "That email doesn't look right. Example: name@example.com";
+  return "Enter the guardian's name.";
+}
 
 async function saveManualLinks(client: PoolClient, riderId: string, guardianIds: string[]) {
   const result = await client.query<{ id: string }>(

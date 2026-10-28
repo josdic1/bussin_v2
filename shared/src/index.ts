@@ -425,6 +425,31 @@ export const riderAssignmentInputSchema = z.strictObject({
 
 const normalizedEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
 
+// ---------- Phone numbers: one format everywhere ----------
+// US numbers are stored as 973-555-0123, however they were typed ("9735550123",
+// "(973) 555-0123", "+1 973 555 0123"). Numbers starting with + and another
+// country code are stored as +<digits>. Anything else is refused with an example.
+export const PHONE_HELP = "Enter a 10-digit phone number, like 973-555-0123.";
+
+export function formatPhone(raw: string): { ok: true; value: string | null } | { ok: false; error: string } {
+  const text = raw.trim();
+  if (!text) return { ok: true, value: null };
+  const digits = text.replace(/\D/g, "");
+  if (text.startsWith("+") && !text.startsWith("+1")) {
+    return digits.length >= 8 && digits.length <= 15 ? { ok: true, value: `+${digits}` } : { ok: false, error: PHONE_HELP };
+  }
+  const us = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  if (us.length !== 10) return { ok: false, error: PHONE_HELP };
+  return { ok: true, value: `${us.slice(0, 3)}-${us.slice(3, 6)}-${us.slice(6)}` };
+}
+
+/** Optional phone: blank becomes null, anything else is formatted or refused. */
+export const phoneSchema = z.string().transform((value, ctx) => {
+  const result = formatPhone(value);
+  if (!result.ok) { ctx.addIssue({ code: "custom", message: result.error }); return z.NEVER; }
+  return result.value;
+});
+
 export const riderInputSchema = z.strictObject({
   givenName: z.string().trim().min(1).max(80),
   familyName: z.string().trim().min(1).max(80),
@@ -437,7 +462,7 @@ export const riderInputSchema = z.strictObject({
 export const guardianInputSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
   email: normalizedEmailSchema.nullable(),
-  phone: z.string().trim().min(1).max(40).nullable()
+  phone: phoneSchema.nullable()
 });
 
 export const guardianSchema = z.strictObject({
@@ -823,9 +848,7 @@ export const dataEditResponseSchema = z.strictObject({ row: dataRowSchema });
 // Add a driver from Data mode. Drivers are names on a trip, not logins.
 export const driverInputSchema = z.strictObject({
   name: z.string().trim().min(1, "Enter the driver's name.").max(120, "Keep the name under 120 characters."),
-  phone: z.string().trim().max(40, "Keep the phone under 40 characters.")
-    .transform((value) => value || null)
-    .refine((value) => value === null || /\d{7,}/.test(value.replace(/\D/g, "")), "That doesn't look like a phone number.")
+  phone: phoneSchema
 });
 export type DriverInput = z.input<typeof driverInputSchema>;
 

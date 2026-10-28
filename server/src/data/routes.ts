@@ -3,12 +3,13 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import {
   dataEditResponseSchema, dataEditSchema, dataStopOptionsResponseSchema, dataTableKeySchema,
-  dataTableResponseSchema, dataTablesResponseSchema, driverInputSchema,
+  dataTableResponseSchema, dataTablesResponseSchema, driverInputSchema, phoneSchema,
   type DataCell, type DataColumn, type DataRow, type DataTableKey
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { syncPlannedTripRiders } from "../families/access.js";
+import { emailTakenMessage, guardianEmailOwner } from "../families/contacts.js";
 import { generateAndStoreRouteGeometry } from "../routes/geometry.js";
 
 // Data mode: every table the office manages, as a plain grid.
@@ -248,9 +249,7 @@ const name120 = z.string().trim().min(1, "Can't be blank.").max(120, "Keep it un
 const optionalEmail = z.string().trim().toLowerCase()
   .transform((value) => value || null)
   .pipe(z.email("That isn't a valid email address.").nullable());
-const optionalPhone = z.string().trim().max(40, "Keep it under 40 characters.")
-  .transform((value) => value || null)
-  .refine((value) => value === null || /\d{7,}/.test(value.replace(/\D/g, "")), "That doesn't look like a phone number.");
+const optionalPhone = phoneSchema;
 const stopRef = z.string().regex(/^$|^[0-9a-f-]{36}:[0-9a-f-]{36}$/i, "Pick a stop from the list.");
 
 function check<T>(schema: z.ZodType<T>, value: string): T {
@@ -315,6 +314,10 @@ async function editGuardian(client: PoolClient, row: DataRow, column: string, fr
   const next = column === "name" ? check(name120, value)
     : column === "email" ? check(optionalEmail, value)
     : check(optionalPhone, value);
+  if (column === "email") {
+    const owner = await guardianEmailOwner(client, next, row.id);
+    if (owner) throw new EditError(409, emailTakenMessage(next!, owner));
+  }
   await client.query(`UPDATE guardians SET ${column} = $2 WHERE id = $1`, [row.id, next]);
   return { column, old: from || null, value: next };
 }

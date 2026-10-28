@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import express, { Router } from "express";
 import type { PoolClient } from "pg";
 import {
-  rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
+  formatPhone, rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
   type RosterImportInput, type RosterImportItem
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
@@ -139,7 +139,11 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     if (hit) {
       const update: Partial<GuardianWant> = {};
       if (want.name && want.name !== hit.name) update.name = want.name;
-      if (want.email && want.email !== hit.email) update.email = want.email;
+      if (want.email && want.email !== hit.email) {
+        const owner = allGuardians.find((g) => g.id !== (hit as Guardian).id && g.email === want.email);
+        if (owner) return `${want.email} already belongs to ${owner.name}. Each parent needs their own email.`;
+        update.email = want.email;
+      }
       if (want.phone && want.phone !== hit.phone) update.phone = want.phone;
       return { kind: "existing", id: hit.id, update };
     }
@@ -186,12 +190,14 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     for (const g of gcols) {
       const gname = clean(cells[g.name]);
       const email = g.email >= 0 ? clean(cells[g.email]).toLowerCase() || null : null;
-      const phone = g.phone >= 0 ? clean(cells[g.phone]) || null : null;
+      const rawPhone = g.phone >= 0 ? clean(cells[g.phone]) : "";
+      const formatted = formatPhone(rawPhone);
+      if (!formatted.ok) return fail(`${gname || "A guardian"}'s phone "${rawPhone}": ${formatted.error}`);
+      const phone = formatted.value;
       if (!gname && !email && !phone) continue;
       if (!gname) return fail("A guardian has a phone or email but no name.");
       if (gname.length > 120) return fail("Guardian names must be under 120 characters.");
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(`"${email}" isn't a valid email.`);
-      if (phone && (phone.length > 40 || digits(phone).length < 7)) return fail(`"${phone}" doesn't look like a phone number.`);
       wants.push({ name: gname, email, phone });
     }
     if (!existing && !wants.length) return fail("A new rider needs at least one guardian.");

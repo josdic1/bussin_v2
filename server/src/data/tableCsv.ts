@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import express, { Router, type Response } from "express";
 import type { PoolClient } from "pg";
 import {
-  rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
+  formatPhone, rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
   type RosterImportInput, type RosterImportItem
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
@@ -44,7 +44,6 @@ const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 const clean = (s: string | undefined) => (s ?? "").replace(/^'(?=[=+\-@])/, "").trim();
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 const validEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-const validPhone = (s: string) => s.length <= 40 && s.replace(/\D/g, "").length >= 7;
 const change = (label: string, from: string | null | undefined, to: string | null | undefined) =>
   `${label}: ${from || "(blank)"} → ${to || "(blank)"}`;
 
@@ -176,9 +175,9 @@ const drivers: Table = {
         if (seen.has(existing.id)) { fail("This driver appears twice in the file."); continue; }
         seen.add(existing.id);
       }
-      const rawPhone = row.get("phone");
-      if (rawPhone && !validPhone(rawPhone)) { fail(`"${rawPhone}" doesn't look like a phone number.`); continue; }
-      const phone = has("phone") ? rawPhone || null : existing?.phone ?? null;
+      const formatted = formatPhone(row.get("phone"));
+      if (!formatted.ok) { fail(`Phone "${row.get("phone")}": ${formatted.error}`); continue; }
+      const phone = has("phone") ? formatted.value : existing?.phone ?? null;
       const status = has("status") ? readStatus(row.get("status"), ["Active", "Retired"]) : null;
       if (status instanceof Error) { fail(status.message); continue; }
       const active = status === null ? existing?.active ?? true : status === "Active";

@@ -628,3 +628,4 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .cp.drv b{color:var(--soft)}
 .ops .cp.nodrv{background:var(--warnbg);color:var(--warn);font-weight:800}
 .ops .d-grid>div.wide{grid-column:1/-1;border-right:0}
+.ops .shared-phone{display:block;font-size:11px;color:var(--muted);margin-top:2px}
