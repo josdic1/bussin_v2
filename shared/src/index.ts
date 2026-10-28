@@ -390,7 +390,11 @@ export const staffTripSchema = z.strictObject({
   busLabel: z.string(),
   departureAt: z.string(),
   status: z.enum(["planned", "active"]),
-  stops: z.array(staffTripStopSchema)
+  stops: z.array(staffTripStopSchema),
+  // The phone's seat on this trip (null on the bus phone itself).
+  crewRole: z.enum(["lead", "counselor"]).nullable(),
+  // The bus's own phone is reporting, so staff phones send no GPS.
+  busPhoneLive: z.boolean()
 });
 
 export const staffTripResponseSchema = z.strictObject({
@@ -418,7 +422,8 @@ export const staffLocationSampleRejectionReasonSchema = z.enum([
   "duplicate",
   "stale",
   "future",
-  "poor_accuracy"
+  "poor_accuracy",
+  "bus_phone" // the bus's own phone is the GPS right now
 ]);
 
 export const staffJourneyTransitionSchema = z.strictObject({
@@ -632,7 +637,10 @@ export const riderCheckEventTypeSchema = z.enum([
 export type RiderCheckEventType = z.infer<typeof riderCheckEventTypeSchema>;
 
 export const riderCheckActionSchema = z.strictObject({
-  type: z.enum(["board", "drop", "no_show", "not_riding", "undo", "handled"])
+  type: z.enum(["board", "drop", "no_show", "not_riding", "undo", "handled"]),
+  // What the tapping phone saw. If someone else changed the rider since, the tap is refused
+  // instead of silently overwriting them.
+  expected: riderCheckStateSchema.optional()
 });
 
 export type RiderCheckAction = z.infer<typeof riderCheckActionSchema>;
@@ -702,6 +710,9 @@ export type CheckTrip = z.infer<typeof checkTripSchema>;
 export const checkBoardResponseSchema = z.strictObject({
   trips: z.array(checkTripSchema)
 });
+
+/** A counselor's phone: Ride Check for the one trip they are on. */
+export const staffCheckResponseSchema = z.strictObject({ trip: checkTripSchema.nullable() });
 
 // ---------------------------------------------------------------------------
 // Transit: recorded trip history for review.

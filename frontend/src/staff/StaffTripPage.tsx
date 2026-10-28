@@ -260,7 +260,8 @@ export function StaffTripPage() {
         } else if (result.reason !== "duplicate") {
           setDispatch((current) => ({ ...current, queued: queued(), note: result.reason === "poor_accuracy"
             ? "Waiting for a more accurate GPS fix."
-            : result.reason === "future" ? "Phone clock looks wrong. Check the time settings." : "Skipped an old queued fix." }));
+            : result.reason === "future" ? "Phone clock looks wrong. Check the time settings."
+            : result.reason === "bus_phone" ? "The bus phone is sending GPS, so this phone does not need to." : "Skipped an old queued fix." }));
         }
       }
     } catch (cause) {

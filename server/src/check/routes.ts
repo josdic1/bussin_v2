@@ -1,15 +1,17 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import {
   bulkCheckActionSchema,
   checkBoardResponseSchema,
+  staffCheckResponseSchema,
   riderCheckActionSchema,
   type CheckEvent,
   type RiderCheckEventType
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
+import { STAFF_CHOSEN_TRIP } from "../staff/tripView.js";
 import {
   checkTransition,
   deriveRiderState,
@@ -84,7 +86,19 @@ checkRoutes.get("/board", requireRole("admin", "dispatch"), async (request, resp
     response.status(400).json({ error: "Choose a single day." });
     return;
   }
+  const trips = await checkTrips(`(t.departure_at >= $1 AND t.departure_at < $2) OR t.status = 'active'`, [from, to]);
+  response.json(checkBoardResponseSchema.parse({ trips }));
+});
 
+/** A counselor's phone: Ride Check for their own trip (running first, else the next planned one). */
+checkRoutes.get("/mine", requireRole("staff"), async (_request, response) => {
+  const member = currentMember(response);
+  const trips = await checkTrips(`t.id = (${STAFF_CHOSEN_TRIP})`, [member.id]);
+  response.json(staffCheckResponseSchema.parse({ trip: trips[0] ?? null }));
+});
+
+/** Ride Check trips matching a WHERE clause on trips t, with riders, stops and the check log. */
+async function checkTrips(where: string, values: unknown[]) {
   const trips = await pool.query<TripRow>(
     `SELECT t.id, t.bus_id AS "busId", b.label AS "busLabel",
             t.route_name AS "routeName", r.service_period AS "servicePeriod",
@@ -106,17 +120,14 @@ checkRoutes.get("/board", requireRole("admin", "dispatch"), async (request, resp
        LEFT JOIN staff_presence presence ON presence.member_id = staff.id
        LEFT JOIN trip_sweeps sweep ON sweep.trip_id = t.id
        LEFT JOIN members sweeper ON sweeper.id = sweep.recorded_by
-      WHERE (t.departure_at >= $1 AND t.departure_at < $2) OR t.status = 'active'
+      WHERE ${where}
       ORDER BY t.departure_at, t.id
       LIMIT 100`,
-    [from, to]
+    values
   );
 
   const ids = trips.rows.map((trip) => trip.id);
-  if (!ids.length) {
-    response.json(checkBoardResponseSchema.parse({ trips: [] }));
-    return;
-  }
+  if (!ids.length) return [];
 
   const [stops, riders, guardians, events] = await Promise.all([
     pool.query<StopRow>(
@@ -241,9 +252,26 @@ checkRoutes.get("/board", requireRole("admin", "dispatch"), async (request, resp
       events: log
     };
   });
+  return result;
+}
 
-  response.json(checkBoardResponseSchema.parse({ trips: result }));
-});
+/**
+ * Admin and Dispatch can check any trip. A counselor can check only a trip they are
+ * on right now (lead or counselor). Answers false after sending the refusal.
+ */
+async function mayCheck(client: PoolClient, response: Response, tripId: string): Promise<boolean> {
+  const member = currentMember(response);
+  if (member.roles.includes("admin") || member.roles.includes("dispatch")) return true;
+  const seat = await client.query(
+    "SELECT 1 FROM staff_assignments WHERE trip_id = $1 AND member_id = $2 AND ended_at IS NULL", [tripId, member.id]);
+  if (seat.rowCount) return true;
+  response.status(403).json({ error: "You are not on this trip's crew." });
+  return false;
+}
+
+const STATE_WORDS: Record<string, string> = {
+  expected: "not checked yet", aboard: "on the bus", dropped: "dropped off", no_show: "a no-show", not_riding: "not riding"
+};
 
 async function lockTrip(client: PoolClient, tripId: string) {
   const trip = await client.query<{ status: TripStatus }>(
@@ -289,7 +317,7 @@ async function riderEvents(client: PoolClient, tripId: string, riderId: string) 
 checkRoutes.post(
   "/trips/:tripId/riders/:riderId",
   requireSameOrigin,
-  requireRole("admin", "dispatch"),
+  requireRole("admin", "dispatch", "staff"),
   async (request, response) => {
     const tripId = uuidSchema.safeParse(request.params.tripId);
     const riderId = uuidSchema.safeParse(request.params.riderId);
@@ -309,6 +337,10 @@ checkRoutes.post(
         response.status(404).json({ error: "Trip not found." });
         return;
       }
+      if (!(await mayCheck(client, response, tripId.data))) {
+        await client.query("ROLLBACK");
+        return;
+      }
       const onTrip = await client.query(
         "SELECT 1 FROM trip_riders WHERE trip_id = $1 AND rider_id = $2",
         [tripId.data, riderId.data]
@@ -320,6 +352,15 @@ checkRoutes.post(
       }
 
       const current = deriveRiderState(await riderEvents(client, tripId.data, riderId.data));
+      // Two counselors tapping the same kid: the second tap is refused, never silently applied.
+      if (action.data.expected && action.data.expected !== current.state) {
+        await client.query("ROLLBACK");
+        response.status(409).json({
+          error: `Already changed: ${current.stateBy ?? "Someone"} marked this rider ${STATE_WORDS[current.state] ?? current.state}. Your screen is updated.`,
+          state: current.state
+        });
+        return;
+      }
       const transition = checkTransition(current, action.data.type, status);
       if (!transition.ok) {
         await client.query("ROLLBACK");
@@ -349,7 +390,7 @@ checkRoutes.post(
 checkRoutes.post(
   "/trips/:tripId/bulk",
   requireSameOrigin,
-  requireRole("admin", "dispatch"),
+  requireRole("admin", "dispatch", "staff"),
   async (request, response) => {
     const tripId = uuidSchema.safeParse(request.params.tripId);
     const action = bulkCheckActionSchema.safeParse(request.body);
@@ -366,6 +407,10 @@ checkRoutes.post(
       if (!status) {
         await client.query("ROLLBACK");
         response.status(404).json({ error: "Trip not found." });
+        return;
+      }
+      if (!(await mayCheck(client, response, tripId.data))) {
+        await client.query("ROLLBACK");
         return;
       }
       // Bulk only covers the stop the bus is at: in the morning each child
@@ -425,7 +470,7 @@ checkRoutes.post(
 checkRoutes.post(
   "/trips/:tripId/sweep",
   requireSameOrigin,
-  requireRole("admin", "dispatch"),
+  requireRole("admin", "dispatch", "staff"),
   async (request, response) => {
     const tripId = uuidSchema.safeParse(request.params.tripId);
     if (!tripId.success) {
@@ -441,6 +486,10 @@ checkRoutes.post(
       if (!status) {
         await client.query("ROLLBACK");
         response.status(404).json({ error: "Trip not found." });
+        return;
+      }
+      if (!(await mayCheck(client, response, tripId.data))) {
+        await client.query("ROLLBACK");
         return;
       }
       if (status !== "active" && status !== "completed") {

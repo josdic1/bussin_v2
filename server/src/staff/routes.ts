@@ -11,7 +11,7 @@ import { pool } from "../db/pool.js";
 import { applyTripAction } from "../trips/actions.js";
 import { openStream } from "../sse.js";
 import { subscribeToStaffTrips } from "./live.js";
-import { readStaffTrip, STAFF_CHOSEN_TRIP } from "./tripView.js";
+import { BUS_PHONE_LIVE_SQL, readStaffTrip, STAFF_CHOSEN_TRIP } from "./tripView.js";
 import { ingestLocation } from "./locationIngest.js";
 
 export const staffRoutes = Router();
@@ -55,7 +55,7 @@ staffRoutes.post(
 
 staffRoutes.get("/trip", requireRole("staff"), async (_request, response) => {
   const member = currentMember(response);
-  const trip = await readStaffTrip(STAFF_CHOSEN_TRIP, [member.id]);
+  const trip = await readStaffTrip(STAFF_CHOSEN_TRIP, [member.id], member.id);
   response.json(staffTripResponseSchema.parse({ trip }));
 });
 
@@ -140,7 +140,7 @@ staffRoutes.post(
 
     // One round trip: confirms the assignment, detects a duplicate sample, and
     // records presence (an uploading phone is by definition reporting).
-    const check = await pool.query<{ assigned: boolean; duplicate: boolean }>(
+    const check = await pool.query<{ assigned: boolean; duplicate: boolean; busPhone: boolean }>(
       `WITH presence AS (
          INSERT INTO staff_presence (member_id, last_seen_at)
          VALUES ($1, now())
@@ -162,12 +162,19 @@ staffRoutes.post(
                  WHERE trip_id = $2
                    AND (client_sample_id = $3 OR observed_at = $4::timestamptz)
               ) AS duplicate,
+              ${BUS_PHONE_LIVE_SQL("(SELECT bus_id FROM trips WHERE id = $2)")} AS "busPhone",
               (SELECT count(*) FROM presence) AS touched`,
       [member.id, input.data.tripId, input.data.clientSampleId, input.data.observedAt]
     );
 
     if (!check.rows[0]?.assigned) {
       response.status(409).json({ error: "This active trip is no longer assigned to you." });
+      return;
+    }
+
+    // The bus's own phone is the GPS while it is live; staff phones are the backup.
+    if (check.rows[0].busPhone) {
+      response.status(200).json(staffLocationSampleResponseSchema.parse({ accepted: false, reason: "bus_phone" }));
       return;
     }
 

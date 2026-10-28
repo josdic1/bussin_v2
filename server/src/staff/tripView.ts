@@ -21,9 +21,19 @@ type StaffTripRow = {
   departedAt: Date | null;
   arrivalNote: string | null;
   departureNote: string | null;
+  crewRole: "lead" | "counselor" | null;
+  busPhoneLive: boolean;
 };
 
-export async function readStaffTrip(chosenSql: string, values: unknown[]): Promise<StaffTrip | null> {
+/** A bus phone counts as live if it checked in within this long (it checks in every 20s). */
+export const BUS_PHONE_LIVE_SQL = (busIdSql: string) => `EXISTS (
+  SELECT 1 FROM bus_devices d
+   WHERE d.bus_id = ${busIdSql} AND d.revoked_at IS NULL
+     AND d.last_seen_at > now() - interval '90 seconds')`;
+
+/** memberId: the staff phone asking, so the trip says whether they are the lead. null for the bus phone. */
+export async function readStaffTrip(chosenSql: string, values: unknown[], memberId: string | null = null): Promise<StaffTrip | null> {
+  const memberParam = `$${values.length + 1}::uuid`;
   const result = await pool.query<StaffTripRow>(
     `SELECT t.id,
             t.route_name AS "routeName",
@@ -39,7 +49,10 @@ export async function readStaffTrip(chosenSql: string, values: unknown[]): Promi
             arrived.occurred_at AS "arrivedAt",
             departed.occurred_at AS "departedAt",
             arrived.note AS "arrivalNote",
-            departed.note AS "departureNote"
+            departed.note AS "departureNote",
+            (SELECT a.crew_role FROM staff_assignments a
+              WHERE a.trip_id = t.id AND a.member_id = ${memberParam} AND a.ended_at IS NULL LIMIT 1) AS "crewRole",
+            ${BUS_PHONE_LIVE_SQL("t.bus_id")} AS "busPhoneLive"
        FROM (
 ${chosenSql}       ) chosen
        JOIN trips t ON t.id = chosen.trip_id
@@ -67,7 +80,7 @@ ${chosenSql}       ) chosen
           LIMIT 1
        ) departed ON true
       ORDER BY ts.position`,
-    values
+    [...values, memberId]
   );
 
   if (!result.rowCount) return null;
@@ -104,7 +117,9 @@ ${chosenSql}       ) chosen
       busLabel: first.busLabel,
       departureAt: first.departureAt.toISOString(),
       status: first.status,
-      stops
+      stops,
+      crewRole: first.crewRole,
+      busPhoneLive: first.busPhoneLive
     }
   }).trip;
 }
