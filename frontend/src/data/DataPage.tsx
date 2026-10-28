@@ -6,7 +6,7 @@ import {
 import type { z } from "zod";
 import { getJson, message } from "../ops/api";
 import { Head, Search } from "../ops/ui";
-import { ImportRoster } from "./ImportRoster";
+import { CSV_SETUP, ImportCsv } from "./ImportCsv";
 import { AddDriver } from "./AddDriver";
 import "./data.css";
 
@@ -240,10 +240,11 @@ export function DataPage() {
             : `${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"}`) : ""}
         </span>
         {lockedNote && <span className="dm-ro">Read-only here. {lockedNote}</span>}
-        {active === "riders" && <div className="dm-acts">
-          <a className="btn" href="/api/families/roster.csv" download>Download CSV</a>
+        <div className="dm-acts">
+          <a className="btn" href={CSV_SETUP[active].download} download
+            title={`Download ${CSV_SETUP[active].title.toLowerCase()} as a spreadsheet`}>Download CSV</a>
           <button type="button" className="btn" onClick={() => { setDone(""); setImporting(true); }}>Upload CSV</button>
-        </div>}
+        </div>
         {active === "drivers" && <AddDriver onAdded={(row) => {
           setTable((now) => (now ? { ...now, rows: [row, ...now.rows] } : now));
           setCards((now) => now.map((c) => (c.key === "drivers" ? { ...c, count: c.count + 1 } : c)));
@@ -361,7 +362,7 @@ export function DataPage() {
       </div>}
     </section>
 
-    {importing && <ImportRoster onClose={() => setImporting(false)}
+    {importing && <ImportCsv setup={CSV_SETUP[active]} onClose={() => setImporting(false)}
       onApplied={(summary) => { setImporting(false); setDone(summary); setReload((n) => n + 1); }} />}
   </>;
 }

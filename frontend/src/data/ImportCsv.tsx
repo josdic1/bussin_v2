@@ -1,14 +1,51 @@
 import { useRef, useState } from "react";
 import {
   rosterImportPreviewSchema, rosterImportResultSchema,
-  type RosterImportItem, type RosterImportPreview
+  type DataTableKey, type RosterImportItem, type RosterImportPreview
 } from "@bussin/shared";
 import { Overlay } from "../ops/OpsShell";
 import { message, send } from "../ops/api";
 import { parseCsv } from "./csv";
 
-// Upload a roster CSV: pick the file, see every change, then apply or cancel.
+// Upload a CSV for any table: pick the file, see every change, then apply or cancel.
 // Nothing is written until "Apply". The easiest start is "Download CSV", edit it, upload it back.
+
+
+/** One table's CSV: where to download it, where to send it, and how to describe it. */
+export type CsvSetup = { title: string; download: string; preview: string; apply: string; noun: [string, string]; help: string };
+
+const RIDERS: CsvSetup = {
+  title: "Riders and guardians", download: "/api/families/roster.csv",
+  preview: "/api/data/import/preview", apply: "/api/data/import/apply", noun: ["rider", "riders"],
+  help: "One row per rider, with their guardians on the same row. Leave Rider key blank to add a new rider. Load routes first: stops are matched by route and stop name."
+};
+const ROUTES: CsvSetup = {
+  title: "Routes and stops", download: "/api/data/csv/routes",
+  preview: "/api/data/csv/routes/preview", apply: "/api/data/csv/routes/apply", noun: ["route", "routes"],
+  help: "One row per stop. Rows with the same Route make one route, in Stop # order. Every stop needs Latitude and Longitude (right-click a spot in Google Maps to copy them). Stops left out of a listed route are removed. Leave the ID columns blank for new routes and stops."
+};
+
+export const CSV_SETUP: Record<DataTableKey, CsvSetup> = {
+  riders: RIDERS,
+  guardians: RIDERS,
+  routes: ROUTES,
+  stops: ROUTES,
+  buses: {
+    title: "Buses", download: "/api/data/csv/buses",
+    preview: "/api/data/csv/buses/preview", apply: "/api/data/csv/buses/apply", noun: ["bus", "buses"],
+    help: "One row per bus. Status is Active or Retired. Leave Bus ID blank to add a new bus."
+  },
+  drivers: {
+    title: "Drivers", download: "/api/data/csv/drivers",
+    preview: "/api/data/csv/drivers/preview", apply: "/api/data/csv/drivers/apply", noun: ["driver", "drivers"],
+    help: "One row per driver. Drivers don't sign in; they're a name and a phone on each trip. Status is Active or Retired."
+  },
+  members: {
+    title: "Staff", download: "/api/data/csv/staff",
+    preview: "/api/data/csv/staff/preview", apply: "/api/data/csv/staff/apply", noun: ["login", "logins"],
+    help: "One row per staff login. New logins need a Username and a Temporary password (12+ characters); they change it the first time they sign in. Roles are set on the Members page. Status is Active or Suspended."
+  }
+};
 
 type Loaded = { name: string; headers: string[]; rows: string[][] };
 
@@ -16,7 +53,7 @@ const KIND_LABEL: Record<RosterImportItem["kind"], string> = {
   new: "New", update: "Changes", same: "No change", skip: "Skipped", error: "Problem"
 };
 
-export function ImportRoster({ onClose, onApplied }: { onClose: () => void; onApplied: (summary: string) => void }) {
+export function ImportCsv({ setup, onClose, onApplied }: { setup: CsvSetup; onClose: () => void; onApplied: (summary: string) => void }) {
   const [file, setFile] = useState<Loaded | null>(null);
   const [preview, setPreview] = useState<RosterImportPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,7 +82,7 @@ export function ImportRoster({ onClose, onApplied }: { onClose: () => void; onAp
     setFile(loaded);
     setBusy(true);
     try {
-      const body = await send("POST", "/api/data/import/preview", { headers: loaded.headers, rows: loaded.rows },
+      const body = await send("POST", setup.preview, { headers: loaded.headers, rows: loaded.rows },
         "Couldn't check that file.");
       setPreview(rosterImportPreviewSchema.parse(body));
     } catch (cause) {
@@ -60,14 +97,14 @@ export function ImportRoster({ onClose, onApplied }: { onClose: () => void; onAp
     setBusy(true);
     setError("");
     try {
-      const body = await send("POST", "/api/data/import/apply",
+      const body = await send("POST", setup.apply,
         { headers: file.headers, rows: file.rows, token: preview.token }, "Import failed. Nothing was changed.");
       const r = rosterImportResultSchema.parse(body);
       const parts = [
         r.created && `${r.created} added`, r.updated && `${r.updated} updated`,
         r.newGuardians && `${r.newGuardians} new guardian${r.newGuardians === 1 ? "" : "s"}`
       ].filter(Boolean);
-      onApplied(parts.length ? `Roster imported: ${parts.join(", ")}.` : "Roster imported.");
+      onApplied(parts.length ? `${setup.title} uploaded: ${parts.join(", ")}.` : `${setup.title} uploaded.`);
     } catch (cause) {
       setError(message(cause, "Import failed. Nothing was changed."));
     } finally {
@@ -81,10 +118,11 @@ export function ImportRoster({ onClose, onApplied }: { onClose: () => void; onAp
 
   return <Overlay onClose={onClose}>
     <div className="im">
-      <p className="eyebrow">Riders</p>
-      <h2>Upload roster CSV</h2>
+      <p className="eyebrow">Upload CSV</p>
+      <h2>{setup.title}</h2>
       <p className="im-help">Easiest way: <b>Download CSV</b>, edit it in Excel or Google Sheets, save as CSV, upload it here.
-        Leave Rider key blank to add a new rider. Nothing changes until you press Apply, and nobody is ever deleted.</p>
+        Nothing changes until you press Apply, and rows left out of the file are kept.</p>
+      <p className="im-help">{setup.help}</p>
 
       <input ref={picker} type="file" accept=".csv,text/csv" hidden
         onChange={(event) => { void choose(event.target.files?.[0]); event.target.value = ""; }} />
@@ -128,7 +166,7 @@ export function ImportRoster({ onClose, onApplied }: { onClose: () => void; onAp
         <div className="im-actions">
           <button type="button" className="btn" disabled={busy} onClick={onClose}>Cancel</button>
           <button type="button" className="btn btn-primary" disabled={busy || willApply === 0} onClick={() => void apply()}>
-            {willApply === 0 ? "Nothing to apply" : `Apply ${willApply} ${willApply === 1 ? "rider" : "riders"}`}
+            {willApply === 0 ? "Nothing to apply" : `Apply ${willApply} ${willApply === 1 ? setup.noun[0] : setup.noun[1]}`}
           </button>
         </div>
       </>}

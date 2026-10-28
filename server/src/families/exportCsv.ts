@@ -18,9 +18,10 @@ const ACCESS_LABEL = { none: "No login", pending: "Invited", active: "Active" } 
 
 // Quote every cell. A cell starting with = + - @ would run as a formula in Excel,
 // so it gets a leading apostrophe (Excel hides it and shows plain text).
-function cell(value: string | null | undefined): string {
+export function cell(value: string | null | undefined): string {
   let text = value ?? "";
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  // Plain numbers (a negative longitude) are safe and stay numbers.
+  if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
   return `"${text.replace(/"/g, '""')}"`;
 }
 
