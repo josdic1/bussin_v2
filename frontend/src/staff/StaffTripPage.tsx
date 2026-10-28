@@ -1,577 +1,217 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  staffJourneyProgressSchema,
-  staffLocationSampleInputSchema,
-  staffLocationSampleResponseSchema,
-  staffTripResponseSchema,
-  tripActionResponseSchema,
-  tripActionSchema,
-  type StaffJourneyProgress,
-  type StaffTrip
-} from "@bussin/shared";
-import { useAuth } from "../auth/AuthProvider";
+import { staffCheckResponseSchema, type CheckRider, type CheckTrip, type RiderCheckAction } from "@bussin/shared";
+import { ChangeMyPassword } from "../auth/ChangeMyPassword";
+import { clock, EARLY_START_WARNING_MS, mmss, useTerminalTrip } from "../terminal/useTerminalTrip";
+import "./crew.css";
 
-async function readError(response: Response, fallback: string): Promise<string> {
-  const body: unknown = await response.json().catch(() => null);
-  if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
-    return body.error;
-  }
-  return fallback;
-}
-
-/** Every request gives up after a few seconds so the phone never waits forever on a stuck server. */
-function timeoutSignal(ms: number, outer?: AbortSignal): AbortSignal {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), ms);
-  outer?.addEventListener("abort", () => { window.clearTimeout(timer); controller.abort(); });
-  return controller.signal;
-}
-const REQUEST_TIMEOUT_MS = 10_000;
-
-/** No signal, a timeout or a dropped connection: never show the driver raw browser text. */
-function isConnectionProblem(cause: unknown): boolean {
-  return !navigator.onLine || (cause instanceof Error && (cause.name === "AbortError" || cause.name === "TypeError"));
-}
-const NO_CONNECTION = "Can't reach Dispatch right now. GPS is saved on the phone and sends when the connection is back.";
-
-const clock = (value: string | number) => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
-const clockSeconds = (value: number) => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(value));
-
-function distanceMeters(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
-  const radians = (value: number) => value * Math.PI / 180;
-  const dLat = radians(b.latitude - a.latitude);
-  const dLng = radians(b.longitude - a.longitude);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(radians(a.latitude)) * Math.cos(radians(b.latitude)) * Math.sin(dLng / 2) ** 2;
-  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
-}
-
-function distanceText(meters: number) {
-  if (meters < 1000) return `${Math.round(meters / 10) * 10} m`;
-  return `${(meters / 1609.34).toFixed(1)} mi`;
-}
-
-function mmss(ms: number) {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-type Fix = { latitude: number; longitude: number; accuracy: number; observedAt: number };
-type GpsState = "starting" | "live" | "stale" | "denied" | "unsupported" | "error";
-type Sample = ReturnType<typeof staffLocationSampleInputSchema.parse>;
-
-type WakeLockSentinel = { released: boolean; release(): Promise<void>; addEventListener(type: "release", listener: () => void): void };
-type WakeLockNavigator = Navigator & { wakeLock?: { request(type: "screen"): Promise<WakeLockSentinel> } };
-
-const GPS_STALE_MS = 45_000;
-const GPS_WATCHDOG_MS = 8_000;
-const GPS_POLL_MS = 6_000;
-const UPLOAD_RETRY_MS = 3_000;
-// About 15 minutes of fixes: a dead zone never loses an arrival.
-const UPLOAD_QUEUE_MAX = 900;
-const QUEUE_STORAGE_KEY = "bussin-gps-queue";
-const QUEUE_KEEP_MS = 15 * 60_000;
-
-/** Unsent fixes live on the phone so closing, crashing or reloading Bussin never loses them. */
-function loadSavedQueue(): Sample[] {
-  try {
-    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const cutoff = Date.now() - QUEUE_KEEP_MS;
-    return parsed.flatMap((item) => {
-      const sample = staffLocationSampleInputSchema.safeParse(item);
-      return sample.success && Date.parse(sample.data.observedAt) > cutoff ? [sample.data] : [];
-    }).slice(-UPLOAD_QUEUE_MAX);
-  } catch {
-    return [];
-  }
-}
-
-function saveQueue(samples: Sample[]) {
-  try {
-    if (samples.length) localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(samples));
-    else localStorage.removeItem(QUEUE_STORAGE_KEY);
-  } catch {
-    // Storage full or blocked: the in-memory queue still works while the app stays open.
-  }
-}
-const TRIP_FALLBACK_MS = 30_000;
-const PRESENCE_MS = 20_000;
-const EARLY_START_WARNING_MS = 10 * 60_000;
-const MANUAL_DEPART_AFTER_MS = 30_000;
-// Phone-use safety: big buttons lock while the bus moves (about 7 mph and up)
-// and unlock once it slows under about 3 mph. Auto-detect covers stops meanwhile.
-const MOVING_LOCK_MPS = 3;
-const MOVING_UNLOCK_MPS = 1.3;
-// If GPS goes quiet, never leave the buttons locked: they are the fallback.
-const MOVING_LOCK_MAX_FIX_AGE_MS = 15_000;
-
-/**
- * The staff phone. GPS and screen wake lock start as soon as the screen opens;
- * fixes upload only while the assigned trip is running. All GPS bookkeeping
- * lives in refs so timers never act on stale React state.
+/*
+ * The counselor phone. Everyone on the crew does Ride Check for their trip.
+ * The lead also starts and finishes the trip; their phone sends GPS only when the
+ * bus's own phone is not reporting. Other counselors' phones never ask for location.
+ * Two phones tapping the same kid: the second tap is refused and the list refreshes.
  */
-export function StaffTripPage() {
-  const { member, tenant, logout } = useAuth();
-  const [trip, setTrip] = useState<StaffTrip | null | undefined>();
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
-  const [confirming, setConfirming] = useState<null | "start" | "undo">(null);
-  const [justCompleted, setJustCompleted] = useState(false);
-  const [notice, setNotice] = useState<{ action: "arrived" | "departed"; stopId: string; stopLabel: string } | null>(null);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(null), 8_000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-  const [progress, setProgress] = useState<StaffJourneyProgress | null>(null);
-  const [fix, setFix] = useState<Fix | null>(null);
-  const [gps, setGps] = useState<GpsState>("starting");
-  const [online, setOnline] = useState(() => navigator.onLine);
-  const [dispatch, setDispatch] = useState<{ state: "idle" | "live" | "queued" | "error"; at: number | null; queued: number; note: string }>(
-    { state: "idle", at: null, queued: 0, note: "" });
-  const [autoPaused, setAutoPaused] = useState(false);
-  const [moving, setMoving] = useState(false);
-  const movingRef = useRef(false);
-  const autoFailures = useRef(0);
-  const [awake, setAwake] = useState<"yes" | "tap" | "unsupported">("tap");
-  const [now, setNow] = useState(() => Date.now());
 
-  const tripRef = useRef<StaffTrip | null | undefined>(undefined);
-  tripRef.current = trip;
-  const fixRef = useRef<Fix | null>(null);
-  const lastPosition = useRef<GeolocationPosition | null>(null);
-  const watchId = useRef<number | null>(null);
-  const pollTimer = useRef<number | null>(null);
-  const queue = useRef<Sample[]>(loadSavedQueue());
-  const flushing = useRef(false);
-  const retryTimer = useRef<number | null>(null);
-  const lastUpload = useRef(0);
-  const lastQueued = useRef<Fix | null>(null);
-  const wakeLock = useRef<WakeLockSentinel | null>(null);
-  const wakePending = useRef(false);
+const STATE_LABEL: Record<CheckRider["state"], string> = {
+  expected: "Waiting", aboard: "On bus", dropped: "Dropped off", no_show: "No-show", not_riding: "Not riding"
+};
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
+async function readError(response: Response, fallback: string) {
+  const body: unknown = await response.json().catch(() => null);
+  return body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : fallback;
+}
 
-  // Every trip read gets a number; only the newest one may update the screen,
-  // so a slow older response can never roll the trip back.
-  const tripReadSeq = useRef(0);
-  const loadTrip = useCallback(async (signal?: AbortSignal) => {
-    const seq = ++tripReadSeq.current;
-    const response = await fetch("/api/staff/trip", { credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS, signal) });
-    if (!response.ok) throw new Error(await readError(response, "Could not load your trip."));
-    const data = staffTripResponseSchema.parse(await response.json());
-    if (seq !== tripReadSeq.current) return;
-    setTrip(data.trip);
-    setError("");
-  }, []);
+/** Ride Check for this phone's trip, kept live by the same stream the trip uses. */
+function useRideCheck() {
+  const [trip, setTrip] = useState<CheckTrip | null | undefined>();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const seq = useRef(0);
 
-  const refresh = useCallback(() => {
-    void loadTrip().catch((cause) => {
-      setError(isConnectionProblem(cause) ? NO_CONNECTION
-        : cause instanceof Error ? cause.message : "Could not refresh your trip.");
-    });
-  }, [loadTrip]);
-
-  // Trip: server pushes a "trip" event on real changes; a slow poll covers dropped streams.
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadTrip(controller.signal).catch((cause) => {
-      if (!controller.signal.aborted) setError(isConnectionProblem(cause) ? NO_CONNECTION
-        : cause instanceof Error ? cause.message : "Could not load your trip.");
-    });
-    const source = new EventSource("/api/staff/live");
-    source.addEventListener("ready", refresh);
-    source.addEventListener("trip", refresh);
-    const fallback = window.setInterval(() => { if (document.visibilityState === "visible") refresh(); }, TRIP_FALLBACK_MS);
-    const visible = () => { if (document.visibilityState === "visible") refresh(); };
-    document.addEventListener("visibilitychange", visible);
-    window.addEventListener("focus", refresh);
-    return () => {
-      controller.abort();
-      source.close();
-      window.clearInterval(fallback);
-      document.removeEventListener("visibilitychange", visible);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [loadTrip, refresh]);
-
-  // Presence: GPS uploads already count; this covers the time before a trip starts or when GPS is down.
-  useEffect(() => {
-    const report = () => {
-      if (document.visibilityState !== "visible" || !navigator.onLine) return;
-      if (Date.now() - lastUpload.current < PRESENCE_MS - 2_000) return;
-      void fetch("/api/staff/presence", { method: "POST", credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS) }).catch(() => undefined);
-    };
-    report();
-    const timer = window.setInterval(report, PRESENCE_MS);
-    document.addEventListener("visibilitychange", report);
-    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", report); };
-  }, []);
-
-  const flush = useCallback(async () => {
-    if (flushing.current) return;
-    const queued = () => queue.current.length;
-    if (!queued()) return;
-    if (!navigator.onLine) {
-      setDispatch((current) => ({ ...current, state: "queued", queued: queued(), note: "Offline. Fixes will send when signal returns." }));
-      scheduleRetry();
-      return;
-    }
-    flushing.current = true;
+  const load = useCallback(async () => {
+    const mine = ++seq.current;
     try {
-      while (queue.current.length) {
-        const sample = queue.current[0];
-        const response = await fetch("/api/staff/trip/location", {
-          method: "POST", credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS),
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(sample)
-        });
-        if (response.status === 409) {
-          // That trip is over or reassigned: drop only its fixes, keep any for the current trip.
-          queue.current = queue.current.filter((item) => item.tripId !== sample.tripId);
-          saveQueue(queue.current);
-          refresh();
-          continue;
-        }
-        if (!response.ok) throw new Error(await readError(response, "Could not send location to Dispatch."));
-        const result = staffLocationSampleResponseSchema.parse(await response.json());
-        const header = response.headers.get("X-Bussin-Journey-Progress");
-        // Remove exactly the fix the server confirmed, even if the queue was trimmed meanwhile.
-        queue.current = queue.current.filter((item) => item.clientSampleId !== sample.clientSampleId);
-        saveQueue(queue.current);
-        lastUpload.current = Date.now();
-        if (result.accepted) {
-          // Three failed automation checks in a row means auto-detect is down: tell the driver.
-          if (response.headers.get("X-Bussin-Journey-Error") === "1") autoFailures.current += 1;
-          else autoFailures.current = 0;
-          setAutoPaused(autoFailures.current >= 3);
-          const parsed = header ? staffJourneyProgressSchema.safeParse(JSON.parse(decodeURIComponent(header))) : null;
-          setProgress(parsed?.success ? parsed.data : null);
-          if (result.journey) {
-            setNotice({ action: result.journey.action, stopId: result.journey.stopId, stopLabel: result.journey.stopLabel });
-            refresh();
-          }
-          setDispatch({ state: "live", at: Date.now(), queued: queued(), note: "" });
-        } else if (result.reason !== "duplicate") {
-          setDispatch((current) => ({ ...current, queued: queued(), note: result.reason === "poor_accuracy"
-            ? "Waiting for a more accurate GPS fix."
-            : result.reason === "future" ? "Phone clock looks wrong. Check the time settings."
-            : result.reason === "bus_phone" ? "The bus phone is sending GPS, so this phone does not need to." : "Skipped an old queued fix." }));
-        }
-      }
-    } catch (cause) {
-      setDispatch((current) => ({ ...current, state: navigator.onLine ? "error" : "queued", queued: queued(),
-        note: isConnectionProblem(cause)
-          ? `Can't reach Dispatch. ${queued()} GPS fixes saved on the phone; they send automatically.`
-          : cause instanceof Error ? `${cause.message} Retrying automatically.` : "Upload failed. Retrying automatically." }));
-      scheduleRetry();
-    } finally {
-      flushing.current = false;
-    }
-  }, [refresh]);
-
-  function scheduleRetry() {
-    if (retryTimer.current !== null) return;
-    retryTimer.current = window.setTimeout(() => { retryTimer.current = null; void flush(); }, UPLOAD_RETRY_MS);
-  }
-
-  const accept = useCallback((position: GeolocationPosition) => {
-    const next: Fix = {
-      latitude: position.coords.latitude, longitude: position.coords.longitude,
-      accuracy: position.coords.accuracy, observedAt: position.timestamp || Date.now()
-    };
-    // Speed from the phone, or worked out from the last fix when the phone gives none.
-    const before = fixRef.current;
-    let speed: number | null = position.coords.speed !== null && position.coords.speed >= 0 ? position.coords.speed : null;
-    if (speed === null && before && next.accuracy <= 35 && before.accuracy <= 35) {
-      const seconds = (next.observedAt - before.observedAt) / 1000;
-      if (seconds >= 0.5 && seconds <= 15) speed = distanceMeters(before, next) / seconds;
-    }
-    if (speed !== null) {
-      if (!movingRef.current && speed >= MOVING_LOCK_MPS) { movingRef.current = true; setMoving(true); }
-      else if (movingRef.current && speed <= MOVING_UNLOCK_MPS) { movingRef.current = false; setMoving(false); }
-    }
-    fixRef.current = next;
-    lastPosition.current = position;
-    setFix(next);
-    setGps("live");
-
-    const active = tripRef.current;
-    if (!active || active.status !== "active") return;
-    const prior = lastQueued.current;
-    if (prior && next.observedAt - prior.observedAt < 2_500 && Math.abs(next.latitude - prior.latitude) < 1e-7 &&
-      Math.abs(next.longitude - prior.longitude) < 1e-7) return;
-    lastQueued.current = next;
-    const sample = staffLocationSampleInputSchema.safeParse({
-      tripId: active.id,
-      clientSampleId: crypto.randomUUID(),
-      observedAt: new Date(next.observedAt).toISOString(),
-      latitude: next.latitude,
-      longitude: next.longitude,
-      accuracyM: Math.max(0.1, next.accuracy),
-      speedMps: position.coords.speed !== null && position.coords.speed >= 0 ? position.coords.speed : null,
-      headingDegrees: position.coords.heading !== null && position.coords.heading >= 0 && position.coords.heading < 360 ? position.coords.heading : null
-    });
-    if (!sample.success) return;
-    queue.current.push(sample.data);
-    if (queue.current.length > UPLOAD_QUEUE_MAX) queue.current.splice(0, queue.current.length - UPLOAD_QUEUE_MAX);
-    saveQueue(queue.current);
-    void flush();
-  }, [flush]);
-
-  const failed = useCallback((failure: GeolocationPositionError) => {
-    if (failure.code === failure.PERMISSION_DENIED) setGps("denied");
-    else if (!fixRef.current) setGps("error");
-  }, []);
-
-  /** watchPosition is primary; when it goes quiet (a parked bus, iOS) a one-shot read fills the gap so a fix still lands about every 6s. */
-  const startGps = useCallback(() => {
-    if (!("geolocation" in navigator)) { setGps("unsupported"); return; }
-    const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 12_000 };
-    if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
-    watchId.current = navigator.geolocation.watchPosition(accept, failed, options);
-    if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
-    pollTimer.current = window.setInterval(() => {
-      const last = fixRef.current?.observedAt ?? 0;
-      if (Date.now() - last > GPS_POLL_MS - 1_000) navigator.geolocation.getCurrentPosition(accept, failed, options);
-    }, GPS_POLL_MS);
-  }, [accept, failed]);
-
-  const requestWake = useCallback(async () => {
-    const api = (navigator as WakeLockNavigator).wakeLock;
-    if (!api) { setAwake("unsupported"); return; }
-    if (document.visibilityState !== "visible" || wakePending.current) return;
-    if (wakeLock.current && !wakeLock.current.released) { setAwake("yes"); return; }
-    wakePending.current = true;
-    try {
-      const sentinel = await api.request("screen");
-      wakeLock.current = sentinel;
-      setAwake("yes");
-      sentinel.addEventListener("release", () => { if (wakeLock.current === sentinel) wakeLock.current = null; setAwake("tap"); });
+      const response = await fetch("/api/check/mine", { credentials: "same-origin" });
+      if (!response.ok) return;
+      const data = staffCheckResponseSchema.parse(await response.json());
+      if (mine === seq.current) setTrip(data.trip);
     } catch {
-      setAwake("tap");
-    } finally {
-      wakePending.current = false;
+      // Connection trouble shows in the trip status; the list keeps its last state.
     }
   }, []);
 
-  // Start GPS and wake lock at once; watchdog restarts a silent watcher; foregrounding restarts both.
   useEffect(() => {
-    startGps();
-    void requestWake();
-    // Fixes saved before the app was closed or reloaded go out as soon as it reopens.
-    if (queue.current.length) void flush();
-    const watchdog = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      const last = fixRef.current?.observedAt ?? 0;
-      if (last && Date.now() - last > GPS_STALE_MS) { setGps("stale"); startGps(); }
-      if (!wakeLock.current) void requestWake();
-    }, GPS_WATCHDOG_MS);
-    const foreground = () => {
-      if (document.visibilityState !== "visible") return;
-      startGps();
-      void requestWake();
-      void flush();
-    };
-    const up = () => { setOnline(true); void flush(); };
-    const down = () => setOnline(false);
-    document.addEventListener("visibilitychange", foreground);
-    window.addEventListener("pageshow", foreground);
-    window.addEventListener("online", up);
-    window.addEventListener("offline", down);
-    return () => {
-      window.clearInterval(watchdog);
-      document.removeEventListener("visibilitychange", foreground);
-      window.removeEventListener("pageshow", foreground);
-      window.removeEventListener("online", up);
-      window.removeEventListener("offline", down);
-      if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
-      if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
-      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
-      void wakeLock.current?.release().catch(() => undefined);
-    };
-  }, [startGps, requestWake, flush]);
+    void load();
+    const source = new EventSource("/api/staff/live");
+    source.addEventListener("trip", () => void load());
+    source.addEventListener("ready", () => void load());
+    const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 20_000);
+    return () => { source.close(); window.clearInterval(poll); };
+  }, [load]);
 
-  // The first fix often lands before the trip loads or starts; send it as soon as the trip is running.
-  useEffect(() => {
-    if (trip?.status !== "active") return;
-    if (lastPosition.current) accept(lastPosition.current);
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(accept, failed, { enableHighAccuracy: true, maximumAge: 0, timeout: 12_000 });
-    }
-  }, [trip?.id, trip?.status, accept, failed]);
-
-  async function act(type: "start" | "arrive" | "depart" | "undo_arrival" | "complete", stopId?: string) {
-    if (!trip || pending) return;
-    const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}) });
-    if (!action.success) return;
-    setPending(true);
-    setConfirming(null);
-    setNotice(null);
-    if (type === "undo_arrival") setProgress(null);
-    setError("");
+  async function post(path: string, body: unknown, key: string) {
+    if (busy) return;
+    setBusy(key); setMessage("");
     try {
-      const response = await fetch("/api/staff/trip/actions", {
-        method: "POST", credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS),
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(action.data)
+      const response = await fetch(path, {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
       });
-      if (!response.ok) throw new Error(await readError(response, "Could not update your trip."));
-      const result = tripActionResponseSchema.parse(await response.json());
-      if (result.status === "completed") { tripReadSeq.current += 1; setJustCompleted(true); setTrip(null); } else await loadTrip();
-    } catch (cause) {
-      // Connection problem: say so plainly. The tap may not have saved, so ask for it again.
-      setError(isConnectionProblem(cause) ? "Can't reach Dispatch, so that tap may not have saved. Check signal and tap again."
-        : cause instanceof Error ? cause.message : "Could not update your trip. Tap again.");
-      if (!isConnectionProblem(cause)) refresh();
+      if (!response.ok) setMessage(await readError(response, "That didn't save. Tap again."));
+    } catch {
+      setMessage("No signal, so that tap didn't save. Tap again when you have signal.");
     } finally {
-      setPending(false);
+      setBusy(null);
+      await load();
     }
   }
 
-  async function signOut() {
-    try { await logout(); } catch { setError("Could not sign out. Try again."); }
+  const tap = (rider: CheckRider, type: RiderCheckAction["type"]) =>
+    trip && post(`/api/check/trips/${trip.id}/riders/${rider.riderId}`, { type, expected: rider.state }, `${rider.riderId}:${type}`);
+  const bulk = (stopId: string, type: "board_waiting" | "drop_aboard") =>
+    trip && post(`/api/check/trips/${trip.id}/bulk`, { type, stopId }, `bulk:${stopId}`);
+  const sweep = () => trip && post(`/api/check/trips/${trip.id}/sweep`, {}, "sweep");
+  return { trip, busy, message, setMessage, tap, bulk, sweep };
+}
+
+function RiderRow({ rider, tripStatus, busy, tap }: {
+  rider: CheckRider; tripStatus: CheckTrip["status"]; busy: string | null;
+  tap: (rider: CheckRider, type: RiderCheckAction["type"]) => void;
+}) {
+  const running = tripStatus === "active";
+  const state = rider.state;
+  const pending = busy?.startsWith(rider.riderId) ?? false;
+  const buttons: [RiderCheckAction["type"], string, string][] = running
+    ? state === "expected" ? [["board", "On bus", "go"], ["no_show", "No-show", "warn"]]
+      : state === "aboard" ? [["drop", "Dropped off", "go"]]
+        : state === "no_show" ? [["board", "On bus", "go"], ["undo", "Undo", "plain"]]
+          : [["undo", "Undo", "plain"]]
+    : state === "expected" ? [["not_riding", "Not riding today", "plain"]]
+      : state === "not_riding" ? [["undo", "Undo", "plain"]] : [];
+  return <li className={`cr-rider s-${state}`}>
+    <div className="cr-who"><b>{rider.givenName} {rider.familyName}</b>
+      <span className="cr-state">{STATE_LABEL[state]}{rider.stateBy && state !== "expected" ? ` · ${rider.stateBy}` : ""}{rider.stateAt && state !== "expected" ? ` · ${clock(rider.stateAt)}` : ""}</span></div>
+    <div className="cr-btns">{buttons.map(([type, label, tone]) =>
+      <button key={type} type="button" className={`cr-btn ${tone}`} disabled={!!busy} onClick={() => tap(rider, type)}>
+        {pending && busy === `${rider.riderId}:${type}` ? "…" : label}</button>)}</div>
+  </li>;
+}
+
+export function StaffTripPage() {
+  const t = useTerminalTrip({ kind: "staff" });
+  const check = useRideCheck();
+  const [changingPassword, setChangingPassword] = useState(false);
+  const { trip, now, pending } = t;
+  const lead = trip?.crewRole === "lead";
+  const ride = check.trip && trip && check.trip.id === trip.id ? check.trip : null;
+
+  if (changingPassword) {
+    return <main className="field crew"><header className="ftop"><div className="wm">BUSSIN<span>Change my password</span></div></header>
+      <ChangeMyPassword onCancel={() => setChangingPassword(false)} /></main>;
   }
 
-  // ---------- derived view ----------
-  const fixAge = fix ? now - fix.observedAt : Infinity;
-  const gpsView: [string, string, string] = gps === "denied" ? ["bad", "GPS", "Permission off"]
-    : gps === "unsupported" ? ["bad", "GPS", "Not supported"]
-      : !fix ? [gps === "error" ? "bad" : "warn", "GPS", gps === "error" ? "No signal" : "Finding…"]
-        : fixAge > GPS_STALE_MS ? ["bad", "GPS", `No fix ${Math.round(fixAge / 1000)}s`]
-          : ["", "GPS", `±${Math.round(fix.accuracy)} m`];
-  const screenView: [string, string, string] = awake === "yes" ? ["", "SCREEN", "Staying awake"]
-    : awake === "unsupported" ? ["warn", "SCREEN", "Keep it on"] : ["warn", "SCREEN", "Tap to keep on"];
-  const active = trip?.status === "active";
-  const dispatchView: [string, string, string] = !active ? ["", "DISPATCH", "Connected"]
-    : !online ? ["warn", "DISPATCH", `No signal · ${dispatch.queued} saved`]
-      : dispatch.state === "error" ? ["bad", "DISPATCH", "Retrying"]
-        : dispatch.at ? ["", "DISPATCH", `Sent ${Math.max(0, Math.round((now - dispatch.at) / 1000))}s ago`]
-          : ["warn", "DISPATCH", "Waiting for GPS"];
+  const riders = ride?.riders ?? [];
+  const onBus = riders.filter((r) => r.state === "aboard").length;
+  const rode = riders.filter((r) => r.state === "aboard" || r.state === "dropped").length;
+  const finalStop = trip?.stops.at(-1);
+  const atEnd = !!(trip?.status === "active" && finalStop?.arrivedAt);
+  const until = trip ? Date.parse(trip.departureAt) - now : 0;
 
-  const problem = gps === "denied"
-    ? { text: "Location is turned off for Bussin. Allow Location for this site in your phone settings, then come back.", button: "Try again", run: startGps }
-    : awake === "tap"
-      ? { text: "Your screen may lock and pause GPS. Tap to keep it awake during the trip.", button: "Keep screen on", run: () => void requestWake() }
-      : active && fix && fixAge > GPS_STALE_MS
-        ? { text: "GPS stopped updating. Keep Bussin open and on screen.", button: "Restart GPS", run: startGps }
-        : null;
+  // ---------- GPS line: who is tracking this bus ----------
+  const gpsLine = !trip ? null
+    : trip.busPhoneLive ? { tone: "good", text: "The bus phone is tracking this bus." }
+      : !lead ? { tone: "", text: "The lead's phone tracks the bus. Yours just does Ride Check." }
+        : { tone: t.status.tone === "good" || t.status.tone === "ready" ? "good" : "warn", text: `${t.status.title}${t.status.detail ? `. ${t.status.detail}` : ""}` };
 
-  const locked = moving && !!fix && now - fix.observedAt < MOVING_LOCK_MAX_FIX_AGE_MS;
-  const LOCKED_TEXT = "Stop the bus to tap";
-  const finalStop = trip?.stops.at(-1) ?? null;
-  const nextStop = active ? trip!.stops.find((stop) => !stop.departedAt) ?? null : null;
-  const nextIndex = nextStop ? trip!.stops.indexOf(nextStop) : -1;
-  const readyToComplete = !!(active && finalStop?.arrivedAt && trip!.stops.slice(0, -1).every((stop) => stop.departedAt));
-  const distance = nextStop && fix ? distanceMeters(fix, nextStop) : null;
-  const doneCount = trip ? trip.stops.filter((stop, index) => stop.departedAt || (index === trip.stops.length - 1 && stop.arrivedAt)).length : 0;
-  const confirmingArrival = progress && nextStop && progress.stopId === nextStop.id && progress.phase === "confirming_arrival" ? progress : null;
-
-  let hero: React.ReactNode = null;
-  let primary: React.ReactNode = null;
-  if (trip === undefined) {
-    hero = <div className="hero idle"><span className="ov">LOADING</span><h2>Your trip</h2><p>Checking with Dispatch…</p></div>;
-  } else if (trip === null) {
-    hero = <div className="hero idle"><span className="ov">{justCompleted ? "TRIP COMPLETE" : "NO TRIP YET"}</span>
-      <h2>{justCompleted ? "Nice work." : "Nothing assigned"}</h2>
-      <p>{justCompleted ? "Dispatch can now assign your next trip. Keep this screen open to get it." : "Dispatch has not assigned you a trip. This screen updates by itself."}</p></div>;
-  } else if (trip.status === "planned") {
-    const until = Date.parse(trip.departureAt) - now;
-    hero = <div className={`hero ${until < -60_000 ? "bad" : "idle"}`}><span className="ov">NEXT TRIP · {trip.busLabel} · {trip.servicePeriod}</span>
-      <h2>{trip.routeName}</h2><p>Leaves {clock(trip.departureAt)} · first stop {trip.stops[0]?.label ?? ""}</p>
-      <div className="big">{until > 0 ? mmss(until) : `${Math.floor(-until / 60_000)} min`}<small>{until > 0 ? "until departure" : "late"}</small></div></div>;
-    primary = confirming === "start"
-      ? <div className="pconfirm">Scheduled for {clock(trip.departureAt)}. Start {Math.ceil(until / 60_000)} minutes early?
-        <div><button type="button" onClick={() => setConfirming(null)}>Go back</button>
-          <button type="button" className="pri" disabled={pending} onClick={() => void act("start")}>Start now</button></div></div>
-      : <button type="button" className="bigbtn dark" disabled={pending || locked}
-        onClick={() => until > EARLY_START_WARNING_MS ? setConfirming("start") : void act("start")}>{locked ? LOCKED_TEXT : pending ? "Starting…" : "Start trip"}</button>;
-  } else if (readyToComplete) {
-    hero = <div className="hero"><span className="ov">LAST STOP · {trip.stops.length} OF {trip.stops.length}</span><h2>{finalStop!.label}</h2>
-      <div className="big">Arrived<small>{clock(finalStop!.arrivedAt!)}</small></div><p>Everyone off? Finish the trip to free the bus.</p></div>;
-    primary = <button type="button" className="bigbtn" disabled={pending || locked} onClick={() => void act("complete")}>{locked ? LOCKED_TEXT : pending ? "Finishing…" : "Finish trip"}</button>;
-  } else if (nextStop?.arrivedAt) {
-    const dwell = now - Date.parse(nextStop.arrivedAt);
-    const departing = progress && progress.stopId === nextStop.id && progress.phase === "confirming_departure" ? progress : null;
-    hero = <div className="hero"><span className="ov">AT STOP · {nextIndex + 1} OF {trip.stops.length}</span><h2>{nextStop.label}</h2>
-      <div className="big">{mmss(dwell)}<small>at stop</small></div>
-      <div className={departing ? "" : "waiting"}>
-        <div className="prog"><b style={{ width: departing ? `${Math.round(Math.min(1, departing.qualifyingSpanSeconds / departing.requiredSpanSeconds) * 100)}%` : "0%" }} /></div>
-        <div className="pl">{departing
-          ? <><span>Checking departure · {departing.distanceM} m out</span>
-            <span>about {Math.max(0, Math.ceil(departing.requiredSpanSeconds - departing.qualifyingSpanSeconds))}s</span></>
-          : <span>Auto-departure ready</span>}</div></div>
-      <p>Departure records itself when you drive off.{trip.stops[nextIndex + 1] ? ` Next: ${trip.stops[nextIndex + 1].label}.` : ""}</p></div>;
-    primary = confirming === "undo"
-      ? <div className="pconfirm">Undo arrival at {nextStop.label}? The original stays in the log as corrected.
-        <div><button type="button" onClick={() => setConfirming(null)}>Go back</button>
-          <button type="button" className="pri" disabled={pending} onClick={() => void act("undo_arrival", nextStop.id)}>Undo arrival</button></div></div>
-      : <><button type="button" className="bigbtn out" disabled={pending || locked || dwell < MANUAL_DEPART_AFTER_MS}
-        onClick={() => void act("depart", nextStop.id)}>{locked ? LOCKED_TEXT : dwell < MANUAL_DEPART_AFTER_MS
-          ? `Leaving now (in ${Math.ceil((MANUAL_DEPART_AFTER_MS - dwell) / 1000)}s)` : "Leaving now"}</button>
-        <button type="button" className="textbtn" disabled={locked} style={locked ? { visibility: "hidden" } : undefined}
-          onClick={() => setConfirming("undo")}>Not here yet? Undo arrival</button></>;
-  } else if (nextStop) {
-    hero = <div className="hero"><span className="ov">NEXT STOP · {nextIndex + 1} OF {trip.stops.length}</span><h2>{nextStop.label}</h2>
-      {confirmingArrival
-        ? <div className="big">{confirmingArrival.distanceM} m<small>checking arrival</small></div>
-        : <div className="big">{distance === null ? "…" : distanceText(distance)}<small>{distance === null ? "waiting for GPS" : "away"}</small></div>}
-      <div className={confirmingArrival ? "" : "waiting"}>
-        <div className="prog"><b style={{ width: confirmingArrival ? `${Math.round(Math.min(1, confirmingArrival.qualifyingSpanSeconds / confirmingArrival.requiredSpanSeconds) * 100)}%` : "0%" }} /></div>
-        <div className="pl">{confirmingArrival
-          ? <><span>GPS checks {Math.min(confirmingArrival.qualifyingFixes, confirmingArrival.requiredFixes)} of {confirmingArrival.requiredFixes}</span>
-            <span>about {Math.max(0, Math.ceil(confirmingArrival.requiredSpanSeconds - confirmingArrival.qualifyingSpanSeconds))}s</span></>
-          : <span>Auto-arrival ready</span>}</div></div>
-      <p>{progress?.phase === "rearming" && progress.stopId === nextStop.id
-        ? "Arrival was undone. Drive out of the stop area and auto-arrival turns back on."
-        : "Arrival records itself when you stop at the pickup."}</p></div>;
-    primary = <><button type="button" className="bigbtn out" disabled={pending || locked} onClick={() => void act("arrive", nextStop.id)}>
-      {locked ? LOCKED_TEXT : pending ? "Saving…" : `Arrived at ${nextStop.label}`}</button>
-      {/* Same height as the at-stop screen's undo link, so the list below never jumps. */}
-      <button type="button" className="textbtn" tabIndex={-1} aria-hidden="true" disabled style={{ visibility: "hidden" }}>Not here yet? Undo arrival</button></>;
+  // ---------- Lead's trip controls ----------
+  let control: React.ReactNode = null;
+  if (trip && lead && trip.status === "planned") {
+    control = t.confirming === "start"
+      ? <div className="cr-confirm"><p>Scheduled for {clock(trip.departureAt)}. Start {Math.ceil(until / 60_000)} minutes early?</p>
+        <div><button type="button" className="cr-btn plain" onClick={() => t.setConfirming(null)}>Go back</button>
+          <button type="button" className="cr-btn go" disabled={pending} onClick={() => void t.act("start")}>Start now</button></div></div>
+      : <button type="button" className="cr-main" disabled={pending}
+        onClick={() => until > EARLY_START_WARNING_MS ? t.setConfirming("start") : void t.act("start")}>{pending ? "Starting…" : "Start trip"}</button>;
+  } else if (trip && lead && trip.status === "active") {
+    const next = t.nextStop;
+    control = <>
+      {t.readyToComplete
+        ? <button type="button" className="cr-main" disabled={pending} onClick={() => void t.act("complete")}>{pending ? "Finishing…" : "Finish trip"}</button>
+        : next && <div className="cr-next">
+          <span>{next.arrivedAt ? "At stop" : "Next stop"} · {t.nextIndex + 1} of {trip.stops.length}</span><b>{next.label}</b>
+          <small>{trip.busPhoneLive || t.wantsGps ? "Arrive and depart record themselves from GPS." : ""}</small>
+          {/* Backup if GPS can't tell: tap it yourself. */}
+          <div className="cr-backup">{next.arrivedAt
+            ? <button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("depart", next.id)}>Leaving now</button>
+            : <button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("arrive", next.id)}>Arrived</button>}</div>
+        </div>}
+    </>;
   }
 
-  return <main className="field">
+  // ---------- Ride Check, grouped by stop in route order ----------
+  const stops = ride?.stops ?? [];
+  const byStop = stops.map((stop) => ({ stop, riders: riders.filter((r) => r.stopId === stop.id) })).filter((g) => g.riders.length);
+  const am = trip?.servicePeriod === "AM";
+
+  return <main className="field crew">
     <header className="ftop">
-      <div className="wm">BUSSIN<span>{member?.display_name ?? ""}{trip ? ` · ${trip.busLabel}` : ""} · {tenant?.name ?? ""}</span></div>
-      <button type="button" onClick={() => void signOut()}>Sign out</button>
+      <div className="wm">BUSSIN<span>{t.member?.display_name ?? ""}{t.tenant ? ` · ${t.tenant.name}` : ""}</span></div>
+      <div className="cr-top-acts">
+        <button type="button" onClick={() => setChangingPassword(true)}>Password</button>
+        <button type="button" onClick={() => void t.signOut()}>Sign out</button>
+      </div>
     </header>
-    <div className="health" aria-label="Phone status">
-      {[gpsView, screenView, dispatchView].map(([tone, label, detail]) => <div key={label} className={tone}>
-        <i /><span>{label}<small>{detail}</small></span></div>)}
-    </div>
-    {problem && <div className="fproblem"><p>{problem.text}</p><button type="button" onClick={problem.run}>{problem.button}</button></div>}
-    <div className="ftoasts">
-      {notice && <div className="pnote" role="status">
-        <span>{notice.action === "arrived" ? "Arrived" : "Left"} {notice.stopLabel} automatically</span>
-        <button type="button" onClick={() => setNotice(null)}>OK</button></div>}
-      {autoPaused && active && <p className="ferror" role="alert">Auto-detect is paused. Tap Arrived and Leaving now yourself. Dispatch still sees your GPS.</p>}
-      {error && <p className="ferror" role="alert">{error}</p>}
-    </div>
-    {hero}
-    {primary}
-    {trip && trip.stops.length > 0 && <>
-      <div className="psec"><h3>Route stops</h3><span>{doneCount} of {trip.stops.length} done</span></div>
-      <ol className="pstops">{trip.stops.map((stop, index) => {
-        const last = index === trip.stops.length - 1;
-        const done = !!stop.departedAt || (last && !!stop.arrivedAt);
-        const current = nextStop?.id === stop.id;
-        return <li key={stop.id} className={done ? "done" : current ? "cur" : ""}>
-          <span className="n">{stop.position}</span><span>{stop.label}</span>
-          <em>{stop.arrivedAt ? `${stop.arrivalMethod === "automatic" ? "Auto" : "Tapped"} ${clock(stop.arrivedAt)}` : current ? "Next" : ""}</em>
-        </li>;
-      })}</ol>
-    </>}
-    <details className="pd"><summary>Details</summary><div>
-      {fix ? <>Last fix {clockSeconds(fix.observedAt)} · accuracy &plusmn;{Math.round(fix.accuracy)} m<br />{fix.latitude.toFixed(6)}, {fix.longitude.toFixed(6)}<br /></> : <>No GPS fix yet.<br /></>}
-      Upload queue {dispatch.queued}{dispatch.note ? ` · ${dispatch.note}` : ""}<br />
-      Journey {progress ? `${progress.phase.replace("_", " ")} · ${progress.stopLabel}` : "idle"}<br />
-      Keep Bussin open during the trip. Phones pause GPS for background apps.
-    </div></details>
+
+    {trip === undefined && <section className="cr-card"><p className="cr-muted">Checking with Dispatch…</p></section>}
+    {trip === null && <section className="cr-card"><span className="cr-eyebrow">{t.justCompleted ? "Trip complete" : "No trip yet"}</span>
+      <h1>{t.justCompleted ? "Nice work." : "Nothing assigned"}</h1>
+      <p className="cr-muted">This screen updates by itself when Dispatch puts you on a trip.</p></section>}
+
+    {trip && <section className="cr-card">
+      <span className="cr-eyebrow">{trip.busLabel} · {trip.servicePeriod} · {trip.status === "active" ? "Running" : until > 0 ? `Leaves in ${mmss(until)}` : `${Math.floor(-until / 60_000)} min late`}</span>
+      <h1>{trip.routeName}</h1>
+      <p className="cr-muted">Departs {clock(trip.departureAt)}</p>
+      <div className="cr-crew">
+        {ride?.assignedStaff && <span className="cr-pill lead"><b>Lead</b>{ride.assignedStaff.displayName}{lead ? " (you)" : ""}</span>}
+        {!lead && <span className="cr-pill"><b>You</b>Counselor</span>}
+      </div>
+      {gpsLine && <p className={`cr-gps ${gpsLine.tone}`}><i />{gpsLine.text}
+        {lead && !trip.busPhoneLive && t.problem && <button type="button" onClick={t.problem.run}>{t.problem.button}</button>}</p>}
+    </section>}
+
+    {(t.error || check.message) && <p className="cr-alert" role="alert">{check.message || t.error}
+      <button type="button" onClick={() => check.setMessage("")}>OK</button></p>}
+    {control}
+
+    {trip && <section className="cr-check">
+      <div className="cr-check-head"><h2>Ride Check</h2>
+        <span>{trip.status === "active" ? `${onBus} on bus · ${rode} of ${riders.length} rode` : `${riders.length} kids expected`}</span></div>
+      {!ride && <p className="cr-muted">Loading the kids…</p>}
+      {/* Afternoon: everyone boards at camp, the first stop. */}
+      {trip.status === "active" && !am && stops[0] && riders.some((r) => r.state === "expected") &&
+        <button type="button" className="cr-main ghost" disabled={!!check.busy} onClick={() => check.bulk(stops[0]!.id, "board_waiting")}>
+          Everyone waiting is on the bus ({riders.filter((r) => r.state === "expected").length})</button>}
+      {ride && !riders.length && <p className="cr-muted">No kids are scheduled on this trip.</p>}
+      {byStop.map(({ stop, riders: list }) => {
+        const waiting = list.filter((r) => r.state === "expected").length;
+        const aboard = list.filter((r) => r.state === "aboard").length;
+        const here = stop.arrivedAt && !stop.departedAt;
+        return <div key={stop.id} className={`cr-stop${here ? " here" : ""}`}>
+          <div className="cr-stop-head"><span className="cr-num">{stop.position}</span><b>{stop.label}</b>
+            {here && <em>Bus is here</em>}
+            {trip.status === "active" && am && waiting > 1 && <button type="button" className="cr-btn go small" disabled={!!check.busy}
+              onClick={() => check.bulk(stop.id, "board_waiting")}>All {waiting} on bus</button>}
+            {trip.status === "active" && !am && aboard > 1 && <button type="button" className="cr-btn go small" disabled={!!check.busy}
+              onClick={() => check.bulk(stop.id, "drop_aboard")}>All {aboard} off here</button>}
+          </div>
+          <ul>{list.map((rider) => <RiderRow key={rider.riderId} rider={rider} tripStatus={ride!.status} busy={check.busy} tap={check.tap} />)}</ul>
+        </div>;
+      })}
+      {/* Morning: everyone gets off at camp, the last stop. */}
+      {trip.status === "active" && am && atEnd && onBus > 0 && stops.at(-1) &&
+        <button type="button" className="cr-main" disabled={!!check.busy} onClick={() => check.bulk(stops.at(-1)!.id, "drop_aboard")}>
+          Everyone off at {stops.at(-1)!.label} ({onBus})</button>}
+      {trip.status === "active" && atEnd && ride && !ride.sweep && onBus === 0 && riders.length > 0 &&
+        <button type="button" className="cr-main ghost" disabled={!!check.busy} onClick={() => check.sweep()}>Walked the bus: it's empty</button>}
+      {ride?.sweep && <p className="cr-done">Bus checked empty by {ride.sweep.confirmedBy} at {clock(ride.sweep.confirmedAt)}</p>}
+    </section>}
   </main>;
 }

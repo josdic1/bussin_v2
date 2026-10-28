@@ -73,8 +73,8 @@ staffRoutes.post(
 
     const member = currentMember(response);
 
-    const assignment = await pool.query<{ tripId: string }>(
-      `SELECT a.trip_id AS "tripId"
+    const assignment = await pool.query<{ tripId: string; role: "lead" | "counselor" }>(
+      `SELECT a.trip_id AS "tripId", a.crew_role AS role
          FROM staff_assignments a
          JOIN trips t ON t.id = a.trip_id
         WHERE a.member_id = $1
@@ -87,6 +87,11 @@ staffRoutes.post(
 
     if (!assignment.rowCount) {
       response.status(409).json({ error: "You do not have an open trip assignment." });
+      return;
+    }
+    // The lead runs the trip; other counselors do Ride Check.
+    if (assignment.rows[0]!.role !== "lead") {
+      response.status(403).json({ error: "Only the lead counselor starts and finishes the trip." });
       return;
     }
 

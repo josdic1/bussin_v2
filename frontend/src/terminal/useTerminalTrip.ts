@@ -315,7 +315,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
     setGps("live");
 
     const active = tripRef.current;
-    if (!active || active.status !== "active") return;
+    if (!active || active.status !== "active" || !wantsGpsRef.current) return;
     const prior = lastQueued.current;
     if (prior && next.observedAt - prior.observedAt < 2_500 && Math.abs(next.latitude - prior.latitude) < 1e-7 &&
       Math.abs(next.longitude - prior.longitude) < 1e-7) return;
@@ -373,21 +373,31 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
     }
   }, []);
 
-  // Start GPS and wake lock at once; watchdog restarts a silent watcher; foregrounding restarts both.
+  // GPS runs on the bus phone always, and on a staff phone only for the trip's lead while the
+  // bus phone is not reporting. Counselors' phones never ask for location.
+  const wantsGps = mode.kind === "device" || (trip?.crewRole === "lead" && !trip.busPhoneLive);
+  const wantsGpsRef = useRef(wantsGps);
+  wantsGpsRef.current = wantsGps;
   useEffect(() => {
-    startGps();
+    if (wantsGps) { startGps(); return; }
+    if (watchId.current !== null) { navigator.geolocation.clearWatch(watchId.current); watchId.current = null; }
+    if (pollTimer.current !== null) { window.clearInterval(pollTimer.current); pollTimer.current = null; }
+  }, [wantsGps, startGps]);
+
+  // Wake lock at once; watchdog restarts a silent GPS watcher; foregrounding restarts both.
+  useEffect(() => {
     void requestWake();
     // Fixes saved before the app was closed or reloaded go out as soon as it reopens.
     if (queue.current.length) void flush();
     const watchdog = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       const last = fixRef.current?.observedAt ?? 0;
-      if (last && Date.now() - last > GPS_STALE_MS) { setGps("stale"); startGps(); }
+      if (wantsGpsRef.current && last && Date.now() - last > GPS_STALE_MS) { setGps("stale"); startGps(); }
       if (!wakeLock.current) void requestWake();
     }, GPS_WATCHDOG_MS);
     const foreground = () => {
       if (document.visibilityState !== "visible") return;
-      startGps();
+      if (wantsGpsRef.current) startGps();
       void requestWake();
       void flush();
     };
@@ -412,12 +422,12 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
 
   // The first fix often lands before the trip loads or starts; send it as soon as the trip is running.
   useEffect(() => {
-    if (trip?.status !== "active") return;
+    if (trip?.status !== "active" || !wantsGps) return;
     if (lastPosition.current) accept(lastPosition.current);
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(accept, failed, { enableHighAccuracy: true, maximumAge: 0, timeout: 12_000 });
     }
-  }, [trip?.id, trip?.status, accept, failed]);
+  }, [trip?.id, trip?.status, accept, failed, wantsGps]);
 
   async function act(type: "start" | "arrive" | "depart" | "undo_arrival" | "complete", stopId?: string) {
     if (!trip || pending) return;
@@ -478,7 +488,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
   const status = terminalStatus({ now, online, gps, fixAge, active, dispatch, device: mode.kind === "device" });
 
   return {
-    device: mode.kind === "device", member, tenant, trip, error, pending, confirming, setConfirming, justCompleted, notice, setNotice,
+    device: mode.kind === "device", wantsGps, member, tenant, trip, error, pending, confirming, setConfirming, justCompleted, notice, setNotice,
     progress, fix, gps, online, dispatch, autoPaused, awake, now,
     refresh, requestWake, act, signOut,
     fixAge, active, problem, locked, finalStop, nextStop, nextIndex, readyToComplete, confirmingArrival, status

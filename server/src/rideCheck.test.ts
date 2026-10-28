@@ -37,6 +37,12 @@ test("rider state is replayed from the check log", () => {
   const undone = deriveRiderState([event("boarded", 1), event("undone", 2)]);
   assert.equal(undone.state, "expected");
   assert.equal(undone.boardedAt, null);
+  // Undo steps back one tap: a mistaken drop-off puts the rider back on the bus.
+  const backOn = deriveRiderState([event("boarded", 1), event("dropped_off", 2), event("undone", 3)]);
+  assert.equal(backOn.state, "aboard");
+  assert.ok(backOn.boardedAt);
+  const twice = deriveRiderState([event("boarded", 1), event("dropped_off", 2), event("undone", 3), event("undone", 4)]);
+  assert.equal(twice.state, "expected");
 });
 
 test("handled applies to the current state only", () => {

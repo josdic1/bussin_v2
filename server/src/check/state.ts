@@ -23,7 +23,8 @@ export type DerivedRider = {
 /**
  * A rider's current state is the result of replaying their check events in
  * order. "handled" marks the current state as dealt with; any later state
- * change clears it.
+ * change clears it. "undone" steps back one tap: undoing "dropped off" puts the
+ * rider back on the bus, undoing "on bus" puts them back to waiting.
  */
 export function deriveRiderState(events: RiderEventRow[]): DerivedRider {
   const result: DerivedRider = {
@@ -34,6 +35,8 @@ export function deriveRiderState(events: RiderEventRow[]): DerivedRider {
     handled: false
   };
 
+  // Each tap pushes the state it replaced, so an undo can restore it exactly.
+  const history: Omit<DerivedRider, "handled">[] = [];
   for (const event of events) {
     if (event.eventType === "handled") {
       result.handled = true;
@@ -41,6 +44,12 @@ export function deriveRiderState(events: RiderEventRow[]): DerivedRider {
     }
 
     result.handled = false;
+    if (event.eventType === "undone") {
+      const previous = history.pop() ?? { state: "expected", stateAt: null, stateBy: null, boardedAt: null };
+      Object.assign(result, previous);
+      continue;
+    }
+    history.push({ state: result.state, stateAt: result.stateAt, stateBy: result.stateBy, boardedAt: result.boardedAt });
     result.stateAt = event.occurredAt;
     result.stateBy = event.recordedByName;
 
@@ -57,12 +66,6 @@ export function deriveRiderState(events: RiderEventRow[]): DerivedRider {
         break;
       case "not_riding":
         result.state = "not_riding";
-        break;
-      case "undone":
-        result.state = "expected";
-        result.stateAt = null;
-        result.stateBy = null;
-        result.boardedAt = null;
         break;
     }
   }

@@ -8,7 +8,7 @@ import {
   setWorkerUrl,
   type GeoJSONSource
 } from "maplibre-gl";
-import { routeGeometriesResponseSchema, type BoardTrip } from "@bussin/shared";
+import { routeGeometriesResponseSchema, routesResponseSchema, type BoardTrip } from "@bussin/shared";
 import { getJson } from "../ops/api";
 import { busNumber, gpsFresh } from "../ops/fleetModel";
 import { mapStyle, schematicOnly } from "../maps/basemap";
@@ -182,6 +182,20 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version }:
       }
     }
   }, [trips, colorForBus, selectedTripId, ready, version, view]);
+
+  // No running or planned trips (a weekend, or the day is done): frame the camp's own
+  // routes and stops instead of a fixed spot, so every camp opens on its own area.
+  useEffect(() => {
+    const instance = map.current;
+    if (!ready || !instance || trips.length) return;
+    const controller = new AbortController();
+    getJson("/api/routes", routesResponseSchema, controller.signal).then(({ routes }) => {
+      const bounds = new LngLatBounds();
+      for (const route of routes) for (const stop of route.stops) bounds.extend([stop.longitude, stop.latitude]);
+      if (!bounds.isEmpty()) { instance.fitBounds(bounds, { padding: 56, maxZoom: 14.5, duration: 0 }); lastBoundsKey.current = "camp"; }
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [ready, trips.length]);
 
   // Bus markers persist and glide to each new fix instead of jumping.
   useEffect(() => {

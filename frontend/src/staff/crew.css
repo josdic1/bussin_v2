@@ -1,0 +1,61 @@
+/* Counselor phone. Big touch targets, one column, nothing that needs zooming. */
+.crew{--g:#17382c;--lime:#cfff04;--ink:#17211b;--mut:#66736a;--ln:#dfe4dc;--bg:#fff;--ok:#28704c;--okbg:#e8f3ec;--warn:#9a5b00;--warnbg:#fff4dc;--bad:#b42318;--badbg:#fdecea}
+.crew .cr-top-acts{display:flex;gap:12px}
+.crew .cr-card{padding:18px;border:1px solid var(--ln);border-radius:18px;background:var(--bg);margin-bottom:12px}
+.crew .cr-eyebrow{display:block;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.crew h1{margin:6px 0 2px;font-size:26px;letter-spacing:-.02em;line-height:1.1}
+.crew .cr-muted{margin:4px 0 0;color:var(--mut);font-size:14px}
+.crew .cr-crew{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.crew .cr-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 11px;background:#f0f2ef;font-size:13px;font-weight:700}
+.crew .cr-pill b{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase}
+.crew .cr-pill.lead{background:var(--g);color:#fff}
+.crew .cr-pill.lead b{color:var(--lime)}
+.crew .cr-gps{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0 0;padding:10px 12px;border-radius:12px;background:#f5f6f3;font-size:13px;line-height:1.35}
+.crew .cr-gps i{width:9px;height:9px;border-radius:50%;background:#a9b3ab;flex:none}
+.crew .cr-gps.good i{background:var(--ok)}
+.crew .cr-gps.warn{background:var(--warnbg)}
+.crew .cr-gps.warn i{background:#d08700}
+.crew .cr-gps button{margin-left:auto;border:0;border-radius:9px;background:var(--g);color:#fff;font-weight:800;padding:7px 11px}
+.crew .cr-alert{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:12px 14px;border-radius:14px;background:var(--badbg);color:var(--bad);font-size:14px;font-weight:700;line-height:1.35}
+.crew .cr-alert button{margin-left:auto;border:0;background:none;color:var(--bad);font-weight:900}
+.crew .cr-main{display:block;width:100%;min-height:58px;margin:0 0 12px;border:0;border-radius:16px;background:var(--g);color:#fff;font-size:18px;font-weight:850}
+.crew .cr-main.ghost{background:#fff;color:var(--g);border:2px solid var(--g)}
+.crew .cr-main:disabled{opacity:.5}
+.crew .cr-confirm{margin:0 0 12px;padding:14px;border-radius:16px;background:var(--warnbg)}
+.crew .cr-confirm p{margin:0 0 10px;font-weight:700}
+.crew .cr-confirm div{display:flex;gap:8px}
+.crew .cr-next{margin:0 0 12px;padding:14px 16px;border-radius:16px;background:var(--g);color:#fff}
+.crew .cr-next span{display:block;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--lime)}
+.crew .cr-next b{display:block;font-size:22px;margin-top:4px}
+.crew .cr-next small{display:block;margin-top:4px;color:rgba(255,255,255,.75);font-size:12.5px}
+.crew .cr-backup{margin-top:10px}
+.crew .cr-backup .cr-btn{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.3)}
+.crew .cr-check-head{display:flex;justify-content:space-between;align-items:baseline;margin:18px 2px 8px}
+.crew .cr-check-head h2{margin:0;font-size:18px}
+.crew .cr-check-head span{font-size:13px;font-weight:700;color:var(--mut)}
+.crew .cr-stop{margin-bottom:10px;border:1px solid var(--ln);border-radius:16px;background:var(--bg);overflow:hidden}
+.crew .cr-stop.here{border-color:var(--g);box-shadow:0 0 0 1px var(--g)}
+.crew .cr-stop-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fafbf9;border-bottom:1px solid var(--ln)}
+.crew .cr-stop-head b{font-size:14px}
+.crew .cr-stop-head em{font-style:normal;font-size:11px;font-weight:900;color:var(--ok);background:var(--okbg);padding:3px 8px;border-radius:999px}
+.crew .cr-stop-head .cr-btn{margin-left:auto}
+.crew .cr-num{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--g);color:var(--lime);font-size:11px;font-weight:900;flex:none}
+.crew .cr-stop ul{list-style:none;margin:0;padding:0}
+.crew .cr-rider{display:flex;align-items:center;gap:10px;padding:12px;border-top:1px solid #eef0ec}
+.crew .cr-rider:first-child{border-top:0}
+.crew .cr-who{flex:1;min-width:0}
+.crew .cr-who b{display:block;font-size:16px}
+.crew .cr-state{display:block;margin-top:2px;font-size:12px;color:var(--mut)}
+.crew .s-aboard .cr-state{color:var(--ok);font-weight:800}
+.crew .s-dropped .cr-who b,.crew .s-not_riding .cr-who b{color:var(--mut)}
+.crew .s-no_show .cr-state{color:var(--bad);font-weight:800}
+.crew .cr-btns{display:flex;gap:6px;flex:none}
+.crew .cr-btn{min-height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--ln);background:#fff;color:var(--ink);font-size:14px;font-weight:800}
+.crew .cr-btn.small{min-height:34px;padding:0 10px;font-size:12.5px}
+.crew .cr-btn.go{background:var(--g);border-color:var(--g);color:#fff}
+.crew .cr-btn.warn{background:var(--warnbg);border-color:#f0d9a8;color:var(--warn)}
+.crew .cr-btn:disabled{opacity:.5}
+.crew .cr-done{margin:4px 2px 0;color:var(--ok);font-weight:800;font-size:14px}
+@media (max-width:380px){.crew .cr-rider{flex-wrap:wrap}.crew .cr-btns{width:100%}.crew .cr-btn{flex:1}}
+.crew .pw-acts .btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--ln);background:#fff;font-weight:800;font-size:14px}
+.crew .pw-acts .btn-primary{background:var(--g);border-color:var(--g);color:#fff}

@@ -2,6 +2,7 @@ import {
   createContext, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode
 } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { ChangeMyPassword } from "../auth/ChangeMyPassword";
 import { useAuth } from "../auth/AuthProvider";
 import { initials } from "./format";
 import { DangerZone } from "./DangerZone";
@@ -159,6 +160,11 @@ export function OpsShell() {
   }
 
   const signOut = () => { void logout().catch(() => toast("Could not sign out. Try again.")); };
+  const [changingPassword, setChangingPassword] = useState(false);
+  const passwordSheet = changingPassword && <Overlay onClose={() => setChangingPassword(false)}>
+    <p className="eyebrow">YOUR LOGIN</p><h2 className="dt">Change my password</h2>
+    <ChangeMyPassword onCancel={() => setChangingPassword(false)} />
+  </Overlay>;
   const roleControl = <RoleControl role={role} setRole={setRole} toast={toast} />;
   const tenantName = tenant?.name ?? "Bussin";
   const name = member?.display_name ?? "";
@@ -180,7 +186,8 @@ export function OpsShell() {
           {isAdmin && <DangerZone />}
           {roleControl}
           <div className="who-row"><div><b>{name}</b>{isAdmin ? "Admin" : "Dispatch"}</div>
-            <button type="button" onClick={signOut}>Sign out</button></div>
+            <div className="who-acts"><button type="button" onClick={() => setChangingPassword(true)}>Password</button>
+              <button type="button" onClick={signOut}>Sign out</button></div></div>
         </div>
       </aside>
       <div className="ws">
@@ -203,6 +210,7 @@ export function OpsShell() {
       <main className="mc">
         <Suspense fallback={<p className="hint">Loading…</p>}><Outlet /></Suspense>
         <div className="mfoot"><button type="button" onClick={signOut}>Sign out {name}</button>
+          {" · "}<button type="button" onClick={() => setChangingPassword(true)}>Change password</button>
           {isAdmin && <> · <DangerZone compact /></>}</div>
       </main>
       <nav className="tabs" aria-label="Main" style={{ gridTemplateColumns: `repeat(${pages.filter((page) => !page.desktopOnly).length},1fr)` }}>
@@ -216,6 +224,7 @@ export function OpsShell() {
   return <OpsContext.Provider value={{ mode, role, isAdmin, toast }}>
     <div className="ops">
       {body}
+      {passwordSheet}
       <div className={`toast${toastShown ? " show" : ""}`} role="status" aria-live="polite">{toastText}</div>
     </div>
   </OpsContext.Provider>;

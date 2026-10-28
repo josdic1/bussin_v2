@@ -267,7 +267,7 @@ memberRoutes.post("/:id/reset-password", requireSameOrigin, requireRole("admin")
   const id = idSchema.safeParse(request.params.id);
   if (!id.success) { response.status(400).json({ error: "Choose a login." }); return; }
   if (id.data === currentMember(response).id) {
-    response.status(409).json({ error: "Change your own password from the sign-in screen instead." });
+    response.status(409).json({ error: "To change your own password, use Password at the bottom of the sidebar." });
     return;
   }
   const pick = () => PASSWORD_WORDS[randomInt(PASSWORD_WORDS.length)]!;

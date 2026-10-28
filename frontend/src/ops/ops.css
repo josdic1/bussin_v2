@@ -658,3 +658,4 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .map-views button{border:0;border-radius:7px;background:none;padding:6px 10px;font-size:12px;font-weight:800;color:var(--muted);cursor:pointer}
 .ops .map-views button.on{background:var(--green);color:#fff}
 .ops .map-views button:disabled{opacity:.4;cursor:default}
+.ops .who-acts{display:flex;gap:2px}
