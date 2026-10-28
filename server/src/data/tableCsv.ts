@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import express, { Router, type Response } from "express";
 import type { PoolClient } from "pg";
 import {
-  formatPhone, rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
+  formatPhone, suggestUsername, rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
   type RosterImportInput, type RosterImportItem
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
@@ -267,12 +267,15 @@ const staff: Table = {
         if (seen.has(existing.id)) { fail("This person appears twice in the file."); continue; }
         seen.add(existing.id);
       }
-      const username = has("username") ? rawUsername || null : existing?.username ?? null;
+      // New logins with no username get one: first name + last initial (emilyg), never a duplicate.
+      const madeUp = !existing && !rawUsername;
+      const username = madeUp
+        ? suggestUsername(name, (candidate) => usernames.has(candidate) || all.some((m) => m.username === candidate))
+        : has("username") ? rawUsername || null : existing?.username ?? null;
       const email = has("email") ? rawEmail || null : existing?.email ?? null;
       if (username && !/^[a-z0-9_]{3,32}$/.test(username)) { fail("Username: 3 to 32 characters, letters, numbers, underscore."); continue; }
       if (email && !validEmail(email)) { fail(`"${email}" isn't a valid email.`); continue; }
       if (!username && !email) { fail("Needs a username or an email to sign in with."); continue; }
-      if (!existing && !username) { fail("New logins need a username."); continue; }
       if (username && (usernames.has(username) || all.some((m) => m.id !== existing?.id && m.username === username))) {
         fail(`The username "${username}" is already taken.`); continue;
       }
@@ -302,7 +305,7 @@ const staff: Table = {
         if (existing.suspended !== suspended) changes.push(change("Status", existing.suspended ? "Suspended" : "Active", suspended ? "Suspended" : "Active"));
       }
       const kind = !existing ? "new" : changes.length ? "update" : "same";
-      items.push({ line: row.line, rider: name, kind, changes: existing ? changes : ["New staff login, must change password on first sign-in"], error: null });
+      items.push({ line: row.line, rider: name, kind, changes: existing ? changes : [`New staff login, username ${username}${madeUp ? " (made from the name)" : ""}`, "Must change password on first sign-in"], error: null });
       if (kind !== "same") actions.push({ line: row.line, id: existing?.id ?? null, name, username, email, suspended, password: existing ? null : password });
     }
     return {

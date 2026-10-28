@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from "react";
 import {
-  createStaffMemberSchema, staffMemberSchema, staffMembersResponseSchema, staffScheduleResponseSchema,
-  type StaffMember, type StaffScheduleEntry
+  createStaffMemberSchema, staffMemberSchema, staffMembersResponseSchema, staffPasswordResetSchema, staffScheduleResponseSchema,
+  updateStaffMemberSchema, usernameSuggestionSchema, type StaffMember, type StaffScheduleEntry
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
+import { tidyEmail } from "../ops/contact";
+import { useAuth } from "../auth/AuthProvider";
 import { hashColor, localDate, plural, time } from "../ops/format";
 import { Overlay, useOps } from "../ops/OpsShell";
 import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, Tile, type Tone } from "../ops/ui";
@@ -15,6 +17,14 @@ type OverlayState = { type: "staff"; id: string } | { type: "add" } | null;
 function statusOf(person: StaffMember): Status {
   return person.suspended ? "SUSPENDED" : person.passwordChangeRequired ? "SETUP REQUIRED" : "ACTIVE";
 }
+
+/** Admin and Dispatch get a pill; plain counselors don't need one. */
+function RolePills({ person }: { person: StaffMember }) {
+  return <>{person.roles.filter((role) => role !== "staff").map((role) =>
+    <span key={role} className={`role-pill role-${role}`}>{role === "admin" ? "Admin" : "Dispatch"}</span>)}</>;
+}
+
+const handle = (person: StaffMember) => person.username ? `@${person.username}` : "Email sign-in";
 
 function StatusPill({ status }: { status: Status }) {
   return <span className={`st st-m-${status.toLowerCase().replace(" ", "-")}`}>{status}</span>;
@@ -37,22 +47,104 @@ function generatePassword() {
   return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
 }
 
-function StaffDetail({ person, schedule }: { person: StaffMember; schedule: StaffScheduleEntry[] }) {
+/** First name + last initial from the server, which knows every username in use. */
+function useUsernameSuggestion(name: string, enabled: boolean, apply: (username: string) => void) {
+  const latest = useRef(apply);
+  latest.current = apply;
+  useEffect(() => {
+    if (!enabled || !name.trim()) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      getJson(`/api/members/username?${new URLSearchParams({ name })}`, usernameSuggestionSchema, controller.signal)
+        .then((result) => latest.current(result.username)).catch(() => undefined);
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [name, enabled]);
+}
+
+function EditStaff({ person, onSaved, onCancel }: { person: StaffMember; onSaved: (person: StaffMember) => void; onCancel: () => void }) {
+  const [displayName, setDisplayName] = useState(person.displayName);
+  const [username, setUsername] = useState(person.username ?? "");
+  const [email, setEmail] = useState(person.email ?? "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const parsed = updateStaffMemberSchema.safeParse({ displayName, username, email: email.trim() ? email : null });
+    if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the details."); return; }
+    setSaving(true); setError("");
+    try {
+      onSaved(staffMemberSchema.parse(await send("PUT", `/api/members/${person.id}`, parsed.data, "Could not save.")));
+    } catch (cause) { setError(message(cause, "Could not save.")); } finally { setSaving(false); }
+  }
+  return <form className="mf" onSubmit={(event) => void submit(event)} noValidate>
+    <label><b className="lt">Name</b><input value={displayName} maxLength={120} autoComplete="off" onChange={(event) => setDisplayName(event.target.value)} /></label>
+    <label><b className="lt">Username</b><input value={username} maxLength={32} autoCapitalize="none" autoCorrect="off" autoComplete="off"
+      onChange={(event) => setUsername(event.target.value.toLowerCase())} />
+      <small>First name + last initial is easiest to remember, like emilyg.</small></label>
+    <label><b className="lt">Email <span>(optional)</span></b><input type="email" value={email} autoCapitalize="none" autoComplete="off"
+      onChange={(event) => setEmail(event.target.value)} onBlur={() => setEmail(tidyEmail(email))} /></label>
+    <p className="mf-err" role="alert">{error}</p>
+    <div className="acts"><button type="button" className="btn" onClick={onCancel}>Cancel</button>
+      <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</button></div>
+  </form>;
+}
+
+function StaffDetail({ person, schedule, onChanged }: {
+  person: StaffMember; schedule: StaffScheduleEntry[]; onChanged: (person: StaffMember, note: string) => void;
+}) {
+  const { member } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [password, setPassword] = useState<string | null>(null);
+  const isMe = member?.id === person.id;
   const status = statusOf(person);
+
+  async function setSuspended(suspended: boolean) {
+    if (suspended && !window.confirm(`Suspend ${person.displayName}? They are signed out everywhere and can't sign in until reactivated.`)) return;
+    setBusy(true); setError("");
+    try {
+      const next = staffMemberSchema.parse(await send("POST", `/api/members/${person.id}/status`, { suspended }, "Could not change status."));
+      onChanged(next, suspended ? `${person.displayName} is suspended.` : `${person.displayName} can sign in again.`);
+    } catch (cause) { setError(message(cause, "Could not change status.")); } finally { setBusy(false); }
+  }
+  async function resetPassword() {
+    if (!window.confirm(`Give ${person.displayName} a new temporary password? Their current password stops working.`)) return;
+    setBusy(true); setError("");
+    try {
+      const result = staffPasswordResetSchema.parse(await send("POST", `/api/members/${person.id}/reset-password`, undefined, "Could not reset the password."));
+      setPassword(result.temporaryPassword);
+      onChanged({ ...person, passwordChangeRequired: true }, `New temporary password for ${person.displayName}.`);
+    } catch (cause) { setError(message(cause, "Could not reset the password.")); } finally { setBusy(false); }
+  }
   const mine = schedule.filter((entry) => entry.memberId === person.id);
   const note = status === "SETUP REQUIRED"
     ? "Has not set a personal password yet. They must change the temporary password at first sign-in."
     : status === "SUSPENDED" ? "This login is suspended and cannot sign in." : "Signed in with a personal password.";
   return <>
-    <p className="eyebrow">STAFF</p>
+    <p className="eyebrow">{person.roles.includes("admin") ? "ADMIN" : person.roles.includes("dispatch") ? "DISPATCH" : "STAFF"}</p>
     <h2 className="d-title"><Avatar name={person.displayName} color={hashColor(person.id)} size={44} />{person.displayName}</h2>
-    <div className="d-status"><StatusPill status={status} /></div>
-    <dl className="d-grid">
-      <div><dt>Username</dt><dd>@{person.username}</dd></div>
+    <div className="d-status"><StatusPill status={status} /><RolePills person={person} /></div>
+    {password && <div className="ok-note"><b>New temporary password</b>Give {person.displayName} username <code>{person.username ?? person.email}</code> and
+      password <code>{password}</code>. They choose their own at sign-in. This is the only time it is shown.</div>}
+    {editing
+      ? <EditStaff person={person} onCancel={() => setEditing(false)}
+          onSaved={(next) => { setEditing(false); onChanged(next, `${next.displayName} saved.`); }} />
+      : <><dl className="d-grid">
+      <div><dt>Username</dt><dd>{handle(person)}</dd></div>
       <div><dt>Email</dt><dd>{person.email ?? "—"}</dd></div>
       <div><dt>Status</dt><dd>{status.charAt(0) + status.slice(1).toLowerCase()}</dd></div>
       <div><dt>Password</dt><dd>{person.passwordChangeRequired ? "Temporary" : "Personal"}</dd></div>
     </dl>
+    <div className="acts">
+      <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
+      {!isMe && <button type="button" className="btn" disabled={busy} onClick={() => void resetPassword()}>Reset password</button>}
+      {!isMe && (person.suspended
+        ? <button type="button" className="btn" disabled={busy} onClick={() => void setSuspended(false)}>Reactivate</button>
+        : <button type="button" className="btn" disabled={busy} onClick={() => void setSuspended(true)}>Suspend</button>)}
+    </div>
+    {error && <p className="mf-err" role="alert">{error}</p>}</>}
     <p className="muted" style={{ fontSize: 13, lineHeight: 1.5 }}>{note}</p>
     <div className="d-sec"><h3>Next 7 days</h3><span>{mine.length} {plural(mine.length, "trip", "trips")}</span></div>
     {!mine.length && <p className="muted">No trips assigned.</p>}
@@ -73,11 +165,11 @@ function AddStaffForm({ taken, onCreated }: {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Username follows the name (emilyg) until you type your own.
+  useUsernameSuggestion(displayName, !touched, setUsername);
   function nameChanged(value: string) {
     setDisplayName(value);
-    if (touched) return;
-    const words = value.trim().toLowerCase().replace(/[^a-z0-9 ]/g, "").split(/\s+/).filter(Boolean);
-    setUsername(words.length > 1 ? `${words[0]}_${words.at(-1)}` : words[0] ?? "");
+    if (!touched && !value.trim()) setUsername("");
   }
 
   async function submit(event: FormEvent) {
@@ -103,7 +195,8 @@ function AddStaffForm({ taken, onCreated }: {
     <p className="mf-hint">They must change the temporary password the first time they sign in.</p>
     <label><b className="lt">Name</b><input value={displayName} maxLength={120} autoComplete="off" onChange={(event) => nameChanged(event.target.value)} /></label>
     <label><b className="lt">Username</b><input value={username} maxLength={32} autoCapitalize="none" autoCorrect="off" autoComplete="off"
-      onChange={(event) => { setTouched(true); setUsername(event.target.value); }} /><small>3 to 32 characters: letters, numbers, underscore.</small></label>
+      onChange={(event) => { setTouched(true); setUsername(event.target.value.toLowerCase()); }} />
+      <small>Made from the name: first name + last initial, like emilyg. Never a duplicate.</small></label>
     <label><b className="lt">Email <span>(optional)</span></b><input type="email" value={email} autoCapitalize="none" autoCorrect="off" autoComplete="off"
       onChange={(event) => setEmail(event.target.value)} /></label>
     <label><b className="lt">Temporary password</b><span className="pw">
@@ -150,29 +243,30 @@ export function MembersPage() {
   }), [staff]);
   const needle = query.trim().toLowerCase();
   const visible = staff.filter((person) =>
-    (!needle || [person.displayName, person.username, person.email ?? ""].some((value) => value.toLowerCase().includes(needle))) &&
+    (!needle || [person.displayName, person.username ?? "", person.email ?? "", ...person.roles].some((value) => value.toLowerCase().includes(needle))) &&
     (filter === "ALL" || statusOf(person) === filter))
-    .sort((a, b) => a.displayName.localeCompare(b.displayName) || a.username.localeCompare(b.username));
+    .sort((a, b) => a.displayName.localeCompare(b.displayName) || (a.username ?? "").localeCompare(b.username ?? ""));
 
   const openAdd = () => { setCreated(null); setOverlay({ type: "add" }); };
   const selected = overlay?.type === "staff" ? staff.find((person) => person.id === overlay.id) : null;
   const overlayView = overlay && <Overlay onClose={() => setOverlay(null)}>
     {overlay.type === "staff"
-      ? (selected ? <StaffDetail person={selected} schedule={schedule} /> : <NoMatch>Not found.</NoMatch>)
+      ? (selected ? <StaffDetail key={selected.id} person={selected} schedule={schedule}
+          onChanged={(next, note) => { setStaff((list) => list.map((p) => (p.id === next.id ? next : p))); toast(note); }} /> : <NoMatch>Not found.</NoMatch>)
       : <><p className="eyebrow">MEMBERS</p><h2 className="dt">Create staff login</h2>
         {created && <div className="ok-note"><b>Created {created.name}</b>Give them username <code>{created.username}</code> and
           the temporary password <code>{created.password}</code>.</div>}
         <AddStaffForm taken={(username) => staff.some((person) => person.username === username)}
           onCreated={(person, password) => {
             setStaff((current) => [...current, person]);
-            setCreated({ name: person.displayName, username: person.username, password });
+            setCreated({ name: person.displayName, username: person.username ?? "", password });
             toast(`${person.displayName} can now sign in.`);
           }} /></>}
   </Overlay>;
   const status = <><ErrorNote text={error} />{loading && <p className="hint">Loading staff…</p>}</>;
   const open = (id: string) => setOverlay({ type: "staff", id });
   const tiles: [Filter, string, number, string][] = [
-    ["ALL", "All staff", counts.ALL, "logins"], ["ACTIVE", "Active", counts.ACTIVE, "personal password"],
+    ["ALL", "All logins", counts.ALL, "admin, dispatch and staff"], ["ACTIVE", "Active", counts.ACTIVE, "personal password"],
     ["SETUP REQUIRED", "Setup required", counts["SETUP REQUIRED"], "temporary password"],
     ["SUSPENDED", "Suspended", counts.SUSPENDED, "cannot sign in"]];
 
@@ -183,7 +277,7 @@ export function MembersPage() {
       days.set(key, [...(days.get(key) ?? []), entry]);
     }
     return <>
-      <Head eyebrow="Staff" title="Members" sub="Staff logins for people who run bus trips."
+      <Head eyebrow="Staff" title="Members" sub="Everyone who signs in to run the camp: admins, dispatchers and counselors."
         actions={<button type="button" className="btn btn-primary" onClick={openAdd}>Add staff login</button>} />
       {status}
       <div className="tiles">{tiles.map(([key, label, value, sub]) => <Tile key={key} label={label} value={value} sub={sub}
@@ -199,8 +293,8 @@ export function MembersPage() {
         <table className="tbl"><thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Status</th></tr></thead>
           <tbody>{visible.length ? visible.map((person) => <tr key={person.id} data-ov="" tabIndex={0} onClick={() => open(person.id)}
             onKeyDown={(event) => { if (event.key === "Enter") open(person.id); }}>
-            <td><div className="who"><Avatar name={person.displayName} color={hashColor(person.id)} size={36} /><strong>{person.displayName}</strong></div></td>
-            <td className="mono">@{person.username}</td>
+            <td><div className="who"><Avatar name={person.displayName} color={hashColor(person.id)} size={36} /><strong>{person.displayName}</strong><RolePills person={person} /></div></td>
+            <td className="mono">{handle(person)}</td>
             <td>{person.email ?? <span className="dim">&mdash;</span>}</td>
             <td><StatusPill status={statusOf(person)} /></td></tr>)
             : <tr><td colSpan={4} className="nomatch">{loading ? "Loading…" : "No staff match this view."}</td></tr>}</tbody></table>
@@ -221,7 +315,7 @@ export function MembersPage() {
 
   const groups: [Status, string, string][] = [["SETUP REQUIRED", "Setup required", "warn"], ["ACTIVE", "Active", ""], ["SUSPENDED", "Suspended", "bad"]];
   return <>
-    <Head eyebrow="Staff" title="Members" sub={`${counts.ALL} staff logins`} actions={<Plus label="Add staff login" onClick={openAdd} />} />
+    <Head eyebrow="Staff" title="Members" sub={`${counts.ALL} logins`} actions={<Plus label="Add staff login" onClick={openAdd} />} />
     {status}
     <Search value={query} onChange={setQuery} placeholder="Search staff" />
     {groups.map(([key, label, cls]) => {
@@ -229,7 +323,7 @@ export function MembersPage() {
       return list.length > 0 && <div key={key}>
         <h2 className={`sh2 ${cls === "warn" ? "warn" : ""}`} style={{ display: "flex", justifyContent: "space-between" }}><span>{label}</span><span>{list.length}</span></h2>
         <div className="surface sl">{list.map((person) => <button key={person.id} type="button" className="srow" style={{ alignItems: "center" }} onClick={() => open(person.id)}>
-          <Avatar name={person.displayName} color={hashColor(person.id)} /><span><b>{person.displayName}</b><small>@{person.username}</small></span><span className="go">&rsaquo;</span></button>)}</div>
+          <Avatar name={person.displayName} color={hashColor(person.id)} /><span><b>{person.displayName} <RolePills person={person} /></b><small>{handle(person)}</small></span><span className="go">&rsaquo;</span></button>)}</div>
       </div>;
     })}
     {overlayView}

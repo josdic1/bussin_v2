@@ -43,7 +43,7 @@ export const CSV_SETUP: Record<DataTableKey, CsvSetup> = {
   members: {
     title: "Staff", download: "/api/data/csv/staff",
     preview: "/api/data/csv/staff/preview", apply: "/api/data/csv/staff/apply", noun: ["login", "logins"],
-    help: "One row per staff login. New logins need a Username and a Temporary password (12+ characters); they change it the first time they sign in. Roles are set on the Members page. Status is Active or Suspended."
+    help: "One row per staff login. Leave Username blank and it is made from the name (Emily Gabor becomes emilyg). New logins need a Temporary password (12+ characters); they change it the first time they sign in. Roles are set on the Members page. Status is Active or Suspended."
   }
 };
 

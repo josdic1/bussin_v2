@@ -414,10 +414,14 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .tabs2{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:14px 0 0}
 .ops .tabs2 button{border:0;background:none;padding:9px 10px;font-weight:800;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-size:12px}
 .ops .tabs2 button.on{color:var(--green);border-bottom-color:var(--green)}
-.ops .split{display:grid;grid-template-columns:minmax(0,1fr) 380px;border:1px solid var(--line);border-radius:var(--r);background:#fff;overflow:hidden}
-.ops .split>.scr{overflow:auto;max-height:calc(100vh - 330px);min-height:360px}
+/* The roster scrolls with the page (no box inside a box). Headers and the detail panel stay put. */
+.ops .split{display:grid;grid-template-columns:minmax(0,1fr) 380px;align-items:start;border:1px solid var(--line);border-radius:var(--r);overflow:clip;
+  background:linear-gradient(to left,#fbfcfa 379px,var(--line) 379px,var(--line) 380px,#fff 380px)}
+.ops .split>.scr{min-height:360px}
+.ops .split thead th,.ops .tbl.sticky-head thead th{position:sticky;top:56px;z-index:3}
+.ops .split tbody tr[id],.ops .tbl.sticky-head tbody tr[id]{scroll-margin-top:100px}
 .ops .split .tbl{border:0;border-radius:0}
-.ops .rdetail{border-left:1px solid var(--line);padding:18px 18px;background:#fbfcfa;overflow:auto;max-height:calc(100vh - 330px);min-height:360px}
+.ops .rdetail{padding:18px 18px;overflow:auto;position:sticky;top:57px;max-height:calc(100vh - 57px)}
 .ops .ov{display:block;font-size:10px;letter-spacing:.14em;font-weight:900;color:#748078;margin-bottom:6px;text-transform:uppercase}
 .ops .asg{display:grid;gap:6px;font-size:12px;margin:6px 0 12px}
 .ops .asg b{display:inline-block;width:28px;font-size:10px;color:var(--muted)}
@@ -629,3 +633,21 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .cp.nodrv{background:var(--warnbg);color:var(--warn);font-weight:800}
 .ops .d-grid>div.wide{grid-column:1/-1;border-right:0}
 .ops .shared-phone{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.ops .role-pill{display:inline-block;margin-left:8px;border-radius:999px;padding:2px 7px;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;vertical-align:middle}
+.ops .role-admin{background:var(--green);color:var(--lime)}
+.ops .role-dispatch{background:var(--idlebg);color:var(--ink)}
+
+/* Jump rail: Top plus A to Z, in the gutter to the left of a long list. */
+.ops .withrail{display:grid;grid-template-columns:40px minmax(0,1fr);gap:14px;align-items:start;margin-left:-20px}
+.ops .jumprail{position:sticky;top:76px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.ops .jr-top{display:flex;flex-direction:column;align-items:center;gap:2px;width:40px;padding:7px 0 5px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--green);font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:opacity .15s}
+.ops .jr-top svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.ops .jr-top:disabled{opacity:.35;cursor:default}
+.ops .jr-top:not(:disabled):hover{border-color:var(--green)}
+.ops .jr-letters{display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 0;border:1px solid var(--line);border-radius:10px;background:#fff;width:40px}
+.ops .jr-letters button{width:30px;height:22px;border:0;border-radius:6px;background:none;font-size:11px;font-weight:800;color:var(--muted);cursor:pointer}
+.ops .jr-letters button:hover{color:var(--ink);background:var(--idlebg)}
+.ops .jr-letters button.on{background:var(--green);color:var(--lime)}
+@media (max-width:1100px){.ops .withrail{grid-template-columns:minmax(0,1fr);margin-left:0}.ops .jumprail{display:none}
+  .ops .split{background:#fff}.ops .rdetail{position:static;max-height:none}}
+.ops .split .tbl,.ops .tbl.sticky-head{overflow:clip}

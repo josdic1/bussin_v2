@@ -8,7 +8,7 @@ import { getJson, message, send } from "../ops/api";
 import { contactProblem, tidyEmail, tidyPhone } from "../ops/contact";
 import { PALETTE, plural } from "../ops/format";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Avatar, ErrorNote, Head, NoMatch, Plus, Search, Seg, Tile } from "../ops/ui";
+import { Avatar, ErrorNote, Head, JumpRail, NoMatch, Plus, Search, Seg, Tile } from "../ops/ui";
 
 type AccountStatus = Guardian["accountStatus"];
 type OverlayState =
@@ -349,6 +349,19 @@ export function FamiliesPage() {
   const attentionTotal = noRoute + pending;
   const attentionSub = `${noRoute} ${plural(noRoute, "rider", "riders")} with no route · ${pending} ${plural(pending, "account", "accounts")} awaiting setup`;
   const sortedGuardians = [...guardians].sort((a, b) => a.name.localeCompare(b.name));
+  // Jump rail: the first row for each starting letter (riders by last name, guardians by name).
+  const letterOf = (text: string) => (text.trim()[0] ?? "#").toUpperCase();
+  const firstRows = (keys: { id: string; text: string }[]) => {
+    const seen = new Map<string, string>();
+    for (const key of keys) if (!seen.has(letterOf(key.text))) seen.set(letterOf(key.text), key.id);
+    return seen;
+  };
+  const riderLetters = firstRows(visible.map((rider) => ({ id: rider.id, text: rider.familyName })));
+  const guardianLetters = firstRows(sortedGuardians.map((guardian) => ({ id: guardian.id, text: guardian.name })));
+  const anchor = (letters: Map<string, string>, prefix: string, id: string) => {
+    const letter = [...letters].find(([, first]) => first === id)?.[0];
+    return letter ? `${prefix}-${letter}` : undefined;
+  };
   // A shared phone is allowed (a home line); say who else has it so it isn't a surprise.
   const sharedPhone = (guardian: Guardian) => guardian.phone
     ? guardians.filter((other) => other.id !== guardian.id && other.phone === guardian.phone).map((other) => other.name).join(", ") || null
@@ -454,9 +467,10 @@ export function FamiliesPage() {
           <label className="ck"><input type="checkbox" checked={attention} onChange={(event) => setAttention(event.target.checked)} /> Needs attention only</label>
           <span className="cnt">{visible.length} of {riders.length} riders</span>
         </div>
+        <div className="withrail"><JumpRail letters={[...riderLetters.keys()]} idPrefix="rider" label="Jump through riders" />
         <div className="split">
           <div className="scr"><table className="tbl"><thead><tr><th>Child</th><th>AM pickup / PM drop-off</th><th>Guardians &amp; access</th><th>Account status</th></tr></thead>
-            <tbody>{visible.length ? visible.map((rider) => <tr key={rider.id} data-set="" tabIndex={0} className={rider.id === selected?.id ? "sel" : ""}
+            <tbody>{visible.length ? visible.map((rider) => <tr key={rider.id} id={anchor(riderLetters, "rider", rider.id)} data-set="" tabIndex={0} className={rider.id === selected?.id ? "sel" : ""}
               onClick={() => setSelectedId(rider.id)} onKeyDown={(event) => { if (event.key === "Enter") setSelectedId(rider.id); }}>
               <td><div className="who"><Avatar name={`${rider.givenName} ${rider.familyName}`} color={riderColor(rider)} size={36} /><strong>{rider.givenName} {rider.familyName}</strong><CoverageTag rider={rider} /></div></td>
               <td><div className="st2">{assignLine(rider.am, "AM")}{assignLine(rider.pm, "PM")}</div></td>
@@ -464,11 +478,12 @@ export function FamiliesPage() {
               <td><Pill status={riderStatus(rider)} /></td></tr>)
               : <tr><td colSpan={4} className="nomatch">{emptyText}</td></tr>}</tbody></table></div>
           <aside className="rdetail">{selected ? riderDetail(selected) : <><span className="ov">DETAIL</span><h2 className="dt">Choose a rider</h2></>}</aside>
-        </div>
+        </div></div>
         <p className="hint" style={{ marginTop: 12 }}>Buses are assigned to trips, not permanently to children or routes.</p>
       </> : <>
-        <div style={{ marginTop: 16 }}><table className="tbl"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Children</th><th>Account</th><th>Action</th></tr></thead>
-          <tbody>{sortedGuardians.length ? sortedGuardians.map((guardian) => <tr key={guardian.id}>
+        <div className="withrail" style={{ marginTop: 16 }}><JumpRail letters={[...guardianLetters.keys()]} idPrefix="guardian" label="Jump through guardians" />
+        <div><table className="tbl sticky-head"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Children</th><th>Account</th><th>Action</th></tr></thead>
+          <tbody>{sortedGuardians.length ? sortedGuardians.map((guardian) => <tr key={guardian.id} id={anchor(guardianLetters, "guardian", guardian.id)}>
             <td><strong>{guardian.name}</strong></td>
             <td>{guardian.email ?? <span className="dim">&mdash;</span>}</td>
             <td>{guardian.phone ?? <span className="dim">&mdash;</span>}
@@ -477,7 +492,7 @@ export function FamiliesPage() {
             <td><Pill status={guardian.accountStatus} guardian /></td>
             <td><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{accountButtons(guardian)}
               <button type="button" className="btn sm" onClick={() => setOverlay({ type: "guardianForm", id: guardian.id })}>Edit</button></div></td>
-          </tr>) : <tr><td colSpan={6} className="nomatch">No guardian contacts yet.</td></tr>}</tbody></table></div>
+          </tr>) : <tr><td colSpan={6} className="nomatch">No guardian contacts yet.</td></tr>}</tbody></table></div></div>
         <p className="hint" style={{ marginTop: 12 }}>A contact record alone is not a login. Guardians need an activated login to see the bus and read messages.</p>
       </>}
       {overlayView}

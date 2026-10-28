@@ -35,11 +35,14 @@ export const authResponseSchema = z.strictObject({
 
 export type SignedInMember = z.infer<typeof signedInMemberSchema>;
 
+// Everyone who signs in to run the camp: admins, dispatchers and counselors (staff).
+// Family logins are on the Riders page instead.
 export const staffMemberSchema = z.strictObject({
   id: z.string().uuid(),
   displayName: z.string(),
-  username: z.string(),
+  username: z.string().nullable(),
   email: z.string().email().nullable(),
+  roles: z.array(z.enum(["admin", "dispatch", "staff"])),
   passwordChangeRequired: z.boolean(),
   suspended: z.boolean()
 });
@@ -47,6 +50,38 @@ export const staffMemberSchema = z.strictObject({
 export const staffMembersResponseSchema = z.strictObject({
   staff: z.array(staffMemberSchema)
 });
+
+// ---------- Usernames: first name + last initial ----------
+// "Emily Gabor" -> emilyg. If that's taken: emilyga, emilygab, ... then emilyg2, emilyg3.
+// Lowercase letters and digits only, 3 to 32 characters, easy to say out loud.
+export function usernameCandidates(fullName: string): string[] {
+  const words = fullName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .split(/\s+/).map((word) => word.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+  if (!words.length) return [];
+  const first = words[0]!.slice(0, 26);
+  const last = words.length > 1 ? words.at(-1)! : "";
+  const out: string[] = [];
+  for (let k = 1; k <= Math.min(last.length, 6); k += 1) out.push(first + last.slice(0, k));
+  if (!last) out.push(first);
+  const base = out[0] ?? first;
+  for (let n = 2; n <= 99; n += 1) out.push(`${base}${n}`);
+  return out.map((name) => name.length >= 3 ? name : name.padEnd(3, "0")).filter((name, i, all) => all.indexOf(name) === i);
+}
+
+/** The first free username for this person. */
+export function suggestUsername(fullName: string, taken: (username: string) => boolean): string {
+  return usernameCandidates(fullName).find((name) => !taken(name)) ?? "";
+}
+
+export const usernameSuggestionSchema = z.strictObject({ username: z.string() });
+
+export const updateStaffMemberSchema = z.strictObject({
+  displayName: z.string().trim().min(1, "Enter a name.").max(120),
+  username: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,32}$/, "Username: 3 to 32 letters, numbers or underscores."),
+  email: z.string().trim().toLowerCase().pipe(z.email("That email doesn't look right.")).nullable()
+});
+export const staffStatusInputSchema = z.strictObject({ suspended: z.boolean() });
+export const staffPasswordResetSchema = z.strictObject({ temporaryPassword: z.string() });
 
 export const createStaffMemberSchema = z.strictObject({
   displayName: z.string().trim().min(1).max(120),

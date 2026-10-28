@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { initials } from "./format";
 
 export type Tone = "ok" | "bad" | "warn" | "";
@@ -126,4 +126,37 @@ export function CrewPills({ lead, counselors, driver }: {
       ? <span className="cp drv" title="Driver"><b>Driver</b>{driver.name}</span>
       : <span className="cp nodrv">No driver</span>)}
   </span>;
+}
+
+/**
+ * A slim rail in the left gutter of a long list: Top, then the first letters that
+ * exist in the list. Click a letter to jump to the first row with it. The row with
+ * id `${idPrefix}-${letter}` is the target; the letter you're looking at is lit.
+ */
+export function JumpRail({ letters, idPrefix, label }: { letters: string[]; idPrefix: string; label: string }) {
+  const [scrolled, setScrolled] = useState(false);
+  const [current, setCurrent] = useState<string | null>(null);
+  useEffect(() => {
+    const update = () => {
+      setScrolled(window.scrollY > 200);
+      let lit: string | null = null;
+      for (const letter of letters) {
+        const row = document.getElementById(`${idPrefix}-${letter}`);
+        if (row && row.getBoundingClientRect().top < 160) lit = letter;
+      }
+      setCurrent(lit);
+    };
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    return () => window.removeEventListener("scroll", update);
+  }, [letters, idPrefix]);
+  const jump = (letter: string) =>
+    document.getElementById(`${idPrefix}-${letter}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  return <nav className="jumprail" aria-label={label}>
+    <button type="button" className="jr-top" disabled={!scrolled} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      aria-label="Back to top"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg><span>Top</span></button>
+    {letters.length > 1 && <div className="jr-letters">{letters.map((letter) =>
+      <button key={letter} type="button" className={letter === current ? "on" : ""} onClick={() => jump(letter)}
+        aria-label={`Jump to ${letter}`}>{letter}</button>)}</div>}
+  </nav>;
 }
