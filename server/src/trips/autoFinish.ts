@@ -25,7 +25,7 @@ export async function finishForgottenTrips(olderThanMs = AUTO_FINISH_AFTER_MS): 
      SELECT t.id AS "tripId", a.member_id AS "staffId"
        FROM trips t
        JOIN final_stop f ON f.trip_id = t.id
-       JOIN staff_assignments a ON a.trip_id = t.id AND a.ended_at IS NULL
+       JOIN staff_assignments a ON a.trip_id = t.id AND a.ended_at IS NULL AND a.crew_role = 'lead'
       WHERE t.status = 'active'
         AND EXISTS (
           SELECT 1 FROM live_events e

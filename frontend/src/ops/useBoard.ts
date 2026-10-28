@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   boardResponseSchema, busesResponseSchema, dispatchLocationUpdateSchema, dispatchStaffResponseSchema,
-  routesResponseSchema, type BoardTrip, type Bus, type Route, type TripStaff
+  routesResponseSchema, type BoardTrip, type Bus, type Route, type TripDriver, type TripStaff
 } from "@bussin/shared";
 import { getJson, message } from "./api";
 import { dayBounds } from "./format";
@@ -49,6 +49,7 @@ export function useBoard(day: string, options: { routes?: boolean; staff?: boole
   const [trips, setTrips] = useState<BoardTrip[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [staff, setStaff] = useState<TripStaff[]>([]);
+  const [drivers, setDrivers] = useState<TripDriver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [live, setLive] = useState<LiveState>("connecting");
@@ -94,7 +95,7 @@ export function useBoard(day: string, options: { routes?: boolean; staff?: boole
       setBuses(busData.buses);
       setTrips(boardData.trips);
       if (routeData) setRoutes(routeData.routes);
-      if (staffData) setStaff(staffData.staff);
+      if (staffData) { setStaff(staffData.staff); setDrivers(staffData.drivers); }
       setError("");
     } catch (cause) {
       if (!signal.aborted) setError(message(cause, "Could not load the board."));
@@ -103,5 +104,5 @@ export function useBoard(day: string, options: { routes?: boolean; staff?: boole
     }
   }, 15_000, [day, revision, wantRoutes, wantStaff]);
 
-  return { buses, trips, routes, staff, loading, error, live, reload };
+  return { buses, trips, routes, staff, drivers, loading, error, live, reload };
 }

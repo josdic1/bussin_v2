@@ -79,9 +79,34 @@ export const tripStaffSchema = z.strictObject({
   displayName: z.string()
 });
 
-export const dispatchStaffResponseSchema = z.strictObject({
-  staff: z.array(tripStaffSchema)
+// A driver is a person on the trip, not a login.
+export const tripDriverSchema = z.strictObject({
+  id: z.string().uuid(),
+  name: z.string(),
+  phone: z.string().nullable()
 });
+export type TripDriver = z.infer<typeof tripDriverSchema>;
+
+export const dispatchStaffResponseSchema = z.strictObject({
+  staff: z.array(tripStaffSchema),
+  // Active drivers, for the crew picker.
+  drivers: z.array(tripDriverSchema)
+});
+
+// The whole crew for one trip, saved at once.
+//   driverId:     who is driving (can be swapped while the trip runs).
+//   leadId:       the lead counselor; runs the trip. Required to start.
+//   counselorIds: up to 3 more counselors, for Ride Check.
+// Lead and counselors can only change before the trip starts.
+export const assignTripCrewSchema = z.strictObject({
+  driverId: z.string().uuid().nullable(),
+  leadId: z.string().uuid().nullable(),
+  counselorIds: z.array(z.string().uuid()).max(3, "A trip can have the lead plus up to 3 more counselors.")
+}).refine((crew) => new Set(crew.counselorIds).size === crew.counselorIds.length,
+  { message: "Each counselor can only be added once." })
+  .refine((crew) => !crew.leadId || !crew.counselorIds.includes(crew.leadId),
+  { message: "The lead is already on the crew. Pick someone else as a counselor." });
+export type AssignTripCrew = z.infer<typeof assignTripCrewSchema>;
 
 export const assignTripStaffSchema = z.strictObject({
   memberId: z.string().uuid().nullable()
@@ -242,6 +267,9 @@ export const boardEtaSchema = z.strictObject({
 });
 
 export const boardTripSchema = plannedTripSchema.extend({
+  // assignedStaff (from plannedTripSchema) is the lead counselor.
+  driver: tripDriverSchema.nullable(),
+  counselors: z.array(tripStaffSchema),
   stops: z.array(boardStopSchema),
   location: boardLocationSchema.nullable(),
   staffLastSeenAt: z.string().nullable(),

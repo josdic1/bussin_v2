@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import {
-  assignTripStaffSchema, dispatchGpsAuditResponseSchema,
-  type BoardTrip, type Bus, type Route, type DispatchGpsAuditEntry, type TripStaff
+  assignTripCrewSchema, dispatchGpsAuditResponseSchema,
+  type BoardTrip, type Bus, type Route, type DispatchGpsAuditEntry, type TripDriver, type TripStaff
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
 import { age, duration, time, timeWithSeconds } from "../ops/format";
@@ -36,42 +36,93 @@ export function ConfirmFor({ trip, actions }: { trip: BoardTrip; actions: TripAc
     yes={pending.type === "cancel" ? "Yes, cancel" : "Yes, complete"} onYes={actions.confirm} onNo={actions.dismiss} busy={actions.busy} />;
 }
 
-function StaffAssign({ trip, staff, onSaved, toast }: {
-  trip: BoardTrip; staff: TripStaff[]; onSaved: () => void; toast: (text: string) => void;
+// The crew for one trip: driver, lead counselor, up to 3 more counselors.
+// Before the trip starts everything can change. While it runs, only the driver
+// can be swapped (a mid-route handoff); the history keeps both drivers.
+function CrewAssign({ trip, staff, drivers, onSaved, toast }: {
+  trip: BoardTrip; staff: TripStaff[]; drivers: TripDriver[]; onSaved: () => void; toast: (text: string) => void;
 }) {
-  const current = trip.assignedStaff?.id ?? "";
-  const [choice, setChoice] = useState(current);
+  const now = {
+    driverId: trip.driver?.id ?? "",
+    leadId: trip.assignedStaff?.id ?? "",
+    counselorIds: trip.counselors.map((c) => c.id)
+  };
+  const key = `${trip.id}|${now.driverId}|${now.leadId}|${now.counselorIds.join(",")}`;
+  const [driverId, setDriverId] = useState(now.driverId);
+  const [leadId, setLeadId] = useState(now.leadId);
+  const [counselorIds, setCounselorIds] = useState<string[]>(now.counselorIds);
   const [saving, setSaving] = useState(false);
-  useEffect(() => setChoice(current), [trip.id, current]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setDriverId(now.driverId); setLeadId(now.leadId); setCounselorIds(now.counselorIds); setError("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  const planned = trip.status === "planned";
+  const nameOf = (id: string) => staff.find((p) => p.id === id)?.displayName
+    ?? trip.counselors.find((c) => c.id === id)?.displayName ?? (trip.assignedStaff?.id === id ? trip.assignedStaff.displayName : "Staff");
+  const changed = driverId !== now.driverId || leadId !== now.leadId || counselorIds.join(",") !== now.counselorIds.join(",");
+  const addable = staff.filter((p) => p.id !== leadId && !counselorIds.includes(p.id));
+  // A driver on the trip who has since been retired still shows, so the picker never hides who's driving.
+  const driverOptions = trip.driver && !drivers.some((d) => d.id === trip.driver!.id) ? [trip.driver, ...drivers] : drivers;
 
   async function save() {
-    const parsed = assignTripStaffSchema.safeParse({ memberId: choice || null });
-    if (!parsed.success) return;
+    const parsed = assignTripCrewSchema.safeParse({ driverId: driverId || null, leadId: leadId || null, counselorIds });
+    if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the crew."); return; }
     setSaving(true);
+    setError("");
     try {
-      await send("PUT", `/api/dispatch/trips/${trip.id}/staff`, parsed.data, "Could not save staff assignment.");
-      const person = staff.find((item) => item.id === choice);
-      toast(person ? `${person.displayName} assigned to ${trip.busLabel}.` : "Staff removed from this trip.");
+      await send("PUT", `/api/dispatch/trips/${trip.id}/crew`, parsed.data, "Could not save the crew.");
+      toast(`Crew saved for ${trip.busLabel}.`);
       onSaved();
     } catch (cause) {
-      toast(message(cause, "Could not save staff assignment."));
+      setError(message(cause, "Could not save the crew."));
     } finally {
       setSaving(false);
     }
   }
 
-  return <div className="dblock">
-    <label className="lt" htmlFor={`staff-${trip.id}`}>Assigned staff</label>
-    <div className="assign" style={{ marginTop: 6 }}>
-      <select id={`staff-${trip.id}`} value={choice} disabled={saving} onChange={(event) => setChoice(event.target.value)}>
-        <option value="">Unassigned</option>
-        {staff.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}
-      </select>
-      <button type="button" className="btn btn-primary" disabled={saving || choice === current} onClick={() => void save()}>
-        {saving ? "Saving…" : "Assign"}
-      </button>
+  return <div className="dblock crew">
+    <h3>Crew</h3>
+    <label className="lt" htmlFor={`driver-${trip.id}`}>Driver</label>
+    <select id={`driver-${trip.id}`} value={driverId} disabled={saving} onChange={(event) => setDriverId(event.target.value)}>
+      <option value="">No driver set</option>
+      {driverOptions.map((d) => <option key={d.id} value={d.id}>{d.name}{d.phone ? ` · ${d.phone}` : ""}</option>)}
+    </select>
+    {!drivers.length && !trip.driver && <span className="hint">Add drivers in Data → Drivers.</span>}
+
+    <label className="lt" htmlFor={`lead-${trip.id}`}>Lead counselor</label>
+    <select id={`lead-${trip.id}`} value={leadId} disabled={saving || !planned}
+      onChange={(event) => { const next = event.target.value; setLeadId(next); setCounselorIds((c) => c.filter((id) => id !== next)); }}>
+      <option value="">No lead yet</option>
+      {leadId && !staff.some((p) => p.id === leadId) && <option value={leadId}>{nameOf(leadId)}</option>}
+      {staff.map((p) => <option key={p.id} value={p.id}>{p.displayName}</option>)}
+    </select>
+
+    <span className="lt">Other counselors <small>({counselorIds.length} of 3)</small></span>
+    <div className="crew-chips">
+      {counselorIds.map((id) => <span key={id} className="crew-chip">{nameOf(id)}
+        {planned && <button type="button" aria-label={`Remove ${nameOf(id)}`} disabled={saving}
+          onClick={() => setCounselorIds((c) => c.filter((x) => x !== id))}>&times;</button>}</span>)}
+      {!counselorIds.length && <span className="hint">None</span>}
     </div>
-    {!trip.assignedStaff && <span className="hint">Assign staff before starting this trip.</span>}
+    {planned && counselorIds.length < 3 && <select aria-label="Add a counselor" value="" disabled={saving || !addable.length}
+      onChange={(event) => { const id = event.target.value; if (id) setCounselorIds((c) => [...c, id]); }}>
+      <option value="">{addable.length ? "Add a counselor…" : "No more staff to add"}</option>
+      {addable.map((p) => <option key={p.id} value={p.id}>{p.displayName}</option>)}
+    </select>}
+
+    {!planned && <span className="hint">The trip is running: only the driver can be swapped.</span>}
+    {planned && !leadId && <span className="hint">Pick a lead counselor before starting this trip.</span>}
+    {error && <p className="crew-err" role="alert">{error}</p>}
+    <div className="acts" style={{ margin: "10px 0 0" }}>
+      <button type="button" className="btn btn-primary" disabled={saving || !changed} onClick={() => void save()}>
+        {saving ? "Saving…" : "Save crew"}
+      </button>
+      {changed && !saving && <button type="button" className="btn" onClick={() => {
+        setDriverId(now.driverId); setLeadId(now.leadId); setCounselorIds(now.counselorIds); setError("");
+      }}>Undo changes</button>}
+    </div>
   </div>;
 }
 
@@ -143,8 +194,8 @@ export function StopsList({ trip, color, actions, readOnly, now }: {
 }
 
 /** Full trip detail: the desktop right pane, and the phone sheet. */
-export function TripDetail({ row, trip, staff, buses, routes, now, actions, editable, onOpenTrip, onChanged, onEdited, toast, riders }: {
-  row: BusRow; trip: BoardTrip; staff: TripStaff[]; now: number; actions: TripActions;
+export function TripDetail({ row, trip, staff, drivers, buses, routes, now, actions, editable, onOpenTrip, onChanged, onEdited, toast, riders }: {
+  row: BusRow; trip: BoardTrip; staff: TripStaff[]; drivers: TripDriver[]; now: number; actions: TripActions;
   editable: boolean; onOpenTrip: (id: string) => void; onChanged: () => void;
   toast: (text: string) => void; riders: { aboard: number; total: number } | null;
   buses: Bus[]; routes: Route[]; onEdited: (departureAt: string) => void;
@@ -170,7 +221,9 @@ export function TripDetail({ row, trip, staff, buses, routes, now, actions, edit
         <b>{alert.sev === "high" ? "ATTENTION" : "HEADS UP"}</b><span>{alert.text}</span></div>)}
     </div>}
     <dl className="d-grid">
-      <div><dt>Driver</dt><dd>{trip.assignedStaff?.displayName ?? "Unassigned"}</dd></div>
+      <div><dt>Driver</dt><dd>{trip.driver?.name ?? "Not set"}</dd></div>
+      <div><dt>Lead</dt><dd>{trip.assignedStaff?.displayName ?? "Unassigned"}</dd></div>
+      <div><dt>Counselors</dt><dd>{trip.counselors.length ? trip.counselors.map((c) => c.displayName).join(", ") : "Lead only"}</dd></div>
       <div><dt>Phone</dt><dd className={phone ? phone.ok ? "ok" : "bad" : ""}>{phone ? phone.text.replace(/^Phone: /, "").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "None"}</dd></div>
       <div><dt>GPS</dt><dd className={trip.status === "active" && !trip.location ? "bad" : ""}>{gpsText}</dd></div>
       {riders
@@ -178,7 +231,8 @@ export function TripDetail({ row, trip, staff, buses, routes, now, actions, edit
         : <div><dt>Progress</dt><dd>{stopsDone(trip)} of {trip.stops.length} stops</dd></div>}
     </dl>
     <p className="tk">{trackingText(trip, now)}</p>
-    {trip.status === "planned" && <StaffAssign trip={trip} staff={staff} onSaved={onChanged} toast={toast} />}
+    {(trip.status === "planned" || trip.status === "active") &&
+      <CrewAssign trip={trip} staff={staff} drivers={drivers} onSaved={onChanged} toast={toast} />}
     {trip.status === "planned" && !editing && <div className="acts">
       <button type="button" className="btn" onClick={() => setEditing(true)}>Edit trip</button>
     </div>}

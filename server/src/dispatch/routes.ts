@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
+  assignTripCrewSchema,
   assignTripStaffSchema,
   boardResponseSchema,
   routeGeometriesResponseSchema,
@@ -23,6 +24,7 @@ import { editPlannedTrip } from "../trips/edit.js";
 import { subscribeToDispatchLocations } from "./live.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
 import { openStream } from "../sse.js";
+import { CrewError, loadCrew, saveCrew } from "./crew.js";
 
 export const dispatchRoutes = Router();
 
@@ -217,8 +219,11 @@ dispatchRoutes.get("/staff", requireRole("admin", "dispatch"), async (_request, 
       WHERE m.suspended_at IS NULL
       ORDER BY m.display_name, m.id`
   );
+  const drivers = await pool.query<{ id: string; name: string; phone: string | null }>(
+    `SELECT id, name, phone FROM drivers WHERE active ORDER BY name, id`
+  );
 
-  response.json(dispatchStaffResponseSchema.parse({ staff: result.rows }));
+  response.json(dispatchStaffResponseSchema.parse({ staff: result.rows, drivers: drivers.rows }));
 });
 
 dispatchRoutes.put(
@@ -254,7 +259,7 @@ dispatchRoutes.put(
       const current = await client.query<{ id: string; memberId: string }>(
         `SELECT id, member_id AS "memberId"
            FROM staff_assignments
-          WHERE trip_id = $1 AND ended_at IS NULL
+          WHERE trip_id = $1 AND ended_at IS NULL AND crew_role = 'lead'
           FOR UPDATE`,
         [tripId.data]
       );
@@ -305,7 +310,7 @@ dispatchRoutes.put(
 
       if (staff) {
         await client.query(
-          "INSERT INTO staff_assignments (trip_id, member_id) VALUES ($1, $2)",
+          "INSERT INTO staff_assignments (trip_id, member_id, crew_role) VALUES ($1, $2, 'lead')",
           [tripId.data, staff.id]
         );
       }
@@ -400,6 +405,38 @@ type BoardRow = TripRow & {
   staffLastSeenAt: Date | null;
 };
 
+// Save the whole crew for a trip: driver, lead counselor, up to 3 more counselors.
+dispatchRoutes.put("/trips/:id/crew", requireSameOrigin, requireRole("admin", "dispatch"), async (request, response) => {
+  const tripId = tripIdSchema.safeParse(request.params.id);
+  const input = assignTripCrewSchema.safeParse(request.body);
+  if (!tripId.success || !input.success) {
+    response.status(400).json({ error: input.success ? "Invalid trip." : input.error.issues[0]?.message ?? "Check the crew." });
+    return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await saveCrew(client, tripId.data, input.data);
+    await client.query("COMMIT");
+    response.json({ ok: true });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    if (error instanceof CrewError) {
+      response.status(error.status).json({ error: error.message });
+      return;
+    }
+    if (typeof error === "object" && error !== null && "code" in error && (error.code === "23505" || error.code === "P0001")) {
+      const text = "message" in error && typeof error.message === "string" ? error.message : "";
+      response.status(409).json({ error: /at most 4/.test(text) ? "A trip can have at most 4 counselors."
+        : /driver/i.test(text) ? "That driver can't be put on this trip." : "That crew change isn't allowed right now. Reload and try again." });
+      return;
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+});
+
 dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, response) => {
   const parsed = boardQuerySchema.safeParse(request.query);
   if (!parsed.success) {
@@ -473,7 +510,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
            FROM staff_assignments a
            JOIN members m ON m.id = a.member_id
           WHERE a.trip_id = t.id
-          ORDER BY (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
+          ORDER BY (a.ended_at IS NULL) DESC, (a.crew_role = 'lead') DESC, a.assigned_at DESC, a.id DESC
           LIMIT 1
        ) assigned_staff ON true
        LEFT JOIN staff_presence ON staff_presence.member_id = assigned_staff.id
@@ -532,6 +569,9 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
       });
     }
   }
+  const crew = await loadCrew([...trips.keys()]);
+  for (const trip of trips.values()) Object.assign(trip, crew.get(trip.id));
+
   await Promise.all(
     [...trips.values()].map(async (trip) => {
       if (trip.status !== "active") return;
@@ -602,7 +642,7 @@ dispatchRoutes.get("/trips", requireRole("admin", "dispatch"), async (_request, 
            FROM staff_assignments a
            JOIN members m ON m.id = a.member_id
           WHERE a.trip_id = t.id
-          ORDER BY (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
+          ORDER BY (a.ended_at IS NULL) DESC, (a.crew_role = 'lead') DESC, a.assigned_at DESC, a.id DESC
           LIMIT 1
        ) assigned_staff ON true
       GROUP BY t.id, r.id, b.id, assigned_staff.id, assigned_staff.display_name
@@ -802,7 +842,7 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
            FROM staff_assignments a
            JOIN members m ON m.id = a.member_id
           WHERE a.trip_id = t.id
-          ORDER BY (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
+          ORDER BY (a.ended_at IS NULL) DESC, (a.crew_role = 'lead') DESC, a.assigned_at DESC, a.id DESC
           LIMIT 1
        ) staff ON true
       WHERE t.departure_at >= $1 AND t.departure_at < $2

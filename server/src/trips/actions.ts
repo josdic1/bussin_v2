@@ -36,6 +36,7 @@ export async function applyTripAction(
                  AND r.revoked_at IS NULL
                WHERE a.trip_id = t.id
                  AND a.ended_at IS NULL
+                 AND a.crew_role = 'lead'
                  AND m.suspended_at IS NULL
             ) AS "hasAssignedStaff",
             CASE WHEN $2::uuid IS NULL THEN true ELSE EXISTS (
@@ -98,7 +99,7 @@ export async function applyTripAction(
   switch (input.action.type) {
     case "start":
       if (trip.rows[0].status !== "planned") problem = "Only a planned trip can start.";
-      else if (!trip.rows[0].hasAssignedStaff) problem = "Assign an active staff member before starting the trip.";
+      else if (!trip.rows[0].hasAssignedStaff) problem = "Assign a lead counselor before starting the trip.";
       else if (!stops.rowCount) problem = "This trip has no stops.";
       else {
         const concurrent = await client.query(

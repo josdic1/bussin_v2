@@ -62,13 +62,16 @@ memberRoutes.get("/schedule", requireRole("admin"), async (request, response) =>
     status: "planned" | "active" | "completed" | "cancelled";
   }>(
     `WITH chosen_assignment AS (
-       SELECT DISTINCT ON (a.trip_id)
+       -- Everyone on each trip's crew (lead and counselors): open seats, or for a
+       -- finished trip, whoever was still on it when it ended.
+       SELECT DISTINCT ON (a.trip_id, a.member_id)
               a.trip_id, a.member_id
          FROM staff_assignments a
          JOIN trips t ON t.id = a.trip_id
         WHERE t.departure_at >= $1
           AND t.departure_at < $2
-        ORDER BY a.trip_id, (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
+          AND (a.ended_at IS NULL OR a.ended_at >= COALESCE(t.ended_at, t.cancelled_at))
+        ORDER BY a.trip_id, a.member_id, (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
      )
      SELECT m.id AS "memberId",
             m.display_name AS "displayName",

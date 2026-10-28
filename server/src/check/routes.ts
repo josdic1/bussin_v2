@@ -100,7 +100,7 @@ checkRoutes.get("/board", requireRole("admin", "dispatch"), async (request, resp
            FROM staff_assignments a
            JOIN members m ON m.id = a.member_id
           WHERE a.trip_id = t.id
-          ORDER BY (a.ended_at IS NULL) DESC, a.assigned_at DESC, a.id DESC
+          ORDER BY (a.ended_at IS NULL) DESC, (a.crew_role = 'lead') DESC, a.assigned_at DESC, a.id DESC
           LIMIT 1
        ) staff ON true
        LEFT JOIN staff_presence presence ON presence.member_id = staff.id

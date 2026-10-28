@@ -101,8 +101,8 @@ function ListRow({ row, selected, now, onSelect }: { row: BusRow; selected: bool
   const eta = trip ? nextEta(trip) : null;
   const first = row.alerts[0];
   const sub = !trip ? "No trip on this day"
-    : trip.status === "active" ? `Running · ${trip.assignedStaff?.displayName ?? "No driver"} · ${stopsDone(trip)} of ${trip.stops.length} stops`
-      : trip.status === "planned" ? `Planned · ${trip.assignedStaff?.displayName ?? "No driver"} · ${time(trip.departureAt)}`
+    : trip.status === "active" ? `Running · ${trip.assignedStaff?.displayName ?? "No lead"} · ${stopsDone(trip)} of ${trip.stops.length} stops`
+      : trip.status === "planned" ? `Planned · ${trip.assignedStaff?.displayName ?? "No lead"} · ${time(trip.departureAt)}`
         : trip.status === "completed" ? `Finished ${trip.routeName}` : `Cancelled ${trip.routeName}`;
   const right = first
     ? <span className={`pill ${first.sev === "high" ? "bad" : "warn"}`}>{first.short}</span>
@@ -247,7 +247,7 @@ export function DispatchPage() {
 
   const detail = (id: string) => {
     const found = rowForTrip(rows, id);
-    return found ? <TripDetail row={found.row} trip={found.trip} staff={board.staff} buses={board.buses} routes={board.routes} now={now} actions={actions}
+    return found ? <TripDetail row={found.row} trip={found.trip} staff={board.staff} drivers={board.drivers} buses={board.buses} routes={board.routes} now={now} actions={actions}
       onEdited={(departureAt) => { setDay(localDate(new Date(departureAt))); board.reload(); }}
       editable={day === today} onOpenTrip={openTrip} onChanged={board.reload} toast={toast} riders={riderCount(found.trip.id)} />
       : <NoMatch>That trip is not on this day.</NoMatch>;

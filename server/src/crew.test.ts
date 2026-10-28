@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { Pool } from "pg";
+import { CrewError, saveCrew } from "./dispatch/crew.js";
 
 // Trip crew rules (migration 033), checked straight against the database:
 //   one driver at a time (swaps keep history), one lead counselor, at most 4 counselors,
@@ -121,6 +122,40 @@ test("trip crew rules", async (t) => {
       assert.equal(open.rows[0].n, 0);
       await refuses("INSERT INTO trip_driver_assignments (trip_id, driver_id) VALUES ($1, $2)",
         [trip, driverA], /planned or running trip/);
+    });
+
+    await isolated("saveCrew sets a full crew, then swaps a driver mid-trip but not counselors", async () => {
+      const trip = await newTrip();
+      await saveCrew(client, trip, { driverId: driverA, leadId: staff[0]!, counselorIds: [staff[1]!, staff[2]!, staff[3]!] });
+      const seats = await client.query("SELECT member_id, crew_role FROM staff_assignments WHERE trip_id = $1 AND ended_at IS NULL ORDER BY crew_role, member_id", [trip]);
+      assert.equal(seats.rowCount, 4);
+      assert.equal(seats.rows.filter((r) => r.crew_role === "lead").length, 1);
+      // Promote a counselor to lead before the trip: old lead leaves, no duplicates.
+      await saveCrew(client, trip, { driverId: driverA, leadId: staff[1]!, counselorIds: [staff[2]!] });
+      const after = await client.query("SELECT member_id, crew_role FROM staff_assignments WHERE trip_id = $1 AND ended_at IS NULL", [trip]);
+      assert.deepEqual(after.rows.map((r) => `${r.member_id}:${r.crew_role}`).sort(),
+        [`${staff[1]}:lead`, `${staff[2]}:counselor`].sort());
+      await client.query("UPDATE trips SET status = 'active', started_at = now() WHERE id = $1", [trip]);
+      await saveCrew(client, trip, { driverId: driverB, leadId: staff[1]!, counselorIds: [staff[2]!] });
+      const drivers = await client.query("SELECT driver_id, ended_at IS NULL AS open FROM trip_driver_assignments WHERE trip_id = $1 ORDER BY assigned_at, ended_at NULLS LAST", [trip]);
+      assert.deepEqual(drivers.rows.map((r) => [r.driver_id, r.open]), [[driverA, false], [driverB, true]]);
+      await client.query("SAVEPOINT expect_crew_error");
+      await assert.rejects(saveCrew(client, trip, { driverId: driverB, leadId: staff[1]!, counselorIds: [] }),
+        (error: unknown) => error instanceof CrewError && /only change before the trip starts/.test(error.message));
+      await client.query("ROLLBACK TO SAVEPOINT expect_crew_error");
+    });
+
+    await isolated("saveCrew refuses a retired driver and non-staff", async () => {
+      const trip = await newTrip();
+      await client.query("SAVEPOINT expect_crew_error2");
+      await assert.rejects(saveCrew(client, trip, { driverId: retired, leadId: null, counselorIds: [] }),
+        (error: unknown) => error instanceof CrewError && /active driver/.test(error.message));
+      await client.query("ROLLBACK TO SAVEPOINT expect_crew_error2");
+      const outsider = await id("INSERT INTO members (email, display_name) VALUES ($1, 'Not staff')", [`${tag}-x@example.test`]);
+      await client.query("SAVEPOINT expect_crew_error3");
+      await assert.rejects(saveCrew(client, trip, { driverId: null, leadId: outsider, counselorIds: [] }),
+        (error: unknown) => error instanceof CrewError && /active staff/.test(error.message));
+      await client.query("ROLLBACK TO SAVEPOINT expect_crew_error3");
     });
 
     await client.query("ROLLBACK");
