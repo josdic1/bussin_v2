@@ -7,6 +7,7 @@ import type { z } from "zod";
 import { getJson, message } from "../ops/api";
 import { Head, Search } from "../ops/ui";
 import { ImportRoster } from "./ImportRoster";
+import { AddDriver } from "./AddDriver";
 import "./data.css";
 
 // Data mode: every table as a plain grid.
@@ -239,6 +240,11 @@ export function DataPage() {
           <a className="btn" href="/api/families/roster.csv" download>Download CSV</a>
           <button type="button" className="btn" onClick={() => { setDone(""); setImporting(true); }}>Upload CSV</button>
         </div>}
+        {active === "drivers" && <AddDriver onAdded={(row) => {
+          setTable((now) => (now ? { ...now, rows: [row, ...now.rows] } : now));
+          setCards((now) => now.map((c) => (c.key === "drivers" ? { ...c, count: c.count + 1 } : c)));
+          setDone(`Added driver ${text(row.cells.name)}.`);
+        }} />}
         <div className="dm-find">
           <Search value={query} onChange={setQuery} placeholder="Filter this table" />
         </div>
@@ -289,6 +295,18 @@ export function DataPage() {
                 ].filter(Boolean).join(" ");
 
                 if (isEditing && column.edit) {
+                  if (column.edit === "active") {
+                    const current = editing.draft;
+                    return <td key={column.key} className={cls}>
+                      <select autoFocus aria-label={`${column.label} for ${rowName(row)}`} value={current}
+                        onChange={(event) => void save(row, column, event.target.value)}
+                        onBlur={() => setEditing(null)}
+                        onKeyDown={(event) => onKey(event, row, column, current)}>
+                        <option value="Active">Active</option>
+                        <option value="Retired">Retired</option>
+                      </select>
+                    </td>;
+                  }
                   if (column.edit === "stop-AM" || column.edit === "stop-PM") {
                     const options = column.edit === "stop-AM" ? stops.AM : stops.PM;
                     const current = editing.draft;

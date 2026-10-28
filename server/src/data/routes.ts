@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import {
   dataEditResponseSchema, dataEditSchema, dataStopOptionsResponseSchema, dataTableKeySchema,
-  dataTableResponseSchema, dataTablesResponseSchema,
+  dataTableResponseSchema, dataTablesResponseSchema, driverInputSchema,
   type DataCell, type DataColumn, type DataRow, type DataTableKey
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
@@ -17,8 +17,8 @@ import { syncPlannedTripRiders } from "../families/access.js";
 // plain text. Columns with an "edit" kind can be changed from the grid.
 // Hidden helper columns start with "_" (never shown) or end in "Ref" (dropdown values).
 //
-// Editable today: rider names and AM/PM stops, guardian name/phone/email, bus label,
-// staff name and email. Routes and stops stay read-only here; they have their own page.
+// Editable today: rider names and AM/PM stops, guardian name/phone/email, driver
+// name/phone/status, bus label, staff name and email. Drivers can be added here too. Routes and stops stay read-only here; they have their own page.
 // Staff username, roles and status stay locked: they decide who can sign in and what they can do.
 
 type Table = { label: string; columns: DataColumn[]; sql: string; countSql: string };
@@ -72,6 +72,18 @@ const TABLES: Record<DataTableKey, Table> = {
             FROM guardians g LEFT JOIN members m ON m.id = g.member_id
            ORDER BY g.name, g.id`,
     countSql: "SELECT count(*)::int AS n FROM guardians"
+  },
+  drivers: {
+    label: "Drivers",
+    columns: [
+      col("name", "Driver", "text"), col("phone", "Phone", "phone"),
+      col("status", "Status", "active"), col("trips", "Trips driven")
+    ],
+    sql: `SELECT d.id, d.name, d.phone, CASE WHEN d.active THEN 'Active' ELSE 'Retired' END AS status,
+                 (SELECT count(DISTINCT a.trip_id)::int FROM trip_driver_assignments a WHERE a.driver_id = d.id) AS trips,
+                 NULL::text AS "_locked"
+            FROM drivers d ORDER BY d.active DESC, d.name, d.id`,
+    countSql: "SELECT count(*)::int AS n FROM drivers"
   },
   buses: {
     label: "Buses",
@@ -172,6 +184,35 @@ dataRoutes.get("/options/stops", requireRole("admin"), async (_request, response
     AM: result.rows.filter((row) => row.period === "AM").map(({ value, label }) => ({ value, label })),
     PM: result.rows.filter((row) => row.period === "PM").map(({ value, label }) => ({ value, label }))
   }));
+});
+
+// Add a driver. Drivers have no login: just a name and an optional phone.
+dataRoutes.post("/drivers", requireSameOrigin, requireRole("admin"), async (request, response) => {
+  const parsed = driverInputSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the driver's details." });
+    return;
+  }
+  const member = currentMember(response);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const created = await client.query<{ id: string }>(
+      `INSERT INTO drivers (name, phone) VALUES ($1, $2) RETURNING id`, [parsed.data.name, parsed.data.phone]
+    );
+    const id = created.rows[0]!.id;
+    await client.query(
+      `INSERT INTO data_edits (member_id, member_name, table_name, row_id, column_name, old_value, new_value)
+       VALUES ($1, $2, 'drivers', $3, 'added', NULL, $4)`,
+      [member.id, member.display_name, id, parsed.data.name]
+    );
+    const [row] = await readRows(client, "drivers", id);
+    await client.query("COMMIT");
+    response.status(201).json(dataEditResponseSchema.parse({ row }));
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally { client.release(); }
 });
 
 // One table as a grid.
@@ -302,14 +343,46 @@ async function editMember(client: PoolClient, row: DataRow, column: string, from
   return { column, old: from || null, value: next };
 }
 
+// Drivers: name, phone, and Active/Retired. A retired driver stays on past trips but
+// can't be put on new ones. Retiring someone still assigned to a trip that hasn't
+// finished is refused, so no running bus loses its driver record.
+async function editDriver(client: PoolClient, row: DataRow, column: string, from: string, value: string): Promise<EditResult> {
+  if (!["name", "phone", "status"].includes(column)) throw new EditError(400, "That column can't be edited here.");
+  if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
+  if (column === "name") {
+    const next = check(name120, value);
+    await client.query(`UPDATE drivers SET name = $2 WHERE id = $1`, [row.id, next]);
+    return { column, old: from, value: next };
+  }
+  if (column === "phone") {
+    const next = check(optionalPhone, value);
+    await client.query(`UPDATE drivers SET phone = $2 WHERE id = $1`, [row.id, next]);
+    return { column, old: from || null, value: next };
+  }
+  if (value !== "Active" && value !== "Retired") throw new EditError(400, "Pick Active or Retired.");
+  if (value === "Retired") {
+    const busy = await client.query(
+      `SELECT 1 FROM trip_driver_assignments a JOIN trips t ON t.id = a.trip_id
+        WHERE a.driver_id = $1 AND a.ended_at IS NULL AND t.status IN ('planned', 'active') LIMIT 1`,
+      [row.id]
+    );
+    if (busy.rowCount) throw new EditError(409, "This driver is on a trip that hasn't finished. Swap them off it first.");
+  }
+  await client.query(`UPDATE drivers SET active = $2 WHERE id = $1`, [row.id, value === "Active"]);
+  return { column, old: from, value };
+}
+
 const EDITORS: Partial<Record<DataTableKey, typeof editRider>> = {
+  drivers: editDriver,
   riders: editRider,
   guardians: editGuardian,
   buses: editBus,
   members: editMember
 };
 
-const LOCK_TABLE: Record<string, string> = { riders: "riders", guardians: "guardians", buses: "buses", members: "members" };
+const LOCK_TABLE: Record<string, string> = {
+  riders: "riders", guardians: "guardians", drivers: "drivers", buses: "buses", members: "members"
+};
 
 function refuse(response: Response, status: number, error: string, row?: DataRow) {
   response.status(status).json(row ? { error, row } : { error });

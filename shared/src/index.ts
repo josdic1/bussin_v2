@@ -748,7 +748,7 @@ export type FamilyMessage = z.infer<typeof familyMessageSchema>;
 export const familyMessagesResponseSchema = z.strictObject({ messages: z.array(familyMessageSchema) });
 
 // ---------- Data mode: every table as a plain grid (admin) ----------
-export const dataTableKeySchema = z.enum(["riders", "guardians", "buses", "routes", "stops", "members"]);
+export const dataTableKeySchema = z.enum(["riders", "guardians", "drivers", "buses", "routes", "stops", "members"]);
 export type DataTableKey = z.infer<typeof dataTableKeySchema>;
 export const dataTablesResponseSchema = z.strictObject({
   tables: z.array(z.strictObject({ key: dataTableKeySchema, label: z.string(), count: z.number().int().nonnegative() }))
@@ -756,7 +756,7 @@ export const dataTablesResponseSchema = z.strictObject({
 export const dataCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 export type DataCell = z.infer<typeof dataCellSchema>;
 // How a column can be edited in the grid. null = read-only.
-export const dataEditKindSchema = z.enum(["text", "email", "phone", "stop-AM", "stop-PM"]).nullable();
+export const dataEditKindSchema = z.enum(["text", "email", "phone", "stop-AM", "stop-PM", "active"]).nullable();
 export type DataEditKind = z.infer<typeof dataEditKindSchema>;
 export const dataColumnSchema = z.strictObject({ key: z.string(), label: z.string(), edit: dataEditKindSchema });
 export type DataColumn = z.infer<typeof dataColumnSchema>;
@@ -784,6 +784,15 @@ export const dataEditSchema = z.strictObject({
 });
 export type DataEdit = z.infer<typeof dataEditSchema>;
 export const dataEditResponseSchema = z.strictObject({ row: dataRowSchema });
+
+// Add a driver from Data mode. Drivers are names on a trip, not logins.
+export const driverInputSchema = z.strictObject({
+  name: z.string().trim().min(1, "Enter the driver's name.").max(120, "Keep the name under 120 characters."),
+  phone: z.string().trim().max(40, "Keep the phone under 40 characters.")
+    .transform((value) => value || null)
+    .refine((value) => value === null || /\d{7,}/.test(value.replace(/\D/g, "")), "That doesn't look like a phone number.")
+});
+export type DriverInput = z.input<typeof driverInputSchema>;
 
 // Choices for the AM and PM stop dropdowns: active routes only.
 export const dataStopOptionSchema = z.strictObject({ value: z.string(), label: z.string() });

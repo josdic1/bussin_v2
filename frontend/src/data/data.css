@@ -76,3 +76,9 @@
 .ops .im-list li.im-error em,.ops .im-list li.im-error p{color:#b42318}
 .ops .im-list li.im-skip em{color:#b54708}
 .ops .im-actions{position:sticky;bottom:-22px;display:flex;justify-content:flex-end;gap:8px;margin:12px -24px -22px;padding:14px 24px 22px;background:#fff;border-top:1px solid var(--line)}
+
+/* ---------- Add driver (Drivers table) ---------- */
+.ops .dm-add{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ops .dm-add input{height:34px;width:170px}
+.ops .dm-add .btn{min-height:34px}
+.ops .dm-add-err{color:#b42318;font-size:12px}
