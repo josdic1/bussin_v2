@@ -227,7 +227,8 @@
 .ops .map-bus.dim{opacity:.55}
 .ops .map-bus i{position:absolute;left:50%;top:50%;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:10px solid var(--c);transform-origin:50% 0}
 .ops .detail{padding:16px}
-.ops .detailpanel .detail{max-height:640px;overflow:auto}
+/* The trip panel grows with the page: no box-inside-a-box scrolling. */
+.ops .detailpanel .detail{max-height:none;overflow:visible}
 .ops .m .detailpanel .detail{max-height:none}
 .ops .eta{list-style:none;margin:6px 0 10px;padding:0}
 .ops .eta li{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;font-size:12px;position:relative}
@@ -651,3 +652,9 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 @media (max-width:1100px){.ops .withrail{grid-template-columns:minmax(0,1fr);margin-left:0}.ops .jumprail{display:none}
   .ops .split{background:#fff}.ops .rdetail{position:static;max-height:none}}
 .ops .split .tbl,.ops .tbl.sticky-head{overflow:clip}
+
+/* Dispatch map: two fixed views instead of free zoom. */
+.ops .map-views{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;padding:3px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.95);box-shadow:0 4px 14px -8px rgba(0,0,0,.3)}
+.ops .map-views button{border:0;border-radius:7px;background:none;padding:6px 10px;font-size:12px;font-weight:800;color:var(--muted);cursor:pointer}
+.ops .map-views button.on{background:var(--green);color:#fff}
+.ops .map-views button:disabled{opacity:.4;cursor:default}

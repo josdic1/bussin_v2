@@ -220,6 +220,22 @@ export function TripDetail({ row, trip, staff, drivers, buses, routes, now, acti
       {alerts.map((alert) => <div key={alert.text} className={`alert ${alert.sev === "high" ? "alert-high" : ""}`}>
         <b>{alert.sev === "high" ? "ATTENTION" : "HEADS UP"}</b><span>{alert.text}</span></div>)}
     </div>}
+    {/* Trip controls first, so they never sit below the fold. */}
+    {(trip.status === "planned" || trip.status === "active") && !editing && <div className="acts trip-controls" aria-label="Trip controls">
+      {editable && trip.status === "planned" && <button type="button" className="btn btn-primary" disabled={actions.busy || !trip.assignedStaff}
+        title={trip.assignedStaff ? undefined : "Pick a lead counselor first"}
+        onClick={() => actions.request(trip, "start")}>Start trip</button>}
+      {editable && trip.status === "active" && <button type="button" className="btn btn-primary" disabled={actions.busy || !canComplete(trip)}
+        title={canComplete(trip) ? undefined : "Available at the last stop"}
+        onClick={() => actions.request(trip, "complete")}>Complete trip</button>}
+      {trip.status === "planned" && <button type="button" className="btn" onClick={() => setEditing(true)}>Edit trip</button>}
+      <button type="button" className="btn btn-danger" disabled={actions.busy}
+        onClick={() => actions.request(trip, "cancel")}>Cancel trip</button>
+    </div>}
+    {trip.status === "planned" && editing && <EditTripForm key={trip.id} trip={trip} buses={buses} routes={routes}
+      onClose={() => setEditing(false)} onSaved={(departureAt) => { setEditing(false); toast("Trip updated."); onEdited(departureAt); }} />}
+    <ConfirmFor trip={trip} actions={actions} />
+    {!editable && (trip.status === "planned" || trip.status === "active") && <p className="hint">Start and stop controls are available on today&rsquo;s board.</p>}
     <dl className="d-grid">
       <div className="wide"><dt>Crew</dt><dd><CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} /></dd></div>
       <div><dt>Phone</dt><dd className={phone ? phone.ok ? "ok" : "bad" : ""}>{phone ? phone.text.replace(/^Phone: /, "").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "None"}</dd></div>
@@ -231,22 +247,6 @@ export function TripDetail({ row, trip, staff, drivers, buses, routes, now, acti
     <p className="tk">{trackingText(trip, now)}</p>
     {(trip.status === "planned" || trip.status === "active") &&
       <CrewAssign trip={trip} staff={staff} drivers={drivers} onSaved={onChanged} toast={toast} />}
-    {trip.status === "planned" && !editing && <div className="acts">
-      <button type="button" className="btn" onClick={() => setEditing(true)}>Edit trip</button>
-    </div>}
-    {trip.status === "planned" && editing && <EditTripForm key={trip.id} trip={trip} buses={buses} routes={routes}
-      onClose={() => setEditing(false)} onSaved={(departureAt) => { setEditing(false); toast("Trip updated."); onEdited(departureAt); }} />}
-    {(trip.status === "planned" || trip.status === "active") && <div className="acts" aria-label="Trip controls">
-        {editable && trip.status === "planned" && <button type="button" className="btn btn-primary" disabled={actions.busy || !trip.assignedStaff}
-          onClick={() => actions.request(trip, "start")}>Start trip</button>}
-        {editable && trip.status === "active" && <button type="button" className="btn btn-primary" disabled={actions.busy || !canComplete(trip)}
-          title={canComplete(trip) ? undefined : "Available at the last stop"}
-          onClick={() => actions.request(trip, "complete")}>Complete trip</button>}
-        <button type="button" className="btn btn-danger" disabled={actions.busy}
-          onClick={() => actions.request(trip, "cancel")}>Cancel trip</button>
-    </div>}
-    <ConfirmFor trip={trip} actions={actions} />
-    {!editable && (trip.status === "planned" || trip.status === "active") && <p className="hint">Start and stop controls are available on today&rsquo;s board.</p>}
     {others.length > 0 && <div className="dblock"><h3>Other trips for {row.bus.label}</h3>
       <div className="acts" style={{ margin: 0 }}>{others.map((other) => <button key={other.id} type="button" className="btn sm"
         onClick={() => onOpenTrip(other.id)}>{other.routeName} · {time(other.departureAt)}</button>)}</div>

@@ -5,7 +5,6 @@ import {
   LngLatBounds,
   Map as MapLibreMap,
   Marker,
-  NavigationControl,
   setWorkerUrl,
   type GeoJSONSource
 } from "maplibre-gl";
@@ -77,6 +76,9 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version }:
   const map = useRef<MapLibreMap | null>(null);
   const buses = useRef(new Map<string, Live>());
   const lastBoundsKey = useRef("");
+  // Fixed views, no free zooming or panning: the whole camp, or the selected bus's route.
+  const [view, setView] = useState<"all" | "selected">("all");
+  useEffect(() => setView(selectedTripId ? "selected" : "all"), [selectedTripId]);
   const select = useRef(onSelect);
   const frame = useRef(0);
   const [ready, setReady] = useState(false);
@@ -84,8 +86,12 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version }:
 
   useEffect(() => {
     if (!container.current) return;
-    const instance = new MapLibreMap({ container: container.current, style: mapStyle, center: [-74.265, 40.752], zoom: 12, attributionControl: { compact: true } });
-    instance.addControl(new NavigationControl({ showCompass: false }), "top-right");
+    const instance = new MapLibreMap({
+      container: container.current, style: mapStyle, center: [-74.265, 40.752], zoom: 12, attributionControl: { compact: true },
+      // The map frames itself; scrolling the page never zooms it and dragging never loses it.
+      interactive: true, scrollZoom: false, boxZoom: false, dragRotate: false, dragPan: false,
+      doubleClickZoom: false, touchZoomRotate: false, touchPitch: false, keyboard: false
+    });
     instance.on("load", () => {
       instance.addSource("routes", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       instance.addSource("stops", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -160,20 +166,22 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version }:
       })))
     });
 
-    const key = trips.map((trip) => trip.id).join("|");
-    if (key && key !== lastBoundsKey.current) {
+    const framed = view === "selected" && selectedTripId ? trips.filter((trip) => trip.id === selectedTripId) : trips;
+    const key = `${view}:${framed.map((trip) => trip.id).join("|")}`;
+    if (framed.length && key !== lastBoundsKey.current) {
       const bounds = new LngLatBounds();
-      for (const trip of trips) {
+      for (const trip of framed) {
         linePath(trip).forEach((point) => bounds.extend(point));
         const bus = busPoint(trip);
         if (bus) bounds.extend(bus);
       }
       if (!bounds.isEmpty()) {
-        instance.fitBounds(bounds, { padding: 50, maxZoom: 15, duration: 0 });
+        const first = !lastBoundsKey.current;
+        instance.fitBounds(bounds, { padding: 56, maxZoom: 14.5, duration: first ? 0 : 600 });
         lastBoundsKey.current = key;
       }
     }
-  }, [trips, colorForBus, selectedTripId, ready, version]);
+  }, [trips, colorForBus, selectedTripId, ready, version, view]);
 
   // Bus markers persist and glide to each new fix instead of jumping.
   useEffect(() => {
@@ -223,7 +231,14 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version }:
     frame.current = requestAnimationFrame(step);
   }, [trips, colorForBus, selectedTripId, ready, now]);
 
-  return <div className="mapfill map-live" ref={container} aria-label="Routes, stops and buses" />;
+  return <div className="mapfill">
+    <div className="map-live" ref={container} aria-label="Routes, stops and buses" />
+    <div className="map-views" role="group" aria-label="Map view">
+      <button type="button" className={view === "all" ? "on" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All buses</button>
+      <button type="button" className={view === "selected" ? "on" : ""} aria-pressed={view === "selected"} disabled={!selectedTripId}
+        onClick={() => setView("selected")}>Selected bus</button>
+    </div>
+  </div>;
 }
 
 /**
