@@ -26,7 +26,7 @@ type StaffTripRow = {
 export async function readStaffTrip(chosenSql: string, values: unknown[]): Promise<StaffTrip | null> {
   const result = await pool.query<StaffTripRow>(
     `SELECT t.id,
-            r.name AS "routeName",
+            t.route_name AS "routeName",
             r.service_period AS "servicePeriod",
             b.label AS "busLabel",
             t.departure_at AS "departureAt",

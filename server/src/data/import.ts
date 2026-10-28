@@ -173,10 +173,6 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
         seenKeys.add(existing!.id);
       }
     }
-    if (existing?.imported) {
-      items.push({ line, rider: name, kind: "skip", changes: [], error: "Imported from a roster file. Change it in that file." });
-      return;
-    }
     if (!first || !last) return fail("First and Last are both required.");
     if (first.length > 80 || last.length > 80) return fail("Names must be under 80 characters.");
 
@@ -237,7 +233,7 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
           if (u.phone) changes.push(`${g.name} phone → ${u.phone}`);
         }
       }
-      unlink = current.filter((l) => l.source === "manual" && !keep.has(l.guardianId)).map((l) => l.guardianId);
+      unlink = current.filter((l) => !keep.has(l.guardianId)).map((l) => l.guardianId);
       for (const id of unlink) changes.push(`Unlink guardian ${byId.get(id)?.name ?? "unknown"}`);
     }
 
@@ -370,7 +366,7 @@ dataImportRoutes.post("/apply", requireSameOrigin, requireRole("admin"), async (
         }
         if (a.unlink.length) {
           await client.query(
-            `DELETE FROM rider_guardian_links WHERE rider_id = $1 AND source = 'manual' AND guardian_id = ANY($2::uuid[])`,
+            `DELETE FROM rider_guardian_links WHERE rider_id = $1 AND guardian_id = ANY($2::uuid[])`,
             [riderId, a.unlink]
           );
         }

@@ -76,7 +76,7 @@ memberRoutes.get("/schedule", requireRole("admin"), async (request, response) =>
      SELECT m.id AS "memberId",
             m.display_name AS "displayName",
             t.id AS "tripId",
-            r.name AS "routeName",
+            t.route_name AS "routeName",
             r.service_period AS "servicePeriod",
             b.label AS "busLabel",
             t.departure_at AS "departureAt",

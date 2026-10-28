@@ -452,14 +452,14 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
   }
   const result = await pool.query<BoardRow>(
     `WITH chosen AS (
-       SELECT t.id, t.route_id, t.bus_id, t.status, t.departure_at
+       SELECT t.id, t.route_id, t.route_name, t.bus_id, t.status, t.departure_at
          FROM trips t
         WHERE (t.departure_at >= $1 AND t.departure_at < $2)
            OR t.status = 'active'
         ORDER BY t.departure_at DESC, t.id
         LIMIT 100
      )
-     SELECT t.id, t.route_id AS "routeId", r.name AS "routeName",
+     SELECT t.id, t.route_id AS "routeId", t.route_name AS "routeName",
             r.service_period AS "servicePeriod",
             t.bus_id AS "busId", b.label AS "busLabel",
             t.departure_at AS "departureAt", t.status,
@@ -626,7 +626,7 @@ function toTrip(row: TripRow) {
 
 dispatchRoutes.get("/trips", requireRole("admin", "dispatch"), async (_request, response) => {
   const result = await pool.query<TripRow>(
-    `SELECT t.id, t.route_id AS "routeId", r.name AS "routeName",
+    `SELECT t.id, t.route_id AS "routeId", t.route_name AS "routeName",
             r.service_period AS "servicePeriod",
             t.bus_id AS "busId", b.label AS "busLabel",
             t.departure_at AS "departureAt", t.status,
@@ -830,7 +830,7 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
   }
 
   const trips = await pool.query<HistoryTripRow>(
-    `SELECT t.id, t.bus_id AS "busId", b.label AS "busLabel", r.name AS "routeName",
+    `SELECT t.id, t.bus_id AS "busId", b.label AS "busLabel", t.route_name AS "routeName",
             r.service_period AS "servicePeriod", t.departure_at AS "departureAt", t.status,
             t.started_at AS "startedAt", t.ended_at AS "endedAt", t.cancelled_at AS "cancelledAt",
             staff.id AS "staffId", staff.display_name AS "staffName"

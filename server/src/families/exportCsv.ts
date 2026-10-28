@@ -7,7 +7,7 @@ import { readTenant } from "../db/tenant.js";
 //   Guardian 1 | Guardian 1 phone | Guardian 1 email | Guardian 1 app access | Guardian 2 ...
 // Read-only. Opens in Excel, Numbers or Google Sheets.
 
-type RiderRow = { id: string; key: string | null; first: string; last: string; imported: boolean };
+type RiderRow = { id: string; first: string; last: string; imported: boolean };
 type StopRow = { riderId: string; direction: "AM" | "PM"; route: string; stop: string };
 type GuardianRow = {
   riderId: string; name: string; phone: string | null; email: string | null;
@@ -32,7 +32,7 @@ export async function rosterCsv(_request: Request, response: Response): Promise<
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     riders = (await client.query<RiderRow>(
-      `SELECT id, import_key AS key, given_name AS first, family_name AS last,
+      `SELECT id, given_name AS first, family_name AS last,
               import_dataset IS NOT NULL AS imported
          FROM riders ORDER BY family_name, given_name, id`
     )).rows;
@@ -77,7 +77,7 @@ export async function rosterCsv(_request: Request, response: Response): Promise<
   const lines = [header.map(cell).join(",")];
   for (const r of riders) {
     const row: (string | null | undefined)[] = [
-      r.key ?? r.id, r.first, r.last, r.imported ? "Imported" : "Added in app",
+      r.id, r.first, r.last, r.imported ? "Imported" : "Added in app",
       am.get(r.id)?.route, am.get(r.id)?.stop, pm.get(r.id)?.route, pm.get(r.id)?.stop,
     ];
     const list = byRider.get(r.id) ?? [];

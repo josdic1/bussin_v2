@@ -87,7 +87,7 @@ checkRoutes.get("/board", requireRole("admin", "dispatch"), async (request, resp
 
   const trips = await pool.query<TripRow>(
     `SELECT t.id, t.bus_id AS "busId", b.label AS "busLabel",
-            r.name AS "routeName", r.service_period AS "servicePeriod",
+            t.route_name AS "routeName", r.service_period AS "servicePeriod",
             t.departure_at AS "departureAt", t.status,
             staff.id AS "staffId", staff.display_name AS "staffName",
             presence.last_seen_at AS "staffLastSeenAt",

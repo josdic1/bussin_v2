@@ -40,7 +40,7 @@ async function resolveAudience(client: PoolClient, target: MessageTarget): Promi
                      JOIN rider_guardian_links l ON l.rider_id = a.rider_id`;
   } else if (target.audience === "trip") {
     const trip = await client.query<{ bus: string; route: string }>(
-      `SELECT b.label AS bus, r.name AS route FROM trips t
+      `SELECT b.label AS bus, t.route_name AS route FROM trips t
          JOIN buses b ON b.id = t.bus_id JOIN routes r ON r.id = t.route_id WHERE t.id = $1`, [target.tripId]);
     if (!trip.rowCount) throw new NotFound("That trip no longer exists.");
     label = `${trip.rows[0].bus} · ${trip.rows[0].route}`;

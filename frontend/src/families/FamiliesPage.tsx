@@ -251,7 +251,7 @@ function GuardianForm({ guardian, riders, onSaved }: { guardian: Guardian | null
   }
 
   return <form className="rf" onSubmit={(event) => void submit(event)} noValidate>
-    <p className="rf-hint">Add an email to give this guardian a family login. No email means contact only, no login.{guardian?.importDataset ? " Imported contact edits may be replaced by a later import." : ""}</p>
+    <p className="rf-hint">Add an email to give this guardian a family login. No email means contact only, no login.</p>
     <label><b className="lt">Guardian name</b><input value={name} maxLength={120} autoComplete="off" onChange={(event) => setName(event.target.value)} /></label>
     <div className="rf2">
       <label><b className="lt">Email <span>(needed to log in)</span></b><input type="email" value={email} autoCapitalize="none" autoComplete="off" onChange={(event) => setEmail(event.target.value)} /></label>
@@ -281,7 +281,6 @@ function LinksForm({ rider, guardians, riders, onSaved }: { rider: Rider; guardi
   }
   return <form className="rf" onSubmit={(event) => void submit(event)}>
     <GuardianPicker guardians={guardians} riders={riders} value={ids} lastName={rider.familyName} onChange={setIds} />
-    <p className="rf-hint">Imported links come from the roster file and cannot be removed here. Links you add here survive reimport.</p>
     <p className="rf-err" role="alert">{error}</p>
     <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save guardians"}</button>
   </form>;
@@ -385,18 +384,17 @@ export function FamiliesPage() {
   const riderDetail = (rider: Rider) => <>
     <span className="ov">RIDER DETAIL</span>
     <h2 className="dt"><Avatar name={`${rider.givenName} ${rider.familyName}`} color={riderColor(rider)} size={44} />{rider.givenName} {rider.familyName}</h2>
-    {hasNoRoute(rider) && <p className="cov-warn">No AM or PM route. No bus will pick {rider.givenName} up.{rider.imported ? " Fix it in the roster file." : " Use Edit rider to choose a route and stop."}</p>}
+    {hasNoRoute(rider) && <p className="cov-warn">No AM or PM route. No bus will pick {rider.givenName} up. Use Edit rider to choose a route and stop.</p>}
     <div className="asg">
       <div><b>AM</b>{rider.am ? <>{rider.am.stopLabel} <span className="dim">{rider.am.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
       <div><b>PM</b>{rider.pm ? <>{rider.pm.stopLabel} <span className="dim">{rider.pm.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
     </div>
     <div className="acts">
-      {!rider.imported && <button type="button" className="btn sm" onClick={() => setOverlay({ type: "riderForm", id: rider.id })}>Edit rider</button>}
+      <button type="button" className="btn sm" onClick={() => setOverlay({ type: "riderForm", id: rider.id })}>Edit rider</button>
       <button type="button" className="btn sm" onClick={() => setOverlay({ type: "links", id: rider.id })}>Manage guardians</button>
     </div>
     <div className="dv" /><span className="ov">GUARDIANS</span>
     {rider.guardians.map((guardian) => guardianCard(guardians.find((item) => item.id === guardian.id) ?? guardian))}
-    {rider.imported && <p className="muted">Imported rider. Assignments come from the roster file.</p>}
   </>;
 
   const overlayRider = overlay && "id" in overlay && overlay.id ? riders.find((rider) => rider.id === overlay.id) ?? null : null;

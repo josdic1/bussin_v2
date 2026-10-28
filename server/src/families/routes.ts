@@ -68,7 +68,7 @@ familyRoutes.get("/portal", requireRole("family"), async (_request, response) =>
        rider.id AS "riderId",
        concat_ws(' ', rider.given_name, rider.family_name) AS "riderName",
        t.id AS "tripId",
-       route.name AS "routeName",
+       t.route_name AS "routeName",
        route.service_period AS "servicePeriod",
        bus.label AS "busLabel",
        t.departure_at AS "departureAt",
@@ -618,7 +618,7 @@ async function saveManualLinks(client: PoolClient, riderId: string, guardianIds:
   );
   if (result.rowCount !== guardianIds.length) return false;
   await client.query(
-    `DELETE FROM rider_guardian_links WHERE rider_id = $1 AND source = 'manual'
+    `DELETE FROM rider_guardian_links WHERE rider_id = $1
        AND NOT (guardian_id = ANY($2::uuid[]))`, [riderId, guardianIds]
   );
   for (const guardianId of guardianIds) {
@@ -688,16 +688,10 @@ async function writeRider(request: Request, response: Response, id?: string) {
   try {
     await client.query("BEGIN");
     if (id) {
-      const existing = await client.query<{ import_dataset: string | null }>(
-        `SELECT import_dataset FROM riders WHERE id = $1 FOR UPDATE`, [id]);
+      const existing = await client.query(`SELECT 1 FROM riders WHERE id = $1 FOR UPDATE`, [id]);
       if (!existing.rowCount) {
         await client.query("ROLLBACK");
         response.status(404).json({ error: "Rider not found." });
-        return;
-      }
-      if (existing.rows[0].import_dataset !== null) {
-        await client.query("ROLLBACK");
-        response.status(409).json({ error: "Update imported stops and names in the roster file." });
         return;
       }
     }
