@@ -46,7 +46,8 @@ const MONITOR_PAGES: Page[] = [
   { path: "/families", mark: "R", label: "Riders", group: "records", adminOnly: true },
   { path: "/messages", mark: "MS", label: "Messages", group: "records", adminOnly: true },
   { path: "/data", mark: "DA", label: "Data", group: "records", adminOnly: true, desktopOnly: true },
-  { path: "/transit", mark: "T", label: "Transit", group: "records" }
+  { path: "/transit", mark: "T", label: "Transit", group: "records" },
+  { path: "/reports", mark: "RP", label: "Reports", group: "records" }
 ];
 /** Driver mode never shows child counts: Ride Check becomes My Bus. */
 const DRIVER_PAGES: Page[] = MONITOR_PAGES.map((page) =>

@@ -952,3 +952,26 @@ export const trackerSchema = z.strictObject({
 });
 export type Tracker = z.infer<typeof trackerSchema>;
 export const trackersResponseSchema = z.strictObject({ trackers: z.array(trackerSchema) });
+
+// ---------- Reports ----------
+// Every report has the same shape, so one preview, one print layout and one CSV
+// export serve them all: a title, summary numbers, then titled tables.
+export const reportKeySchema = z.enum(["run-sheet", "attendance", "trip-times", "crew", "riders"]);
+export type ReportKey = z.infer<typeof reportKeySchema>;
+export const reportCellSchema = z.union([z.string(), z.number(), z.null()]);
+export const reportSchema = z.strictObject({
+  key: reportKeySchema,
+  title: z.string(),
+  period: z.string(),
+  generatedAt: z.string(),
+  summary: z.array(z.strictObject({ label: z.string(), value: z.string(), tone: z.enum(["good", "bad"]).nullable() })),
+  sections: z.array(z.strictObject({
+    heading: z.string(),
+    note: z.string().nullable(),
+    // A new printed page starts at this section (one page per day on week and month sheets).
+    pageBreak: z.boolean(),
+    columns: z.array(z.strictObject({ key: z.string(), label: z.string(), numeric: z.boolean() })),
+    rows: z.array(z.record(z.string(), reportCellSchema))
+  }))
+});
+export type Report = z.infer<typeof reportSchema>;

@@ -1,0 +1,81 @@
+/* Reports. Uses the ops design tokens (green, lime, line, muted). */
+
+.ops .rp-modes{display:inline-flex;gap:4px;padding:4px;margin:4px 0 18px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.ops .rp-modes button{display:flex;align-items:center;gap:6px;border:0;border-radius:9px;background:none;padding:8px 14px;font-size:13px;font-weight:800;color:var(--muted)}
+.ops .rp-modes button.on{background:var(--green);color:#fff}
+.ops .rp-modes button:disabled{cursor:default;opacity:.6}
+.ops .rp-modes em{font-style:normal;font-size:8.5px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:999px;background:var(--idlebg)}
+
+.ops .rp-body{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px;align-items:start}
+
+/* Report picker */
+.ops .rp-pick{position:sticky;top:76px;display:grid;gap:8px}
+.ops .rp-pick button{display:grid;grid-template-columns:38px minmax(0,1fr);gap:12px;align-items:start;text-align:left;padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff;cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.ops .rp-pick button:hover{border-color:#c9d1c9}
+.ops .rp-pick button.on{border-color:var(--green);box-shadow:0 0 0 1px var(--green)}
+.ops .rp-pick i{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--idlebg);font-style:normal;font-size:11px;font-weight:900;letter-spacing:.04em;color:var(--green)}
+.ops .rp-pick button.on i{background:var(--green);color:var(--lime)}
+.ops .rp-pick b{display:block;font-size:13.5px}
+.ops .rp-pick small{display:block;margin-top:3px;font-size:11.5px;line-height:1.4;color:var(--muted)}
+
+/* Period bar */
+.ops .rp-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
+.ops .rp-seg{display:inline-flex;padding:3px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.ops .rp-seg button{border:0;border-radius:7px;background:none;padding:6px 12px;font-size:12.5px;font-weight:800;color:var(--muted)}
+.ops .rp-seg button.on{background:var(--green);color:#fff}
+.ops .rp-nav{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:10px;background:#fff}
+.ops .rp-nav button{width:32px;height:34px;border:0;background:none;font-size:20px;line-height:1;color:var(--green);cursor:pointer}
+.ops .rp-nav span{min-width:230px;text-align:center;font-size:13px;font-weight:800}
+.ops .rp-grow{flex:1}
+.ops .rp-note{font-size:12px;color:var(--muted)}
+
+/* The paper */
+.ops .rp-paper{transition:opacity .15s}
+.ops .rp-paper.loading{opacity:.45}
+.ops .rp-sheet{background:#fff;border:1px solid var(--line);border-radius:16px;padding:34px 38px;box-shadow:0 18px 40px -28px rgba(23,56,44,.35)}
+.ops .rp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:18px;border-bottom:2px solid var(--green)}
+.ops .rp-camp{margin:0 0 4px;font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.ops .rp-head h2{margin:0;font-size:30px;letter-spacing:-.02em;line-height:1.05}
+.ops .rp-period{margin:6px 0 0;font-size:14px;font-weight:700;color:var(--green2)}
+.ops .rp-stamp{margin:0;font-size:11px;color:var(--soft);white-space:nowrap}
+.ops .rp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:20px 0 6px}
+.ops .rp-kpis div{padding:12px 14px;border:1px solid var(--line2);border-radius:12px;background:#fafbf9}
+.ops .rp-kpis b{display:block;font-size:24px;letter-spacing:-.02em;line-height:1.1}
+.ops .rp-kpis span{display:block;margin-top:4px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.ops .rp-kpis .bad b{color:var(--bad)}
+.ops .rp-kpis .good b{color:var(--ok)}
+.ops .rp-section{margin-top:26px}
+.ops .rp-sec-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;margin-bottom:8px}
+.ops .rp-sec-head h3{margin:0;font-size:16px}
+.ops .rp-sec-head p{margin:0;font-size:12px;color:var(--muted)}
+.ops .rp-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.ops .rp-table th{text-align:left;padding:7px 8px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+.ops .rp-table td{padding:7px 8px;border-bottom:1px solid var(--line2);vertical-align:top}
+.ops .rp-table tbody tr:nth-child(even) td{background:#fbfcfa}
+.ops .rp-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.ops .rp-table td.blank{color:var(--soft)}
+.ops .rp-table td.tight{white-space:nowrap}
+.ops .rp-empty{margin:10px 0 0;color:var(--muted);font-size:13px}
+
+@media (max-width:1100px){
+  .ops .rp-body{grid-template-columns:1fr}
+  .ops .rp-pick{position:static;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+  .ops .rp-sheet{padding:22px 18px}
+}
+
+/* Print: only the sheet, on plain paper. Week and month sheets start each day on a new page. */
+@media print{
+  @page{margin:12mm}
+  body,.ops{background:#fff!important}
+  .ops .sidebar,.ops .topbar,.ops .no-print,.ops .toast,.update-banner{display:none!important}
+  .ops .app.d{display:block!important;background:none!important}
+  .ops .content{max-width:none!important;padding:0!important}
+  .ops .rp-body{display:block}
+  .ops .rp-sheet{border:0;border-radius:0;box-shadow:none;padding:0}
+  .ops .rp-section.break{break-before:page}
+  .ops .rp-table tr{break-inside:avoid}
+  .ops .rp-table thead{display:table-header-group}
+  .ops .rp-kpis{grid-template-columns:repeat(auto-fit,minmax(90px,1fr))}
+  .ops .rp-kpis div{background:#fff;padding:9px 10px}
+  .ops .rp-kpis b{font-size:19px}
+}
