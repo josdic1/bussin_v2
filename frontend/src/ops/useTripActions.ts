@@ -7,7 +7,7 @@ export type TripActionType = "start" | "arrive" | "depart" | "undo_arrival" | "c
 export type PendingConfirm = { tripId: string; type: "start" | "complete" | "cancel"; early: number };
 
 /**
- * Trip controls shared by Dispatch and My Bus. Early starts, completion and
+ * Trip controls for Dispatch. Early starts, completion and
  * cancellation ask for confirmation inline; stop events go straight through.
  */
 export function useTripActions(onDone: () => void, toast: (text: string) => void) {

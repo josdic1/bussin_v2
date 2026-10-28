@@ -187,9 +187,9 @@ export function DriverTerminal({ mode, deviceBus }: { mode?: TerminalMode; devic
         <div className="term-drawer-actions">
           <button type="button" className="term-btn ghost" disabled={locked || pending} onClick={t.refresh}><Icon name="refresh" />Check trip with Dispatch</button>
           {t.awake !== "yes" && <button type="button" className="term-btn ghost" onClick={() => void t.requestWake()}><Icon name="screen" />Keep screen on</button>}
-          <button type="button" className="term-btn ghost" disabled={locked || pending}
+          {!t.preview && <button type="button" className="term-btn ghost" disabled={locked || pending}
             onClick={() => { if (window.confirm(device ? "Unpair this phone from the bus? You'll need a new code from Fleet." : "Sign out of this driver terminal?")) void t.signOut(); }}>
-            {device ? "Unpair this phone" : "Sign out"}</button>
+            {device ? "Unpair this phone" : "Sign out"}</button>}
         </div>
       </aside>
     </div>}

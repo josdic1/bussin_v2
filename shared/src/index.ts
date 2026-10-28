@@ -714,6 +714,15 @@ export const checkBoardResponseSchema = z.strictObject({
 /** A counselor's phone: Ride Check for the one trip they are on. */
 export const staffCheckResponseSchema = z.strictObject({ trip: checkTripSchema.nullable() });
 
+/** Admin's View as picker: every counselor and bus, with the trip their phone would open to. */
+export const previewPeopleSchema = z.strictObject({
+  counselors: z.array(z.strictObject({ id: z.string().uuid(), name: z.string(), trip: z.string().nullable() })),
+  buses: z.array(z.strictObject({ id: z.string().uuid(), label: z.string(), trip: z.string().nullable(), paired: z.boolean() })),
+  /** Family logins only: a guardian without a login has no screen to preview. */
+  parents: z.array(z.strictObject({ id: z.string().uuid(), name: z.string(), kids: z.string(), trip: z.string().nullable() }))
+});
+export type PreviewPeople = z.infer<typeof previewPeopleSchema>;
+
 // ---------------------------------------------------------------------------
 // Transit: recorded trip history for review.
 // ---------------------------------------------------------------------------

@@ -72,7 +72,7 @@ const UPLOAD_RETRY_MS = 3_000;
 // About 15 minutes of fixes: a dead zone never loses an arrival.
 const UPLOAD_QUEUE_MAX = 900;
 // Staff phones and bus trackers keep separate queues so one device never sends the other's fixes.
-const QUEUE_STORAGE_KEYS = { staff: "bussin-gps-queue", device: "bussin-bus-gps-queue" } as const;
+const QUEUE_STORAGE_KEYS = { staff: "bussin-gps-queue", device: "bussin-bus-gps-queue", preview: "bussin-preview-gps-queue" } as const;
 const QUEUE_KEEP_MS = 15 * 60_000;
 
 /** Unsent fixes live on the phone so closing, crashing or reloading Bussin never loses them. */
@@ -117,12 +117,19 @@ const LIVE_WINDOW_MS = 20_000;
  * staff: a signed-in staff account (/terminal), endpoints under /api/staff.
  * device: the bus tracker phone (/bus), signed in as the bus, endpoints under /api/device.
  *   It can't start or finish a trip; the lead counselor does that.
+ * preview: the admin's View as. Reads tripUrl every few seconds and nothing else:
+ *   no GPS, no presence, no taps saved. as says which phone it is showing.
  */
-export type TerminalMode = { kind: "staff" } | { kind: "device"; onUnpaired: () => void };
+export type TerminalMode = { kind: "staff" } | { kind: "device"; onUnpaired: () => void }
+  | { kind: "preview"; as: "staff" | "device"; tripUrl: string };
+export const PREVIEW_NOTE = "Preview only. Taps here don't save.";
+const PREVIEW_POLL_MS = 8_000;
 
 export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
   const { member, tenant, logout } = useAuth();
   const base = mode.kind === "device" ? "/api/device" : "/api/staff";
+  const preview = mode.kind === "preview";
+  const tripUrl = mode.kind === "preview" ? mode.tripUrl : `${base}/trip`;
   const queueKey = QUEUE_STORAGE_KEYS[mode.kind];
   const unpairedRef = useRef(mode.kind === "device" ? mode.onUnpaired : null);
   unpairedRef.current = mode.kind === "device" ? mode.onUnpaired : null;
@@ -174,14 +181,14 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
   const tripReadSeq = useRef(0);
   const loadTrip = useCallback(async (signal?: AbortSignal) => {
     const seq = ++tripReadSeq.current;
-    const response = await fetch(`${base}/trip`, { credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS, signal) });
+    const response = await fetch(tripUrl, { credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS, signal) });
     if (response.status === 401 && unpairedRef.current) { unpairedRef.current(); return; }
     if (!response.ok) throw new Error(await readError(response, "Could not load your trip."));
     const data = staffTripResponseSchema.parse(await response.json());
     if (seq !== tripReadSeq.current) return;
     setTrip(data.trip);
     setError("");
-  }, [base]);
+  }, [tripUrl]);
 
   const refresh = useCallback(() => {
     void loadTrip().catch((cause) => {
@@ -197,6 +204,10 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
       if (!controller.signal.aborted) setError(isConnectionProblem(cause) ? NO_CONNECTION
         : cause instanceof Error ? cause.message : "Could not load your trip.");
     });
+    if (preview) {
+      const poll = window.setInterval(() => { if (document.visibilityState === "visible") refresh(); }, PREVIEW_POLL_MS);
+      return () => { controller.abort(); window.clearInterval(poll); };
+    }
     const source = new EventSource(`${base}/live`);
     source.addEventListener("ready", refresh);
     source.addEventListener("trip", refresh);
@@ -211,10 +222,11 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
       document.removeEventListener("visibilitychange", visible);
       window.removeEventListener("focus", refresh);
     };
-  }, [loadTrip, refresh]);
+  }, [loadTrip, refresh, preview]);
 
   // Presence: GPS uploads already count; this covers the time before a trip starts or when GPS is down.
   useEffect(() => {
+    if (preview) return;
     const report = () => {
       if (document.visibilityState !== "visible" || !navigator.onLine) return;
       if (Date.now() - lastUpload.current < PRESENCE_MS - 2_000) return;
@@ -224,7 +236,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
     const timer = window.setInterval(report, PRESENCE_MS);
     document.addEventListener("visibilitychange", report);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", report); };
-  }, [base]);
+  }, [base, preview]);
 
   const flush = useCallback(async () => {
     if (flushing.current) return;
@@ -375,7 +387,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
 
   // GPS runs on the bus phone always, and on a staff phone only for the trip's lead while the
   // bus phone is not reporting. Counselors' phones never ask for location.
-  const wantsGps = mode.kind === "device" || (trip?.crewRole === "lead" && !trip.busPhoneLive);
+  const wantsGps = !preview && (mode.kind === "device" || (trip?.crewRole === "lead" && !trip.busPhoneLive));
   const wantsGpsRef = useRef(wantsGps);
   wantsGpsRef.current = wantsGps;
   useEffect(() => {
@@ -386,6 +398,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
 
   // Wake lock at once; watchdog restarts a silent GPS watcher; foregrounding restarts both.
   useEffect(() => {
+    if (preview) return;
     void requestWake();
     // Fixes saved before the app was closed or reloaded go out as soon as it reopens.
     if (queue.current.length) void flush();
@@ -418,7 +431,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
       if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
       void wakeLock.current?.release().catch(() => undefined);
     };
-  }, [startGps, requestWake, flush]);
+  }, [startGps, requestWake, flush, preview]);
 
   // The first fix often lands before the trip loads or starts; send it as soon as the trip is running.
   useEffect(() => {
@@ -431,6 +444,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
 
   async function act(type: "start" | "arrive" | "depart" | "undo_arrival" | "complete", stopId?: string) {
     if (!trip || pending) return;
+    if (preview) { setError(PREVIEW_NOTE); return; }
     const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}) });
     if (!action.success) return;
     setPending(true);
@@ -458,6 +472,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
   }
 
   async function signOut() {
+    if (preview) return;
     if (mode.kind === "device") {
       try {
         const response = await fetch(`${base}/unpair`, { method: "POST", credentials: "same-origin", signal: timeoutSignal(REQUEST_TIMEOUT_MS) });
@@ -472,7 +487,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
   // ---------- derived (same rules as the phone screen) ----------
   const fixAge = fix ? now - fix.observedAt : Infinity;
   const active = trip?.status === "active";
-  const problem = gps === "denied"
+  const problem = preview ? null : gps === "denied"
     ? { button: "Try again", run: startGps }
     : awake === "tap"
       ? { button: "Keep screen on", run: () => void requestWake() }
@@ -485,10 +500,13 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
   const nextIndex = nextStop ? trip!.stops.indexOf(nextStop) : -1;
   const readyToComplete = !!(active && finalStop?.arrivedAt && trip!.stops.slice(0, -1).every((stop) => stop.departedAt));
   const confirmingArrival = progress && nextStop && progress.stopId === nextStop.id && progress.phase === "confirming_arrival" ? progress : null;
-  const status = terminalStatus({ now, online, gps, fixAge, active, dispatch, device: mode.kind === "device" });
+  const device = mode.kind === "device" || (mode.kind === "preview" && mode.as === "device");
+  const status = preview
+    ? { tone: "ready" as Tone, title: "Preview", detail: "What this phone shows right now. Nothing is sent or saved." }
+    : terminalStatus({ now, online, gps, fixAge, active, dispatch, device });
 
   return {
-    device: mode.kind === "device", wantsGps, member, tenant, trip, error, pending, confirming, setConfirming, justCompleted, notice, setNotice,
+    device, preview, wantsGps, member, tenant, trip, error, pending, confirming, setConfirming, justCompleted, notice, setNotice,
     progress, fix, gps, online, dispatch, autoPaused, awake, now,
     refresh, requestWake, act, signOut,
     fixAge, active, problem, locked, finalStop, nextStop, nextIndex, readyToComplete, confirmingArrival, status

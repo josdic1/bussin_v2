@@ -47,7 +47,8 @@ const addressFailures = new FailureLimiter(10, WINDOW_MS);
 const globalFailures = new FailureLimiter(100, WINDOW_MS);
 
 /** The bus's trip: the running one first, otherwise the next planned one today or later. */
-const BUS_CHOSEN_TRIP = `
+/** The bus phone: its bus's running trip, else the next planned one. Also used by View as. */
+export const BUS_CHOSEN_TRIP = `
          SELECT t.id AS trip_id
            FROM trips t
           WHERE t.bus_id = $1

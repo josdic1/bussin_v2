@@ -93,9 +93,14 @@ checkRoutes.get("/board", requireRole("admin", "dispatch"), async (request, resp
 /** A counselor's phone: Ride Check for their own trip (running first, else the next planned one). */
 checkRoutes.get("/mine", requireRole("staff"), async (_request, response) => {
   const member = currentMember(response);
-  const trips = await checkTrips(`t.id = (${STAFF_CHOSEN_TRIP})`, [member.id]);
-  response.json(staffCheckResponseSchema.parse({ trip: trips[0] ?? null }));
+  response.json(staffCheckResponseSchema.parse({ trip: await readMemberCheck(member.id) }));
 });
+
+/** Ride Check for one counselor's trip. Also used by the admin's View as preview. */
+export async function readMemberCheck(memberId: string) {
+  const trips = await checkTrips(`t.id = (${STAFF_CHOSEN_TRIP})`, [memberId]);
+  return trips[0] ?? null;
+}
 
 /** Ride Check trips matching a WHERE clause on trips t, with riders, stops and the check log. */
 async function checkTrips(where: string, values: unknown[]) {

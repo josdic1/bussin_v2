@@ -1,19 +1,19 @@
 import {
   createContext, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode
 } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 import { ChangeMyPassword } from "../auth/ChangeMyPassword";
 import { useAuth } from "../auth/AuthProvider";
 import { initials } from "./format";
 import { DangerZone } from "./DangerZone";
+import { loadWatch, saveWatch, ViewAsDock, ViewAsPicker, type Watch } from "./ViewAs";
 
 /** Desktop gets the sidebar and three-pane layouts; phones get stacked cards and bottom tabs. */
 export type ViewMode = "desktop" | "adv";
-export type Role = "monitor" | "driver";
 
 type OpsValue = {
   mode: ViewMode;
-  role: Role;
+  /** False for dispatchers, and for an admin using View as: Dispatch. */
   isAdmin: boolean;
   toast: (message: string) => void;
 };
@@ -26,19 +26,11 @@ export function useOps(): OpsValue {
   return value;
 }
 
-/** Browser storage is a per-viewer convenience only; every read and write may fail. */
-function readSetting(key: string) {
-  try { return window.localStorage.getItem(key); } catch { return null; }
-}
-function writeSetting(key: string, value: string) {
-  try { window.localStorage.setItem(key, value); } catch { /* storage unavailable */ }
-}
-
 const DESKTOP_MIN = 1024;
 
 type Page = { path: string; mark: string; label: string; group: "live" | "records"; adminOnly?: boolean; desktopOnly?: boolean };
 
-const MONITOR_PAGES: Page[] = [
+const PAGES: Page[] = [
   { path: "/", mark: "D", label: "Dispatch", group: "live" },
   { path: "/check", mark: "RC", label: "Ride Check", group: "live" },
   { path: "/fleet", mark: "F", label: "Fleet", group: "live" },
@@ -50,76 +42,11 @@ const MONITOR_PAGES: Page[] = [
   { path: "/transit", mark: "T", label: "Transit", group: "records" },
   { path: "/reports", mark: "RP", label: "Reports", group: "records" }
 ];
-/** Driver mode never shows child counts: Ride Check becomes My Bus. */
-const DRIVER_PAGES: Page[] = MONITOR_PAGES.map((page) =>
-  page.path === "/check" ? { ...page, path: "/mybus", mark: "MB", label: "My Bus" } : page);
-
-const LockClosed = () => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
-  strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-  <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>;
-const LockOpen = () => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
-  strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-  <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 7.5-2" /></svg>;
-
-/** Monitor/Driver switch behind a lock: double-click to unlock, relocks after 10s or a change. */
-function RoleControl({ role, setRole, toast }: {
-  role: Role; setRole: (role: Role) => void; toast: (message: string) => void;
-}) {
-  const [locked, setLocked] = useState(true);
-  const lastClick = useRef(0);
-  const relock = useRef<number | undefined>(undefined);
-
-  useEffect(() => () => window.clearTimeout(relock.current), []);
-
-  function changeLock(next: boolean) {
-    setLocked(next);
-    window.clearTimeout(relock.current);
-    if (!next) relock.current = window.setTimeout(() => setLocked(true), 10_000);
-  }
-
-  function clickLock() {
-    const now = Date.now();
-    if (now - lastClick.current < 450) {
-      changeLock(!locked);
-      lastClick.current = 0;
-    } else {
-      lastClick.current = now;
-      toast(locked ? "Double-click the lock to unlock" : "Double-click the lock to lock");
-    }
-  }
-
-  function choose(next: Role) {
-    if (locked) {
-      toast("Locked. Double-click the lock to change mode.");
-      return;
-    }
-    setRole(next);
-    changeLock(true);
-  }
-
-  return <div className={`rolectl ${locked ? "locked" : "open"}`}>
-    <button type="button" className="lockbtn" onClick={clickLock}
-      aria-label={locked ? "Locked. Double-click to unlock mode switch" : "Unlocked. Double-click to lock"}
-      title={locked ? "Double-click to unlock" : "Double-click to lock"}>
-      {locked ? <LockClosed /> : <LockOpen />}
-    </button>
-    <div className="rseg" role="group" aria-label="Mode">
-      {(["monitor", "driver"] as const).map((item) => <button key={item} type="button"
-        className={role === item ? "on" : ""} aria-disabled={locked || undefined}
-        aria-pressed={role === item} onClick={() => choose(item)}>
-        {item === "monitor" ? "Monitor" : "Driver"}
-      </button>)}
-    </div>
-  </div>;
-}
 
 export function OpsShell() {
   const { member, tenant, logout } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
   const [width, setWidth] = useState(() => window.innerWidth);
-  const [role, setRoleState] = useState<Role>(() =>
-    readSetting("bussin.role") === "driver" ? "driver" : "monitor");
   const [toastText, setToastText] = useState("");
   const [toastShown, setToastShown] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -142,22 +69,19 @@ export function OpsShell() {
   }, []);
 
   const mode: ViewMode = width >= DESKTOP_MIN ? "desktop" : "adv";
-  const isAdmin = member?.roles.includes("admin") ?? false;
-  const pages = (role === "driver" ? DRIVER_PAGES : MONITOR_PAGES)
-    .filter((page) => !page.adminOnly || isAdmin);
+  const realAdmin = member?.roles.includes("admin") ?? false;
+
+  // ---------- View as (admin only) ----------
+  const [dispatchView, setDispatchView] = useState(false);
+  const [watch, setWatchState] = useState<Watch | null>(() => realAdmin ? loadWatch() : null);
+  const [watchHidden, setWatchHidden] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const setWatch = (next: Watch | null) => { setWatchState(next); saveWatch(next); setWatchHidden(false); };
+  const isAdmin = realAdmin && !dispatchView;
+  const docked = !!watch && !watchHidden && mode === "desktop";
+
+  const pages = PAGES.filter((page) => !page.adminOnly || isAdmin);
   const current = pages.find((page) => page.path === "/" ? location.pathname === "/" : location.pathname.startsWith(page.path));
-
-  // The URL is the source of truth for the page; keep it consistent with the role.
-  useEffect(() => {
-    if (role === "driver" && location.pathname === "/check") navigate("/mybus", { replace: true });
-    if (role === "monitor" && location.pathname === "/mybus") navigate("/check", { replace: true });
-  }, [role, location.pathname, navigate]);
-
-  function setRole(next: Role) {
-    setRoleState(next);
-    writeSetting("bussin.role", next);
-    toast(next === "driver" ? "Driver mode. Child counts are hidden." : "Monitor mode.");
-  }
 
   const signOut = () => { void logout().catch(() => toast("Could not sign out. Try again.")); };
   const [changingPassword, setChangingPassword] = useState(false);
@@ -165,7 +89,13 @@ export function OpsShell() {
     <p className="eyebrow">YOUR LOGIN</p><h2 className="dt">Change my password</h2>
     <ChangeMyPassword onCancel={() => setChangingPassword(false)} />
   </Overlay>;
-  const roleControl = <RoleControl role={role} setRole={setRole} toast={toast} />;
+  const viewAsSheet = picking && <Overlay onClose={() => setPicking(false)}>
+    <ViewAsPicker watching={watch} dispatchView={dispatchView}
+      onWatch={(next) => { setWatch(next); setPicking(false); }}
+      onDispatchView={(on) => { setDispatchView(on); setPicking(false); toast(on ? "Dispatch view. Admin pages are hidden." : "Admin view."); }} />
+  </Overlay>;
+  const viewAsButton = realAdmin && <button type="button" className={`va-btn${dispatchView || watch ? " on" : ""}`} onClick={() => setPicking(true)}>
+    View as{dispatchView ? ": Dispatch" : watch ? `: ${watch.name}` : ""}</button>;
   const tenantName = tenant?.name ?? "Bussin";
   const name = member?.display_name ?? "";
   const link = (page: Page) => <NavLink key={page.path} to={page.path} end={page.path === "/"}
@@ -174,7 +104,7 @@ export function OpsShell() {
   </NavLink>;
 
   const body = mode === "desktop"
-    ? <div className="app d">
+    ? <div className={`app d${docked ? " docked" : ""}`}>
       <aside className="sidebar">
         <div className="brand"><div className="brandmark" aria-hidden="true">B</div>
           <div><b>BUSSIN</b><small>{tenantName}</small></div></div>
@@ -184,8 +114,8 @@ export function OpsShell() {
         <nav className="nav" aria-label="People and records">{pages.filter((page) => page.group === "records").map(link)}</nav>
         <div className="side-foot">
           {isAdmin && <DangerZone />}
-          {roleControl}
-          <div className="who-row"><div><b>{name}</b>{isAdmin ? "Admin" : "Dispatch"}</div>
+          {viewAsButton}
+          <div className="who-row"><div><b>{name}</b>{realAdmin ? "Admin" : "Dispatch"}</div>
             <div className="who-acts"><button type="button" onClick={() => setChangingPassword(true)}>Password</button>
               <button type="button" onClick={signOut}>Sign out</button></div></div>
         </div>
@@ -199,14 +129,19 @@ export function OpsShell() {
             <span className="avatar" title={name}>{initials(name)}</span>
           </div>
         </header>
+        {dispatchView && <div className="va-banner">Viewing as Dispatch. Admin pages are hidden.
+          <button type="button" onClick={() => { setDispatchView(false); toast("Admin view."); }}>Back to Admin</button></div>}
         <main className="content"><Suspense fallback={<p className="hint">Loading…</p>}><Outlet /></Suspense></main>
       </div>
+      {docked && <div className="va-space" aria-hidden="true" />}
     </div>
     : <div className="app m adv">
       <div className="mtop">
         <div className="brand"><div className="brandmark" aria-hidden="true">B</div><div><b>BUSSIN</b><small>{tenantName}</small></div></div>
-        {roleControl}
+        {viewAsButton}
       </div>
+      {dispatchView && <div className="va-banner">Viewing as Dispatch.
+        <button type="button" onClick={() => { setDispatchView(false); toast("Admin view."); }}>Back to Admin</button></div>}
       <main className="mc">
         <Suspense fallback={<p className="hint">Loading…</p>}><Outlet /></Suspense>
         <div className="mfoot"><button type="button" onClick={signOut}>Sign out {name}</button>
@@ -221,10 +156,13 @@ export function OpsShell() {
       </nav>
     </div>;
 
-  return <OpsContext.Provider value={{ mode, role, isAdmin, toast }}>
+  return <OpsContext.Provider value={{ mode, isAdmin, toast }}>
     <div className="ops">
       {body}
       {passwordSheet}
+      {viewAsSheet}
+      {watch && realAdmin && <ViewAsDock watch={watch} desktop={mode === "desktop"} hidden={watchHidden} onHide={setWatchHidden}
+        onChange={() => setPicking(true)} onClose={() => setWatch(null)} />}
       <div className={`toast${toastShown ? " show" : ""}`} role="status" aria-live="polite">{toastText}</div>
     </div>
   </OpsContext.Provider>;

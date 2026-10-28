@@ -168,8 +168,14 @@ function Card({ group, now, buffer, setBuffer }: { group: RideGroup; now: number
   </section>;
 }
 
-export function FamilyPortalPage() {
+/**
+ * preview: the admin's View as. Reads this parent's screen every few seconds and changes nothing:
+ * messages are never marked read and the warning time is never saved.
+ */
+export function FamilyPortalPage({ preview }: { preview?: { memberId: string } } = {}) {
   const { logout, tenant } = useAuth();
+  const portalUrl = preview ? `/api/preview/parent/${preview.memberId}/portal` : "/api/families/portal";
+  const inboxUrl = preview ? `/api/preview/parent/${preview.memberId}/messages` : "/api/messages/mine";
   const [rides, setRides] = useState<FamilyPortalRide[]>([]);
   const [buffer, setBufferState] = useState(5);
   const [loading, setLoading] = useState(true);
@@ -188,7 +194,7 @@ export function FamilyPortalPage() {
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch("/api/families/portal", { credentials: "same-origin", signal });
+      const response = await fetch(portalUrl, { credentials: "same-origin", signal });
       if (!response.ok) throw new Error("Could not load your bus information.");
       const body = familyPortalResponseSchema.parse(await response.json());
       if (signal?.aborted) return;
@@ -196,7 +202,7 @@ export function FamilyPortalPage() {
       if (!editing.current) setBufferState(body.leaveBufferMinutes);
       setError("");
       // Messages are extra: if they fail to load, the bus information still shows.
-      const inbox = await fetch("/api/messages/mine", { credentials: "same-origin", signal })
+      const inbox = await fetch(inboxUrl, { credentials: "same-origin", signal })
         .then(async (reply) => reply.ok ? familyMessagesResponseSchema.parse(await reply.json()).messages : null)
         .catch(() => null);
       if (inbox && !signal?.aborted) {
@@ -209,21 +215,21 @@ export function FamilyPortalPage() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, []);
+  }, [portalUrl, inboxUrl]);
 
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal);
     const tick = () => { if (document.visibilityState === "visible") void load(controller.signal); };
-    const timer = window.setInterval(tick, 15_000);
+    const timer = window.setInterval(tick, preview ? 5_000 : 15_000);
     document.addEventListener("visibilitychange", tick);
     return () => { controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
-  }, [load]);
+  }, [load, preview]);
 
   // Seen on screen for a few seconds counts as read; the office sees the read count.
   const unreadIds = messages.filter((item) => !item.read).map((item) => item.id).join(",");
   useEffect(() => {
-    if (!unreadIds || marking.current) return;
+    if (preview || !unreadIds || marking.current) return;
     const timer = window.setTimeout(() => {
       if (document.visibilityState !== "visible") return;
       marking.current = true;
@@ -233,17 +239,19 @@ export function FamilyPortalPage() {
         .finally(() => { marking.current = false; });
     }, 3_000);
     return () => window.clearTimeout(timer);
-  }, [unreadIds]);
+  }, [unreadIds, preview]);
 
   const newCount = fresh.size;
   useEffect(() => {
+    if (preview) return;
     const base = "Bussin";
     document.title = newCount ? `(${newCount}) ${base}` : base;
     return () => { document.title = base; };
-  }, [newCount]);
+  }, [newCount, preview]);
 
   function setBuffer(minutes: number) {
     setBufferState(minutes);
+    if (preview) return;
     editing.current = true;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
@@ -263,7 +271,7 @@ export function FamilyPortalPage() {
   return <main className="field">
     <header className="ftop">
       <div className="wm">BUSSIN<span>Family · {tenant?.name ?? ""}</span></div>
-      <button type="button" onClick={() => void logout()}>Sign out</button>
+      {!preview && <button type="button" onClick={() => void logout()}>Sign out</button>}
     </header>
     <h1 className="fh1">Your bus</h1>
     {error && <p className="ferror" role="alert">{error}</p>}

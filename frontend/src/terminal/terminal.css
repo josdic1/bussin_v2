@@ -84,4 +84,11 @@
   .term-big{font-size:56px}
   .term-status-detail,.term-status-bus{display:none}
 }
+/* Same phone layout inside a narrow box (the admin's View as panel), whatever the browser width. */
+@container (max-width: 760px){
+  .term-body{grid-template-columns:1fr; grid-template-rows:minmax(220px,40%) 1fr}
+  .term-panel{border-left:0; border-top:1px solid var(--line)}
+  .term-big{font-size:56px}
+  .term-status-detail,.term-status-bus{display:none}
+}
 @media (prefers-reduced-motion: reduce){ .term *{transition:none!important} }

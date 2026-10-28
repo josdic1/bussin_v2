@@ -63,7 +63,12 @@ type FamilyPortalRow = {
 
 familyRoutes.get("/portal", requireRole("family"), async (_request, response) => {
   const member = currentMember(response);
+  response.json(await readFamilyPortal(member.id));
+});
 
+/** The parent's bus screen for one family login. Also used by the admin's View as preview. */
+export async function readFamilyPortal(memberId: string) {
+  const member = { id: memberId };
   const result = await pool.query<FamilyPortalRow>(
     `SELECT
        rider.id AS "riderId",
@@ -251,11 +256,11 @@ familyRoutes.get("/portal", requireRole("family"), async (_request, response) =>
     };
   });
 
-  response.json(familyPortalResponseSchema.parse({
+  return familyPortalResponseSchema.parse({
     rides,
     leaveBufferMinutes: buffer.rows[0]?.minutes ?? 5
-  }));
-});
+  });
+}
 
 /** Guardians choose how many minutes before the bus they want to leave. */
 familyRoutes.put("/me/leave-buffer", requireSameOrigin, requireRole("family"), async (request, response) => {

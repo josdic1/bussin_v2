@@ -136,25 +136,24 @@ function alertCard(row: BusRow, alert: Alert, open: (id: string) => void, start:
 }
 
 export function DispatchPage() {
-  const { mode, role, isAdmin, toast } = useOps();
+  const { mode, isAdmin, toast } = useOps();
   const [coverage, setCoverage] = useState<RiderCoverage | null>(null);
   const navigate = useNavigate();
   const today = localDate(new Date());
   const [day, setDay] = useState(today);
   const board = useBoard(day, { routes: true, staff: true });
-  const monitor = role === "monitor";
 
   // Riders with no AM or PM route never show up on a bus, so check the roster directly.
   useEffect(() => {
-    if (!isAdmin || !monitor) { setCoverage(null); return; }
+    if (!isAdmin) { setCoverage(null); return; }
     const controller = new AbortController();
     const load = () => getJson("/api/families/coverage", riderCoverageSchema, controller.signal)
       .then(setCoverage).catch(() => { /* the card is a helper; the board still works without it */ });
     void load();
     const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 60_000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [isAdmin, monitor]);
-  const check = useCheckBoard(monitor && day === today, 15_000);
+  }, [isAdmin]);
+  const check = useCheckBoard(day === today, 15_000);
   const now = useNow();
   const actions = useTripActions(board.reload, toast);
   const [params, setParams] = useSearchParams();
@@ -193,7 +192,6 @@ export function DispatchPage() {
   });
 
   const riderCount = (tripId: string) => {
-    if (!monitor) return null;
     const trip = check.trips.find((item) => item.id === tripId);
     if (!trip) return null;
     const c = counts(trip);
@@ -211,7 +209,7 @@ export function DispatchPage() {
   useAttentionSignal(day === today ? high : 0);
 
   const cards: Card[] = attention.map((row) => alertCard(row, row.alerts[0], openTrip, (trip) => actions.request(trip, "start")));
-  if (monitor && day === today) {
+  if (day === today) {
     const decisions = check.trips.flatMap((trip) => checkAlerts(trip, now).map((alert) => ({ trip, alert })));
     const urgent = decisions.filter((item) => item.alert.sev === "high");
     if (decisions.length) {
@@ -304,7 +302,7 @@ export function DispatchPage() {
         sub={`${high} urgent · ${attention.length - high} follow-up`}
         onClick={attention[0]?.trip ? () => openTrip(attention[0].trip!.id) : undefined} />
       <Tile label="Running" value={running.length}
-        sub={monitor && day === today ? `${aboard} ${plural(aboard, "rider", "riders")} aboard` : "Buses on the road"} />
+        sub={day === today ? `${aboard} ${plural(aboard, "rider", "riders")} aboard` : "Buses on the road"} />
       <Tile label="Later" value={later.length} sub={later[0] ? `Next at ${time(later[0].trip!.departureAt)}` : "Nothing else planned"} />
       <Tile label="Fleet ready" value={`${activeBuses.length - stale} / ${activeBuses.length}`}
         sub={stale ? `${stale} GPS stale` : "All reporting"} />

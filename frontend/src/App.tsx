@@ -1,20 +1,17 @@
 import { lazy, Suspense, useState, type FormEvent } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation } from "react-router";
+import { Navigate, Outlet, Route, Routes } from "react-router";
 import { useAuth } from "./auth/AuthProvider";
 import { FleetPage } from "./fleet/FleetPage";
 import { DispatchPage } from "./dispatch/DispatchPage";
 import { StaffTripPage } from "./staff/StaffTripPage";
 import { FamilyPortalPage } from "./families/FamilyPortalPage";
-import { OpsShell } from "./ops/OpsShell";
+import { OpsShell, useOps } from "./ops/OpsShell";
 import { BusPage } from "./bus/BusPage";
-// Cab terminal for docked driver tablets, at /terminal. Loaded only there.
-const DriverTerminal = lazy(async () => ({ default: (await import("./terminal/DriverTerminal")).DriverTerminal }));
 const MembersPage = lazy(async () => ({ default: (await import("./members/MembersPage")).MembersPage }));
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
 const DataPage = lazy(async () => ({ default: (await import("./data/DataPage")).DataPage }));
 const MessagesPage = lazy(async () => ({ default: (await import("./messages/MessagesPage")).MessagesPage }));
 const CheckPage = lazy(async () => ({ default: (await import("./check/CheckPage")).CheckPage }));
-const MyBusPage = lazy(async () => ({ default: (await import("./mybus/MyBusPage")).MyBusPage }));
 const ReportsPage = lazy(async () => ({ default: (await import("./reports/ReportsPage")).ReportsPage }));
 const TransitPage = lazy(async () => ({ default: (await import("./transit/TransitPage")).TransitPage }));
 const RoutesPage = lazy(async () => {
@@ -177,7 +174,6 @@ function ChangePassword() {
 
 function AuthGate() {
   const { member, loadError } = useAuth();
-  const { pathname } = useLocation();
 
   if (loadError) {
     return (
@@ -201,9 +197,6 @@ function AuthGate() {
   }
 
   if (member.roles.includes("staff")) {
-    if (pathname === "/terminal") {
-      return <Suspense fallback={<AuthScreen title="Opening terminal" description="Loading…" />}><DriverTerminal /></Suspense>;
-    }
     return <StaffTripPage />;
   }
 
@@ -243,9 +236,10 @@ function SignOut() {
   );
 }
 
+/** Admin pages. Also closed while an admin uses View as: Dispatch. */
 function AdminOnly({ children }: { children: React.ReactNode }) {
-  const { member } = useAuth();
-  return member?.roles.includes("admin") ? <>{children}</> : <Navigate to="/" replace />;
+  const { isAdmin } = useOps();
+  return isAdmin ? <>{children}</> : <Navigate to="/" replace />;
 }
 
 export function App() {
@@ -255,7 +249,7 @@ export function App() {
         <Route element={<OpsShell />}>
           <Route index element={<DispatchPage />} />
           <Route path="check" element={<CheckPage />} />
-          <Route path="mybus" element={<MyBusPage />} />
+          <Route path="mybus" element={<Navigate to="/check" replace />} />
           <Route path="fleet" element={<FleetPage />} />
           <Route path="routes" element={<Suspense fallback={<p className="hint">Loading routes…</p>}><RoutesPage /></Suspense>} />
           <Route path="members" element={<AdminOnly><MembersPage /></AdminOnly>} />
@@ -266,7 +260,7 @@ export function App() {
           <Route path="transit" element={<TransitPage />} />
           <Route path="reports" element={<Suspense fallback={<p className="hint">Loading reports…</p>}><ReportsPage /></Suspense>} />
         </Route>
-        {/* Staff accounts get the cab terminal here (see AuthGate); everyone else goes home. */}
+        {/* The old cab terminal address. Bus phones use /bus now. */}
         <Route path="terminal" element={<Navigate to="/" replace />} />
       </Route>
       {/* The phone mounted on a bus. Signs in as the bus with a pairing code, not a person's login. */}

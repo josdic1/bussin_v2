@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { staffCheckResponseSchema, type CheckRider, type CheckTrip, type RiderCheckAction } from "@bussin/shared";
 import { ChangeMyPassword } from "../auth/ChangeMyPassword";
-import { clock, EARLY_START_WARNING_MS, mmss, useTerminalTrip } from "../terminal/useTerminalTrip";
+import { clock, EARLY_START_WARNING_MS, mmss, PREVIEW_NOTE, useTerminalTrip } from "../terminal/useTerminalTrip";
 import "./crew.css";
 
 /*
@@ -20,8 +20,9 @@ async function readError(response: Response, fallback: string) {
   return body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : fallback;
 }
 
-/** Ride Check for this phone's trip, kept live by the same stream the trip uses. */
-function useRideCheck() {
+/** Ride Check for this phone's trip, kept live by the same stream the trip uses. In preview: read-only, polled. */
+function useRideCheck(previewId?: string) {
+  const url = previewId ? `/api/preview/counselor/${previewId}/check` : "/api/check/mine";
   const [trip, setTrip] = useState<CheckTrip | null | undefined>();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -30,26 +31,31 @@ function useRideCheck() {
   const load = useCallback(async () => {
     const mine = ++seq.current;
     try {
-      const response = await fetch("/api/check/mine", { credentials: "same-origin" });
+      const response = await fetch(url, { credentials: "same-origin" });
       if (!response.ok) return;
       const data = staffCheckResponseSchema.parse(await response.json());
       if (mine === seq.current) setTrip(data.trip);
     } catch {
       // Connection trouble shows in the trip status; the list keeps its last state.
     }
-  }, []);
+  }, [url]);
 
   useEffect(() => {
     void load();
+    if (previewId) {
+      const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 5_000);
+      return () => window.clearInterval(poll);
+    }
     const source = new EventSource("/api/staff/live");
     source.addEventListener("trip", () => void load());
     source.addEventListener("ready", () => void load());
     const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 20_000);
     return () => { source.close(); window.clearInterval(poll); };
-  }, [load]);
+  }, [load, previewId]);
 
   async function post(path: string, body: unknown, key: string) {
     if (busy) return;
+    if (previewId) { setMessage(PREVIEW_NOTE); return; }
     setBusy(key); setMessage("");
     try {
       const response = await fetch(path, {
@@ -95,9 +101,11 @@ function RiderRow({ rider, tripStatus, busy, tap }: {
   </li>;
 }
 
-export function StaffTripPage() {
-  const t = useTerminalTrip({ kind: "staff" });
-  const check = useRideCheck();
+/** preview: the admin's View as, showing this counselor's phone. Nothing tapped here saves. */
+export function StaffTripPage({ preview }: { preview?: { memberId: string; name: string } } = {}) {
+  const t = useTerminalTrip(preview
+    ? { kind: "preview", as: "staff", tripUrl: `/api/preview/counselor/${preview.memberId}/trip` } : { kind: "staff" });
+  const check = useRideCheck(preview?.memberId);
   const [changingPassword, setChangingPassword] = useState(false);
   const { trip, now, pending } = t;
   const lead = trip?.crewRole === "lead";
@@ -153,11 +161,11 @@ export function StaffTripPage() {
 
   return <main className="field crew">
     <header className="ftop">
-      <div className="wm">BUSSIN<span>{t.member?.display_name ?? ""}{t.tenant ? ` · ${t.tenant.name}` : ""}</span></div>
-      <div className="cr-top-acts">
+      <div className="wm">BUSSIN<span>{preview ? preview.name : t.member?.display_name ?? ""}{t.tenant ? ` · ${t.tenant.name}` : ""}</span></div>
+      {!preview && <div className="cr-top-acts">
         <button type="button" onClick={() => setChangingPassword(true)}>Password</button>
         <button type="button" onClick={() => void t.signOut()}>Sign out</button>
-      </div>
+      </div>}
     </header>
 
     {trip === undefined && <section className="cr-card"><p className="cr-muted">Checking with Dispatch…</p></section>}

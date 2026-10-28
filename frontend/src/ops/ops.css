@@ -504,16 +504,47 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 @media (max-width:1100px){.ops .routes-grid{grid-template-columns:1fr}}
 
 /* ---------- mode lock ---------- */
-.ops .rolectl{display:flex;align-items:center;gap:6px}
-.ops .lockbtn{width:34px;height:34px;border:1px solid #cbd5cc;background:#fff;border-radius:9px;display:grid;place-items:center;flex:none;color:var(--muted);padding:0;touch-action:manipulation;user-select:none}
-.ops .rolectl.open .lockbtn{border-color:var(--green);color:var(--green);background:var(--sage)}
-.ops .rseg{flex:1;display:grid;grid-template-columns:1fr 1fr;border:1px solid #cbd5cc;background:#fff;border-radius:10px;padding:3px}
-.ops .rseg button{border:0;background:transparent;padding:6px 8px;border-radius:7px;font-size:11px;font-weight:850;color:#78847b}
-.ops .rseg button.on{background:var(--green);color:#fff}
-.ops .rolectl.locked .rseg button:not(.on){opacity:.55;cursor:not-allowed}
-.ops .rolectl.open{box-shadow:none}
-.ops .mtop .rolectl .lockbtn{width:32px;height:32px}
-.ops .mtop .rseg{flex:none}
+/* View as (admin): the sidebar button, the chooser, the Dispatch banner and the live docked panel. */
+.ops .va-btn{width:100%;border:1px solid #cbd5cc;background:#fff;border-radius:10px;padding:8px 10px;font-size:11.5px;font-weight:850;color:var(--green);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ops .va-btn.on{background:var(--green);border-color:var(--green);color:#fff}
+.ops .mtop .va-btn{width:auto;max-width:170px;padding:7px 10px}
+.ops .va-banner{display:flex;align-items:center;gap:12px;padding:9px 22px;background:var(--lime);color:var(--green);font-size:12.5px;font-weight:850}
+.ops .va-banner button{margin-left:auto;border:0;border-radius:8px;background:var(--green);color:#fff;font-size:12px;font-weight:850;padding:6px 10px}
+.ops .app.d.docked{grid-template-columns:224px minmax(0,1fr) 400px}
+.ops .va-space{width:400px}
+.ops .va-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin:14px 0 10px;padding:3px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.ops .va-tabs button{border:0;background:none;border-radius:7px;padding:7px 4px;font-size:12px;font-weight:850;color:var(--muted)}
+.ops .va-tabs button.on{background:var(--green);color:#fff}
+.ops .va-search{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:inherit;font-size:13px;background:#fff}
+.ops .va-empty{color:var(--muted);font-size:13px;margin:12px 2px}
+.ops .va-dispatch p{font-size:13px;line-height:1.45;color:var(--ink)}
+.ops .va-list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px}
+.ops .va-list button{position:relative;display:grid;gap:2px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 12px}
+.ops .va-list button:hover{border-color:var(--green)}
+.ops .va-list button.on{border-color:var(--green);box-shadow:inset 3px 0 0 var(--green)}
+.ops .va-list b{font-size:13.5px;color:var(--ink)}
+.ops .va-list span{font-size:12px;color:var(--ink)}
+.ops .va-list small{font-size:11.5px;color:var(--muted)}
+.ops .va-list em{position:absolute;top:10px;right:12px;font-style:normal;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--green)}
+/* The dock sits outside .ops so the previewed screen keeps its own look. */
+.va-dock{position:fixed;z-index:70;display:flex;flex-direction:column;background:#fff;box-sizing:border-box}
+.va-dock.d{top:0;right:0;bottom:0;width:400px;border-left:1px solid #dce3dc}
+.va-dock.m{inset:0}
+.va-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#17382c;color:#fff;flex:none}
+.va-head div{min-width:0;flex:1}
+.va-head span{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:900;letter-spacing:.09em;text-transform:uppercase;color:#cfff04}
+.va-head i,.va-pill i{width:7px;height:7px;border-radius:50%;background:#cfff04;animation:va-pulse 1.6s ease-in-out infinite}
+.va-head b{display:block;font-size:14px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.va-head nav{display:flex;gap:2px;flex:none}
+.va-head nav button{border:0;background:none;color:#fff;font-size:11.5px;font-weight:800;padding:6px 7px;border-radius:7px}
+.va-head nav button:hover{background:rgba(255,255,255,.12)}
+/* transform makes the previewed screen's own fixed layers stay inside the panel */
+.va-stage{position:relative;container-type:inline-size;flex:1;min-height:0;overflow:auto;transform:translateZ(0);background:#f7f7f2}
+.va-stage .field,.va-stage .term{min-height:100%}
+.va-pill{position:fixed;z-index:70;right:16px;bottom:16px;display:flex;align-items:center;gap:8px;border:0;border-radius:999px;background:#17382c;color:#fff;font-size:12.5px;font-weight:850;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.ops .app.m ~ .va-pill{bottom:76px}
+@keyframes va-pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.va-head i,.va-pill i{animation:none}}
 
 /* ---------- my bus (driver mode on an ops login) ---------- */
 .ops .drv{max-width:640px}

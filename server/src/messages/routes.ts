@@ -167,6 +167,11 @@ messageRoutes.post("/:id/retract", requireSameOrigin, requireRole("admin"), asyn
 /** Family: my messages, newest first. */
 messageRoutes.get("/mine", requireRole("family"), async (_request, response) => {
   const member = currentMember(response);
+  response.json(await readFamilyMessages(member.id));
+});
+
+/** A family login's inbox. Also used by the admin's View as preview, which never marks anything read. */
+export async function readFamilyMessages(memberId: string) {
   const result = await pool.query(
     `SELECT m.id, m.body, m.audience_label AS "audienceLabel", to_json(m.sent_at) #>> '{}' AS "sentAt",
             bool_and(r.read_at IS NOT NULL) AS read
@@ -176,10 +181,10 @@ messageRoutes.get("/mine", requireRole("family"), async (_request, response) => 
       GROUP BY m.id
       ORDER BY m.sent_at DESC
       LIMIT 50`,
-    [member.id]
+    [memberId]
   );
-  response.json(familyMessagesResponseSchema.parse({ messages: result.rows }));
-});
+  return familyMessagesResponseSchema.parse({ messages: result.rows });
+}
 
 /** Family: mark everything I can see as read. */
 messageRoutes.post("/mine/read", requireSameOrigin, requireRole("family"), async (_request, response) => {
