@@ -670,7 +670,10 @@ export const historyTripSchema = z.strictObject({
   startedAt: z.string().nullable(),
   endedAt: z.string().nullable(),
   cancelledAt: z.string().nullable(),
+  // assignedStaff is the lead counselor.
   assignedStaff: tripStaffSchema.nullable(),
+  driver: tripDriverSchema.nullable(),
+  counselors: z.array(tripStaffSchema),
   stops: z.array(z.strictObject({
     id: z.string().uuid(),
     position: z.number().int().positive(),

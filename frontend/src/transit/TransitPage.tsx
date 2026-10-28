@@ -8,7 +8,7 @@ import {
   dateLabel, dayBounds, dayName, duration, localDate, MIN, plural, shiftDay, time, timeWithSeconds, routeWithPeriod } from "../ops/format";
 import { busColors, busNumber } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { ErrorNote, Head, NoMatch, Search, Seg } from "../ops/ui";
+import { CrewPills, ErrorNote, Head, NoMatch, Search, Seg } from "../ops/ui";
 import { useNow, usePolling } from "../ops/useBoard";
 
 type Flag = { sev: "high" | "med"; text: string };
@@ -123,7 +123,8 @@ function TripDetailView({ trip, tab, setTab }: { trip: TripView; tab: Tab; setTa
   return <>
     <div className="dh"><span className="av" style={{ "--c": trip.color, "--s": "44px" } as CSSProperties}>{busNumber(trip.busLabel)}</span>
       <h2>{routeWithPeriod(trip.routeName, trip.servicePeriod)}</h2></div>
-    <p className="dsub">{trip.busLabel} &middot; {trip.assignedStaff?.displayName ?? "No driver assigned"} &middot; {dayName(trip.day)}, {dateLabel(trip.day)} &nbsp;<Pill status={trip.status} /></p>
+    <p className="dsub">{trip.busLabel} &middot; {dayName(trip.day)}, {dateLabel(trip.day)} &nbsp;<Pill status={trip.status} /></p>
+    <CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} />
     {trip.flags.length > 0 && <div className="fcs"><FlagChips flags={trip.flags} /></div>}
     <div className="dsec"><h3>Times</h3></div>
     <dl className="sm">
@@ -189,7 +190,7 @@ export function TransitPage() {
   const filter = (options: { status?: string; exceptions?: boolean; day?: string }) => views.filter((trip) =>
     (!options.status || trip.status === options.status) && (!options.exceptions || trip.flags.length > 0) &&
     (!options.day || trip.day === options.day) &&
-    (!needle || `${trip.busLabel} ${trip.routeName} ${trip.assignedStaff?.displayName ?? ""}`.toLowerCase().includes(needle)));
+    (!needle || `${trip.busLabel} ${trip.routeName} ${trip.assignedStaff?.displayName ?? ""} ${trip.counselors.map((c) => c.displayName).join(" ")} ${trip.driver?.name ?? ""}`.toLowerCase().includes(needle)));
 
   const grouped = (list: TripView[], render: (trip: TripView) => ReactElement) => {
     if (!list.length) return <NoMatch>{loading ? "Loading trips…" : "No trips match."}</NoMatch>;
@@ -205,7 +206,8 @@ export function TransitPage() {
     <button key={trip.id} type="button" className={`it${selected ? " sel" : ""}`} onClick={onClick}>
       <span className="av" style={{ "--c": trip.color, "--s": "34px" } as CSSProperties}>{busNumber(trip.busLabel)}</span>
       <div><div className="a"><strong>{time(trip.departureAt)} &middot; {routeWithPeriod(trip.routeName, trip.servicePeriod)}</strong></div>
-        <div className="b"><Pill status={trip.status} /> &nbsp;{trip.assignedStaff?.displayName ?? "No driver"}</div>
+        <div className="b"><Pill status={trip.status} /></div>
+        <CrewPills lead={trip.assignedStaff} counselors={trip.counselors} />
         {trip.flags.length > 0 && <div className="fcs"><FlagChips flags={trip.flags} limit={flagLimit} /></div>}</div>
     </button>;
   const overlayTrip = overlayId ? views.find((trip) => trip.id === overlayId) : null;

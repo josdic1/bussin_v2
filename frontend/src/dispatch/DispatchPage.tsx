@@ -7,7 +7,7 @@ import {
   busColors, fleetRows, nextEta, severityRank, stopsDone, type Alert, type BusRow
 } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Dot, ErrorNote, Head, LivePill, NoMatch, Seg, Tile } from "../ops/ui";
+import { CrewPills, Dot, ErrorNote, Head, LivePill, NoMatch, Seg, Tile } from "../ops/ui";
 import { useBoard, useNow } from "../ops/useBoard";
 import { useTripActions } from "../ops/useTripActions";
 import { alerts as checkAlerts, counts } from "../check/checkModel";
@@ -101,8 +101,8 @@ function ListRow({ row, selected, now, onSelect }: { row: BusRow; selected: bool
   const eta = trip ? nextEta(trip) : null;
   const first = row.alerts[0];
   const sub = !trip ? "No trip on this day"
-    : trip.status === "active" ? `Running · ${trip.assignedStaff?.displayName ?? "No lead"} · ${stopsDone(trip)} of ${trip.stops.length} stops`
-      : trip.status === "planned" ? `Planned · ${trip.assignedStaff?.displayName ?? "No lead"} · ${time(trip.departureAt)}`
+    : trip.status === "active" ? `Running · ${stopsDone(trip)} of ${trip.stops.length} stops`
+      : trip.status === "planned" ? `Planned · ${time(trip.departureAt)}`
         : trip.status === "completed" ? `Finished ${trip.routeName}` : `Cancelled ${trip.routeName}`;
   const right = first
     ? <span className={`pill ${first.sev === "high" ? "bad" : "warn"}`}>{first.short}</span>
@@ -113,7 +113,8 @@ function ListRow({ row, selected, now, onSelect }: { row: BusRow; selected: bool
   return <button type="button" disabled={!trip} className={`li2${selected ? " sel" : ""}`}
     style={{ "--c": row.color } as CSSProperties} onClick={() => trip && onSelect(trip.id)}>
     <span className="bar" />
-    <span><strong>{row.bus.label}{trip ? ` · ${routeWithPeriod(trip.routeName, trip.servicePeriod)}` : ""}</strong><small>{sub}</small></span>
+    <span><strong>{row.bus.label}{trip ? ` · ${routeWithPeriod(trip.routeName, trip.servicePeriod)}` : ""}</strong><small>{sub}</small>
+      {trip && <CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} />}</span>
     <span className="right">{right}</span>
   </button>;
 }

@@ -107,3 +107,23 @@ export function Confirm({ text, yes, onYes, onNo, busy, danger }: {
     <button type="button" className="btn" onClick={onNo}>Go back</button>
   </div>;
 }
+
+/**
+ * A trip's crew as pills: the lead counselor first (marked LEAD, required to start),
+ * then the other counselors, then the driver when asked for.
+ */
+export function CrewPills({ lead, counselors, driver }: {
+  lead: { displayName: string } | null;
+  counselors: { id: string; displayName: string }[];
+  driver?: { name: string } | null;
+}) {
+  return <span className="crewp">
+    {lead
+      ? <span className="cp lead" title="Lead counselor"><b>Lead</b>{lead.displayName}</span>
+      : <span className="cp nolead" title="A trip can't start without a lead counselor">No lead</span>}
+    {counselors.map((person) => <span key={person.id} className="cp">{person.displayName}</span>)}
+    {driver !== undefined && (driver
+      ? <span className="cp drv" title="Driver"><b>Driver</b>{driver.name}</span>
+      : <span className="cp nodrv">No driver</span>)}
+  </span>;
+}

@@ -4,7 +4,7 @@ import {
   currentStopIndex, etaText, fleetRows, gpsStale, nextAction, presence, stopsDone
 } from "../ops/fleetModel";
 import { useOps } from "../ops/OpsShell";
-import { ErrorNote, NoMatch } from "../ops/ui";
+import { CrewPills, ErrorNote, NoMatch } from "../ops/ui";
 import { useBoard, useNow } from "../ops/useBoard";
 import { useTripActions } from "../ops/useTripActions";
 import { ConfirmFor } from "../dispatch/TripDetail";
@@ -78,7 +78,8 @@ export function MyBusPage() {
   return <div className="drv">
     <p className="eyebrow">DRIVER / MY BUS</p>
     <h1 className="sh1">{row.bus.label}</h1>
-    <p className="desc" style={{ margin: "6px 0 4px" }}>{trip ? `${routeWithPeriod(trip.routeName, trip.servicePeriod)} · ${trip.assignedStaff?.displayName ?? "No driver"}` : ""}</p>
+    <p className="desc" style={{ margin: "6px 0 4px" }}>{trip ? routeWithPeriod(trip.routeName, trip.servicePeriod) : ""}</p>
+    {trip && <CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} />}
     <ErrorNote text={board.error} />
     <div className="chips" role="group" aria-label="Choose your bus">{rows.map((item) => <button key={item.bus.id} type="button"
       className={`chip${item.bus.id === row.bus.id ? " on" : ""}`} aria-pressed={item.bus.id === row.bus.id}

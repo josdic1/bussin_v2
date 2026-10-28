@@ -617,3 +617,14 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .trk-code{margin:10px 0;padding:14px;border:1px solid var(--line);border-radius:var(--r2);background:#fff;text-align:center}
 .ops .trk-code b{display:block;font-size:40px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
 .ops .trk-code p{margin:6px 0 0;color:var(--muted);font-size:13px}
+/* Crew pills: lead first and marked, then counselors, then driver. */
+.ops .crewp{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.ops .cp{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:600;line-height:1.3;background:var(--idlebg);color:var(--ink);white-space:nowrap}
+.ops .cp b{font-size:8.5px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.ops .cp.lead{background:var(--green);color:#fff}
+.ops .cp.lead b{color:var(--lime)}
+.ops .cp.nolead{background:var(--badbg);color:var(--bad);font-weight:800}
+.ops .cp.drv{background:#fff;border:1px solid var(--line);color:var(--muted)}
+.ops .cp.drv b{color:var(--soft)}
+.ops .cp.nodrv{background:var(--warnbg);color:var(--warn);font-weight:800}
+.ops .d-grid>div.wide{grid-column:1/-1;border-right:0}

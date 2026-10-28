@@ -5,7 +5,7 @@ import { message, send } from "../ops/api";
 import { age, ageShort, localDate, PALETTE, plural, routeWithPeriod, time } from "../ops/format";
 import { currentStopIndex, fleetRows, STATUS_SLUG, type BusRow, type FleetStatus } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Bar, ErrorNote, Head, NoMatch, Plus, Search, Swatch, Tile, type Tone } from "../ops/ui";
+import { Bar, CrewPills, ErrorNote, Head, NoMatch, Plus, Search, Swatch, Tile, type Tone } from "../ops/ui";
 import { useBoard, useNow } from "../ops/useBoard";
 import { TrackerPanel } from "./TrackerPanel";
 
@@ -38,10 +38,8 @@ function BusDetail({ row, now }: { row: BusRow; now: number }) {
     <dl className="d-grid">
       <div><dt>Current route</dt><dd>{trip?.routeName ?? "—"}</dd></div>
       <div><dt>Period</dt><dd>{trip?.servicePeriod ?? "—"}</dd></div>
-      <div><dt>Driver</dt><dd>{trip?.driver?.name ?? "—"}</dd></div>
-      <div><dt>Lead counselor</dt><dd>{trip?.assignedStaff?.displayName ?? "—"}</dd></div>
+      {trip && <div className="wide"><dt>Crew</dt><dd><CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} /></dd></div>}
       <div><dt>Last GPS</dt><dd>{age(row.latestGps, now)}</dd></div>
-      <div><dt>Counselors</dt><dd>{trip?.counselors.length ? trip.counselors.map((person) => person.displayName).join(", ") : "—"}</dd></div>
       {row.next && <><div><dt>Next stop</dt><dd>{row.next.label}</dd></div>
         <div><dt>ETA</dt><dd>{row.next.etaAt ? time(row.next.etaAt) : "—"}</dd></div></>}
     </dl>
@@ -116,7 +114,7 @@ export function FleetPage() {
   const attention = all.filter((row) => row.alerts.length);
   const needle = query.trim().toLowerCase();
   const rows = all.filter((row) => (filter === "ALL" || row.status === filter) &&
-    (!needle || `${row.bus.label} ${row.trip?.routeName ?? ""} ${row.trip?.assignedStaff?.displayName ?? ""} ${row.trip?.driver?.name ?? ""}`.toLowerCase().includes(needle)))
+    (!needle || `${row.bus.label} ${row.trip?.routeName ?? ""} ${row.trip?.assignedStaff?.displayName ?? ""} ${row.trip?.driver?.name ?? ""} ${row.trip?.counselors.map((c) => c.displayName).join(" ") ?? ""}`.toLowerCase().includes(needle)))
     .sort((a, b) => (a.alerts.length ? 0 : 1) - (b.alerts.length ? 0 : 1) ||
       ORDER.indexOf(a.status) - ORDER.indexOf(b.status) ||
       a.bus.label.localeCompare(b.bus.label, undefined, { numeric: true }));
@@ -149,7 +147,7 @@ export function FleetPage() {
       {attention.length > 0 && <div className="attnstrip"><b>{attention.length} NEED ATTENTION</b>
         {attention.map((row) => <button key={row.bus.id} type="button" className="pillbtn" onClick={() => openBus(row.bus.id)}>
           {row.bus.label}: {row.alerts.map((alert) => alert.short).join(", ")}</button>)}</div>}
-      <div className="filters"><Search label="Search" value={query} onChange={setQuery} placeholder="Bus, route or driver" />
+      <div className="filters"><Search label="Search" value={query} onChange={setQuery} placeholder="Bus, route, driver or counselor" />
         <span className="cnt">Sorted by attention, then status</span></div>
       <table className="tbl">
         <thead><tr><th>Bus</th><th>Status</th><th>Route</th><th>Driver</th><th>Progress</th><th>Next stop</th><th>Departure</th><th>Last GPS</th></tr></thead>
@@ -183,7 +181,7 @@ export function FleetPage() {
     <div className="chips">{tiles.map(([key, label, value]) => <button key={key} type="button"
       className={`chip${filter === key ? " on" : ""}`} aria-pressed={filter === key} onClick={() => setFilter(key)}>
       {label.toUpperCase()} <b>{value}</b></button>)}</div>
-    <Search value={query} onChange={setQuery} placeholder="Bus, route or driver" />
+    <Search value={query} onChange={setQuery} placeholder="Bus, route, driver or counselor" />
     <div className="cards" style={{ marginTop: 12 }}>{rows.length ? rows.map((row) => {
       const trip = row.trip;
       return <button key={row.bus.id} type="button" className={`bc${row.alerts.length ? " attn" : ""}`}

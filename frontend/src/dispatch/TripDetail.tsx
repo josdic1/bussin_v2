@@ -10,7 +10,7 @@ import {
   type BusRow
 } from "../ops/fleetModel";
 import type { TripActions } from "../ops/useTripActions";
-import { Confirm, Swatch } from "../ops/ui";
+import { Confirm, CrewPills, Swatch } from "../ops/ui";
 import { EditTripForm } from "./EditTripForm";
 
 export function TripPill({ status }: { status: BoardTrip["status"] }) {
@@ -221,9 +221,7 @@ export function TripDetail({ row, trip, staff, drivers, buses, routes, now, acti
         <b>{alert.sev === "high" ? "ATTENTION" : "HEADS UP"}</b><span>{alert.text}</span></div>)}
     </div>}
     <dl className="d-grid">
-      <div><dt>Driver</dt><dd>{trip.driver?.name ?? "Not set"}</dd></div>
-      <div><dt>Lead</dt><dd>{trip.assignedStaff?.displayName ?? "Unassigned"}</dd></div>
-      <div><dt>Counselors</dt><dd>{trip.counselors.length ? trip.counselors.map((c) => c.displayName).join(", ") : "Lead only"}</dd></div>
+      <div className="wide"><dt>Crew</dt><dd><CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} /></dd></div>
       <div><dt>Phone</dt><dd className={phone ? phone.ok ? "ok" : "bad" : ""}>{phone ? phone.text.replace(/^Phone: /, "").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "None"}</dd></div>
       <div><dt>GPS</dt><dd className={trip.status === "active" && !trip.location ? "bad" : ""}>{gpsText}</dd></div>
       {riders

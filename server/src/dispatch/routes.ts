@@ -959,5 +959,8 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
     };
   });
 
-  response.json(historyResponseSchema.parse({ trips: result }));
+  const crew = await loadCrew(result.map((trip) => trip.id));
+  response.json(historyResponseSchema.parse({
+    trips: result.map((trip) => ({ ...trip, ...(crew.get(trip.id) ?? { driver: null, counselors: [] }) }))
+  }));
 });
