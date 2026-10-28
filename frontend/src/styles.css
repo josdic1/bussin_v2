@@ -140,3 +140,4 @@ details.pd div{padding:0 12px 12px;font-size:11px;color:var(--muted);line-height
 .hero .waiting{opacity:.55}
 /* iPhone zooms into any text box under 16px and stays zoomed. */
 @media (max-width:760px){input,select,textarea{font-size:16px!important}}
+.auth-form input.pair-code{height:64px;font-size:32px;letter-spacing:.3em;text-align:center;font-variant-numeric:tabular-nums}

@@ -13,6 +13,7 @@ import { adminRoutes } from "./admin/routes.js";
 import { messageRoutes } from "./messages/routes.js";
 import { dataRoutes } from "./data/routes.js";
 import { dataImportRoutes } from "./data/import.js";
+import { deviceRoutes, trackerRoutes } from "./device/routes.js";
 import { readTenant } from "./db/tenant.js";
 import { pool } from "./db/pool.js";
 import { closeListener } from "./db/listen.js";
@@ -52,6 +53,8 @@ app.use("/api", (_request, response, next) => {
 });
 app.use("/api/auth", authRoutes);
 app.use("/api/fleet", fleetRoutes);
+app.use("/api/fleet", trackerRoutes);
+app.use("/api/device", deviceRoutes);
 app.use("/api/routes", routeRoutes);
 app.use("/api/geocode", geocodeRoutes);
 app.use("/api/dispatch", dispatchRoutes);

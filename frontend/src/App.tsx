@@ -6,6 +6,7 @@ import { DispatchPage } from "./dispatch/DispatchPage";
 import { StaffTripPage } from "./staff/StaffTripPage";
 import { FamilyPortalPage } from "./families/FamilyPortalPage";
 import { OpsShell } from "./ops/OpsShell";
+import { BusPage } from "./bus/BusPage";
 // Cab terminal for docked driver tablets, at /terminal. Loaded only there.
 const DriverTerminal = lazy(async () => ({ default: (await import("./terminal/DriverTerminal")).DriverTerminal }));
 const MembersPage = lazy(async () => ({ default: (await import("./members/MembersPage")).MembersPage }));
@@ -266,6 +267,8 @@ export function App() {
         {/* Staff accounts get the cab terminal here (see AuthGate); everyone else goes home. */}
         <Route path="terminal" element={<Navigate to="/" replace />} />
       </Route>
+      {/* The phone mounted on a bus. Signs in as the bus with a pairing code, not a person's login. */}
+      <Route path="bus" element={<BusPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

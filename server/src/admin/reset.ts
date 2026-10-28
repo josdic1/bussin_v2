@@ -15,6 +15,8 @@ const OPERATIONAL_TABLES = [
   "trip_riders",
   "trip_current_locations",
   "trip_location_samples",
+  "bus_pair_codes",
+  "bus_devices",
   "trip_events",
   "trip_driver_assignments",
   "staff_assignments",

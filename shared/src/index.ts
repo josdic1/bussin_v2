@@ -861,3 +861,29 @@ export const rosterImportResultSchema = z.strictObject({
   applied: z.number().int(), created: z.number().int(), updated: z.number().int(), newGuardians: z.number().int()
 });
 export type RosterImportResult = z.infer<typeof rosterImportResultSchema>;
+
+// ---------- Bus trackers: a phone mounted on a bus that signs in as the bus ----------
+export const pairCodeResponseSchema = z.strictObject({
+  code: z.string().regex(/^\d{6}$/),
+  expiresAt: z.string(),
+  busLabel: z.string()
+});
+export type PairCodeResponse = z.infer<typeof pairCodeResponseSchema>;
+
+export const pairDeviceInputSchema = z.strictObject({
+  code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from Fleet.")
+});
+
+export const deviceMeResponseSchema = z.strictObject({
+  bus: z.strictObject({ id: z.string().uuid(), label: z.string() }),
+  tenant: z.string()
+});
+export type DeviceMe = z.infer<typeof deviceMeResponseSchema>;
+
+export const trackerSchema = z.strictObject({
+  busId: z.string().uuid(),
+  pairedAt: z.string(),
+  lastSeenAt: z.string().nullable()
+});
+export type Tracker = z.infer<typeof trackerSchema>;
+export const trackersResponseSchema = z.strictObject({ trackers: z.array(trackerSchema) });

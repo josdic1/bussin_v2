@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   clock, clockSeconds, distanceMeters, mmss, useTerminalTrip,
-  EARLY_START_WARNING_MS, MANUAL_DEPART_AFTER_MS, type Fix
+  EARLY_START_WARNING_MS, MANUAL_DEPART_AFTER_MS, type Fix, type TerminalMode
 } from "./useTerminalTrip";
 import { TerminalMap } from "./TerminalMap";
 import "./terminal.css";
@@ -40,8 +40,9 @@ function Icon({ name }: { name: keyof typeof ICONS }) {
  * The cab terminal for docked tablets, at /terminal. Staff accounts only.
  * One status line, a map, the next stop, one button. The phone screen (StaffTripPage) is separate and unchanged.
  */
-export function DriverTerminal() {
-  const t = useTerminalTrip();
+export function DriverTerminal({ mode, deviceBus }: { mode?: TerminalMode; deviceBus?: string } = {}) {
+  const t = useTerminalTrip(mode);
+  const device = t.device;
   const { trip, now, fix, locked, pending, nextStop, nextIndex, status, problem } = t;
   const [details, setDetails] = useState(false);
 
@@ -54,7 +55,7 @@ export function DriverTerminal() {
     history.current = list.filter((item) => fix.observedAt - item.observedAt <= SPEED_WINDOW_MS);
   }, [fix]);
 
-  const busLabel = trip ? `${trip.busLabel} · ${trip.routeName} · ${trip.servicePeriod}` : t.member?.display_name ?? "Driver";
+  const busLabel = trip ? `${trip.busLabel} · ${trip.routeName} · ${trip.servicePeriod}` : device ? deviceBus ?? "Bus" : t.member?.display_name ?? "Driver";
   const fresh = fix && now - fix.observedAt <= 20_000 ? fix : null;
 
   // ---------- right panel: one state at a time ----------
@@ -70,14 +71,17 @@ export function DriverTerminal() {
   } else if (trip === null) {
     kicker = t.justCompleted ? "TRIP COMPLETE" : "NO TRIP";
     title = t.justCompleted ? "Nice work." : "Nothing assigned";
-    sub = t.justCompleted ? "Dispatch can assign your next trip. Keep this screen on." : "This screen updates by itself when Dispatch assigns a trip.";
+    sub = t.justCompleted ? "Dispatch can assign your next trip. Keep this screen on." : device
+      ? "This screen updates by itself when this bus has a trip."
+      : "This screen updates by itself when Dispatch assigns a trip.";
   } else if (trip.status === "planned") {
     const until = Date.parse(trip.departureAt) - now;
     kicker = `NEXT TRIP · ${trip.servicePeriod}`;
     title = trip.routeName;
     big = until > 0 ? mmss(until) : `${Math.floor(-until / 60_000)} min late`;
     sub = <>Leaves {clock(trip.departureAt)} · first stop {trip.stops[0]?.label ?? ""}</>;
-    action = t.confirming === "start"
+    if (device) sub = <>Leaves {clock(trip.departureAt)} · the lead counselor starts the trip on their phone</>;
+    action = device ? null : t.confirming === "start"
       ? <div className="term-confirm"><p>Scheduled for {clock(trip.departureAt)}. Start {Math.ceil(until / 60_000)} minutes early?</p>
         <div><button type="button" className="term-btn ghost" onClick={() => t.setConfirming(null)}>Go back</button>
           <button type="button" className="term-btn go" disabled={pending} onClick={() => void t.act("start")}>Start now</button></div></div>
@@ -88,8 +92,10 @@ export function DriverTerminal() {
     kicker = `LAST STOP · ${trip.stops.length} OF ${trip.stops.length}`;
     title = t.finalStop!.label;
     big = "Arrived";
-    sub = <>at {clock(t.finalStop!.arrivedAt!)} · everyone off? Finish to free the bus.</>;
-    action = <button type="button" className="term-btn go big" disabled={pending || locked} onClick={() => void t.act("complete")}>
+    sub = device
+      ? <>at {clock(t.finalStop!.arrivedAt!)} · the lead counselor finishes the trip, or it finishes itself in 10 minutes</>
+      : <>at {clock(t.finalStop!.arrivedAt!)} · everyone off? Finish to free the bus.</>;
+    action = device ? null : <button type="button" className="term-btn go big" disabled={pending || locked} onClick={() => void t.act("complete")}>
       {locked ? LOCKED_TEXT : pending ? "Finishing…" : "Finish trip"}</button>;
   } else if (nextStop?.arrivedAt) {
     const dwell = now - Date.parse(nextStop.arrivedAt);
@@ -162,7 +168,8 @@ export function DriverTerminal() {
         <div className="term-drawer-top"><h2>{status.title}</h2><button type="button" className="term-btn ghost" onClick={() => setDetails(false)}>Close</button></div>
         {status.detail && <p className="term-drawer-detail">{status.detail}</p>}
         <dl>
-          <dt>Driver</dt><dd>{t.member?.display_name ?? "Driver"}{t.tenant ? ` · ${t.tenant.name}` : ""}</dd>
+          {device ? <><dt>Bus tracker</dt><dd>{deviceBus ?? "Bus"}</dd></>
+            : <><dt>Driver</dt><dd>{t.member?.display_name ?? "Driver"}{t.tenant ? ` · ${t.tenant.name}` : ""}</dd></>}
           <dt>Trip</dt><dd>{trip ? `${trip.busLabel} · ${trip.status === "active" ? "Running" : "Not started"}` : trip === undefined ? "Checking…" : "None assigned"}</dd>
           <dt>GPS</dt><dd>{fix ? `${Math.max(0, Math.round(t.fixAge / 1000))}s ago · within ${Math.round(fix.accuracy * 3.281)} ft` : t.gps === "denied" ? "Location permission off" : "Finding location"}</dd>
           <dt>Dispatch got it</dt><dd>{t.dispatch.at ? `${Math.max(0, Math.round((now - t.dispatch.at) / 1000))}s ago` : "Not yet"}{!t.online ? " · internet offline" : t.dispatch.queued ? ` · ${t.dispatch.queued} saved on tablet` : ""}</dd>
@@ -181,7 +188,8 @@ export function DriverTerminal() {
           <button type="button" className="term-btn ghost" disabled={locked || pending} onClick={t.refresh}><Icon name="refresh" />Check trip with Dispatch</button>
           {t.awake !== "yes" && <button type="button" className="term-btn ghost" onClick={() => void t.requestWake()}><Icon name="screen" />Keep screen on</button>}
           <button type="button" className="term-btn ghost" disabled={locked || pending}
-            onClick={() => { if (window.confirm("Sign out of this driver terminal?")) void t.signOut(); }}>Sign out</button>
+            onClick={() => { if (window.confirm(device ? "Unpair this phone from the bus? You'll need a new code from Fleet." : "Sign out of this driver terminal?")) void t.signOut(); }}>
+            {device ? "Unpair this phone" : "Sign out"}</button>
         </div>
       </aside>
     </div>}

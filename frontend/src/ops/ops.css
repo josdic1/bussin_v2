@@ -613,3 +613,7 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .crew-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12px;font-weight:750}
 .ops .crew-chip button{width:20px;height:20px;border:0;border-radius:50%;background:var(--line2);color:var(--ink);font-size:14px;line-height:1;cursor:pointer}
 .ops .crew-err{margin-top:6px;padding:8px 10px;border-radius:8px;background:#fdecea;color:#912018;font-size:12px}
+.ops .trk-on{color:var(--ok);font-weight:700}
+.ops .trk-code{margin:10px 0;padding:14px;border:1px solid var(--line);border-radius:var(--r2);background:#fff;text-align:center}
+.ops .trk-code b{display:block;font-size:40px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
+.ops .trk-code p{margin:6px 0 0;color:var(--muted);font-size:13px}
