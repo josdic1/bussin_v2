@@ -35,7 +35,8 @@ const OPERATIONAL_TABLES = [
   "staff_presence",
   "invitations",
   "password_reset_tokens",
-  "data_edits"
+  "data_edits",
+  "saved_reports"
 ] as const;
 
 /** Members kept by a reset: anyone holding an active admin role. */

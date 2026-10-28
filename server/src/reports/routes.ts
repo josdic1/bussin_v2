@@ -1,6 +1,9 @@
 import { Router } from "express";
-import { insightsSchema, reportKeySchema, reportSchema, type Insights, type Report, type ReportKey } from "@bussin/shared";
-import { requireRole } from "../auth/guard.js";
+import {
+  buildDataSchema, buildDatasetSchema, insightsSchema, reportKeySchema, reportSchema, saveReportInputSchema, savedReportSchema,
+  savedReportsResponseSchema, type BuildData, type BuildDataset, type BuildField, type Insights, type Report, type ReportKey
+} from "@bussin/shared";
+import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { deriveRiderState, type RiderEventRow } from "../check/state.js";
 import { pool } from "../db/pool.js";
 import { loadCrew } from "../dispatch/crew.js";
@@ -464,6 +467,125 @@ reportRoutes.get("/insights", requireRole("admin", "dispatch"), async (request, 
     return;
   }
   response.json(insightsSchema.parse(await insights(from, to, formatters(tz), String(request.query.period ?? "").slice(0, 80))));
+});
+
+// ---------- Build your own: raw rows for one dataset ----------
+
+const f = (key: string, label: string, kind: "text" | "number" = "text", total: "sum" | "avg" | null = null) => ({ key, label, kind, total });
+const FIELDS: Record<BuildDataset, BuildField[]> = {
+  trips: [f("date", "Date"), f("time", "Time"), f("bus", "Bus"), f("route", "Route"), f("period", "AM/PM"), f("status", "Status"),
+    f("driver", "Driver"), f("lead", "Lead"), f("counselors", "Counselors"), f("riders", "Riders", "number", "sum"),
+    f("left", "Left"), f("returned", "Returned"), f("late", "Minutes late", "number", "avg"), f("length", "Trip minutes", "number", "avg"),
+    f("stops", "Stops done")],
+  rides: [f("date", "Date"), f("time", "Time"), f("route", "Route"), f("bus", "Bus"), f("rider", "Rider"), f("stop", "Stop"),
+    f("result", "Result"), f("checkedAt", "Checked at"), f("checkedBy", "Checked by")],
+  riders: [f("rider", "Rider"), f("first", "First"), f("last", "Last"), f("amRoute", "AM route"), f("amStop", "AM stop"),
+    f("pmRoute", "PM route"), f("pmStop", "PM stop"), f("guardians", "Guardians"), f("phones", "Phones"), f("emails", "Emails")]
+};
+
+async function buildRows(dataset: BuildDataset, from: Date, to: Date, fmt: Fmt): Promise<BuildData["rows"]> {
+  if (dataset === "trips") {
+    return (await loadTrips(from, to)).map((t) => {
+      const late = minutes(t.departureAt, t.startedAt);
+      return {
+        date: fmt.short(t.departureAt), time: fmt.clock(t.departureAt), bus: t.bus, route: t.routeName, period: t.period,
+        status: STATUS[t.status] ?? t.status, driver: t.driver?.name ?? null, lead: t.lead,
+        counselors: t.counselors.map((c) => c.displayName).join(", ") || null, riders: t.riders,
+        left: fmt.clock(t.startedAt), returned: fmt.clock(t.endedAt), late: late === null ? null : Math.max(0, late),
+        length: minutes(t.startedAt, t.endedAt), stops: `${t.stopsDone} of ${t.stops}`
+      };
+    });
+  }
+  if (dataset === "rides") {
+    return (await loadSeats(from, to)).map((seat) => ({
+      date: fmt.short(seat.departureAt), time: fmt.clock(seat.departureAt), route: seat.route, bus: seat.bus, rider: seat.rider,
+      stop: seat.stop, result: seat.result, checkedAt: fmt.clock(seat.state.boardedAt ?? seat.state.stateAt), checkedBy: seat.state.stateBy
+    }));
+  }
+  const result = await pool.query<Record<string, string | null>>(
+    `SELECT r.family_name || ', ' || r.given_name AS rider, r.given_name AS first, r.family_name AS last,
+            amr.name AS "amRoute", ams.label AS "amStop", pmr.name AS "pmRoute", pms.label AS "pmStop",
+            (SELECT string_agg(g.name, ', ' ORDER BY g.name) FROM rider_guardian_links l JOIN guardians g ON g.id = l.guardian_id WHERE l.rider_id = r.id) AS guardians,
+            (SELECT string_agg(g.phone, ', ' ORDER BY g.name) FROM rider_guardian_links l JOIN guardians g ON g.id = l.guardian_id WHERE l.rider_id = r.id AND g.phone IS NOT NULL) AS phones,
+            (SELECT string_agg(g.email, ', ' ORDER BY g.name) FROM rider_guardian_links l JOIN guardians g ON g.id = l.guardian_id WHERE l.rider_id = r.id AND g.email IS NOT NULL) AS emails
+       FROM riders r
+       LEFT JOIN rider_stop_assignments am ON am.rider_id = r.id AND am.direction = 'AM'
+       LEFT JOIN routes amr ON amr.id = am.route_id LEFT JOIN route_stops ams ON ams.id = am.route_stop_id
+       LEFT JOIN rider_stop_assignments pm ON pm.rider_id = r.id AND pm.direction = 'PM'
+       LEFT JOIN routes pmr ON pmr.id = pm.route_id LEFT JOIN route_stops pms ON pms.id = pm.route_stop_id
+      ORDER BY r.family_name, r.given_name`
+  );
+  return result.rows;
+}
+
+reportRoutes.get("/build/:dataset", requireRole("admin", "dispatch"), async (request, response) => {
+  const dataset = buildDatasetSchema.safeParse(request.params.dataset);
+  const from = new Date(String(request.query.from ?? ""));
+  const to = new Date(String(request.query.to ?? ""));
+  const tz = String(request.query.tz ?? "America/New_York");
+  if (!dataset.success) { response.status(404).json({ error: "No such data." }); return; }
+  try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); } catch { response.status(400).json({ error: "Unknown time zone." }); return; }
+  if (dataset.data !== "riders" && (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from ||
+      to.getTime() - from.getTime() > MAX_DAYS * 86_400_000)) {
+    response.status(400).json({ error: `Choose a period of up to ${MAX_DAYS} days.` }); return;
+  }
+  response.json(buildDataSchema.parse({ dataset: dataset.data, fields: FIELDS[dataset.data], rows: await buildRows(dataset.data, from, to, formatters(tz)) }));
+});
+
+// ---------- Saved reports ----------
+
+type SavedRow = { id: string; name: string; definition: unknown; createdBy: string; updatedAt: Date };
+const SAVED_SELECT = `SELECT s.id, s.name, s.definition, m.display_name AS "createdBy", s.updated_at AS "updatedAt"
+                        FROM saved_reports s JOIN members m ON m.id = s.created_by`;
+const toSaved = (row: SavedRow) => savedReportSchema.parse({ ...row, updatedAt: row.updatedAt.toISOString() });
+
+reportRoutes.get("/saved", requireRole("admin", "dispatch"), async (_request, response) => {
+  const result = await pool.query<SavedRow>(`${SAVED_SELECT} ORDER BY lower(s.name)`);
+  response.json(savedReportsResponseSchema.parse({ reports: result.rows.map(toSaved) }));
+});
+
+reportRoutes.post("/saved", requireSameOrigin, requireRole("admin", "dispatch"), async (request, response) => {
+  const input = saveReportInputSchema.safeParse(request.body);
+  if (!input.success) { response.status(400).json({ error: input.error.issues[0]?.message ?? "Check the report." }); return; }
+  try {
+    const created = await pool.query<{ id: string }>(
+      `INSERT INTO saved_reports (name, definition, created_by) VALUES ($1, $2, $3) RETURNING id`,
+      [input.data.name, input.data.definition, currentMember(response).id]);
+    const row = await pool.query<SavedRow>(`${SAVED_SELECT} WHERE s.id = $1`, [created.rows[0]!.id]);
+    response.status(201).json(toSaved(row.rows[0]!));
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+      response.status(409).json({ error: "A saved report already has that name. Pick another, or update that one." }); return;
+    }
+    throw error;
+  }
+});
+
+reportRoutes.put("/saved/:id", requireSameOrigin, requireRole("admin", "dispatch"), async (request, response) => {
+  const id = String(request.params.id);
+  const input = saveReportInputSchema.safeParse(request.body);
+  if (!/^[0-9a-f-]{36}$/i.test(id) || !input.success) {
+    response.status(400).json({ error: input.success ? "Report not found." : input.error.issues[0]?.message ?? "Check the report." }); return;
+  }
+  try {
+    const updated = await pool.query(`UPDATE saved_reports SET name = $2, definition = $3, updated_at = now() WHERE id = $1`,
+      [id, input.data.name, input.data.definition]);
+    if (!updated.rowCount) { response.status(404).json({ error: "Report not found." }); return; }
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+      response.status(409).json({ error: "Another saved report has that name." }); return;
+    }
+    throw error;
+  }
+  const row = await pool.query<SavedRow>(`${SAVED_SELECT} WHERE s.id = $1`, [id]);
+  response.json(toSaved(row.rows[0]!));
+});
+
+reportRoutes.delete("/saved/:id", requireSameOrigin, requireRole("admin", "dispatch"), async (request, response) => {
+  const id = String(request.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) { response.status(400).json({ error: "Report not found." }); return; }
+  await pool.query(`DELETE FROM saved_reports WHERE id = $1`, [id]);
+  response.status(204).end();
 });
 
 const TITLES: Record<ReportKey, string> = {

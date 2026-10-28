@@ -1002,3 +1002,38 @@ export const insightsSchema = z.strictObject({
   headsUp: z.array(z.strictObject({ tone: z.enum(["bad", "warn", "good"]), title: z.string(), text: z.string() }))
 });
 export type Insights = z.infer<typeof insightsSchema>;
+
+// Build your own: the raw rows for one dataset, and saved report settings.
+export const buildDatasetSchema = z.enum(["trips", "rides", "riders"]);
+export type BuildDataset = z.infer<typeof buildDatasetSchema>;
+export const buildFieldSchema = z.strictObject({
+  key: z.string(), label: z.string(),
+  // number fields can be totaled; "avg" ones (minutes late, trip length) are averaged instead.
+  kind: z.enum(["text", "number"]), total: z.enum(["sum", "avg"]).nullable()
+});
+export type BuildField = z.infer<typeof buildFieldSchema>;
+export const buildDataSchema = z.strictObject({
+  dataset: buildDatasetSchema,
+  fields: z.array(buildFieldSchema),
+  rows: z.array(z.record(z.string(), reportCellSchema))
+});
+export type BuildData = z.infer<typeof buildDataSchema>;
+export const reportDefinitionSchema = z.strictObject({
+  dataset: buildDatasetSchema,
+  columns: z.array(z.string()).min(1).max(20),
+  filters: z.array(z.strictObject({ field: z.string(), values: z.array(z.string()).max(200) })).max(10),
+  layout: z.enum(["list", "totals"]),
+  groupBy: z.string().nullable(),
+  sortBy: z.string().nullable(),
+  sortDir: z.enum(["asc", "desc"])
+});
+export type ReportDefinition = z.infer<typeof reportDefinitionSchema>;
+export const savedReportSchema = z.strictObject({
+  id: z.string().uuid(), name: z.string(), definition: reportDefinitionSchema, createdBy: z.string(), updatedAt: z.string()
+});
+export type SavedReport = z.infer<typeof savedReportSchema>;
+export const savedReportsResponseSchema = z.strictObject({ reports: z.array(savedReportSchema) });
+export const saveReportInputSchema = z.strictObject({
+  name: z.string().trim().min(1, "Give the report a name.").max(80, "Keep the name under 80 characters."),
+  definition: reportDefinitionSchema
+});
