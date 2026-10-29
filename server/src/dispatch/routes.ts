@@ -24,6 +24,7 @@ import { editPlannedTrip } from "../trips/edit.js";
 import { subscribeToDispatchLocations } from "./live.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
 import { openStream } from "../sse.js";
+import { deriveRiderState, type RiderEventRow } from "../check/state.js";
 import { CrewError, loadCrew, saveCrew } from "./crew.js";
 
 export const dispatchRoutes = Router();
@@ -856,7 +857,7 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
     return;
   }
 
-  const [stops, events, gpsSummary, gpsGaps] = await Promise.all([
+  const [stops, events, gpsSummary, gpsGaps, tripRiders, riderEvents, sweeps] = await Promise.all([
     pool.query<HistoryStopRow>(
       `SELECT trip_id AS "tripId", id, position, label
          FROM trip_stops WHERE trip_id = ANY($1::uuid[])
@@ -898,8 +899,40 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
           AND "resumedAt" - "startedAt" > make_interval(secs => $2)
         ORDER BY "tripId", "startedAt"`,
       [ids, HISTORY_GAP_SECONDS]
-    )
+    ),
+    pool.query<{ tripId: string; riderId: string }>(
+      `SELECT trip_id AS "tripId", rider_id AS "riderId" FROM trip_riders WHERE trip_id = ANY($1::uuid[])`, [ids]),
+    pool.query<RiderEventRow & { tripId: string; riderId: string }>(
+      `SELECT e.trip_id AS "tripId", e.rider_id AS "riderId", e.event_type AS "eventType", e.occurred_at AS "occurredAt",
+              m.display_name AS "recordedByName"
+         FROM trip_rider_events e JOIN members m ON m.id = e.recorded_by
+        WHERE e.trip_id = ANY($1::uuid[])
+        ORDER BY e.occurred_at, e.recorded_at, e.id`, [ids]),
+    pool.query<{ tripId: string; occurredAt: Date }>(
+      `SELECT trip_id AS "tripId", occurred_at AS "occurredAt" FROM trip_sweeps WHERE trip_id = ANY($1::uuid[])`, [ids])
   ]);
+
+  // Ride Check per trip: replay each rider's taps, then count the outcomes.
+  const riderLog = new Map<string, RiderEventRow[]>();
+  for (const { tripId, riderId, ...event } of riderEvents.rows) {
+    const key = `${tripId}:${riderId}`;
+    riderLog.set(key, [...(riderLog.get(key) ?? []), event]);
+  }
+  const riderSummary = (tripId: string) => {
+    const totals = { total: 0, rode: 0, noShow: 0, notRiding: 0, unchecked: 0, stillAboard: 0 };
+    for (const row of tripRiders.rows) {
+      if (row.tripId !== tripId) continue;
+      const state = deriveRiderState(riderLog.get(`${tripId}:${row.riderId}`) ?? []).state;
+      if (state === "not_riding") { totals.notRiding += 1; continue; }
+      totals.total += 1;
+      if (state === "aboard" || state === "dropped") totals.rode += 1;
+      if (state === "aboard") totals.stillAboard += 1;
+      if (state === "no_show") totals.noShow += 1;
+      if (state === "expected") totals.unchecked += 1;
+    }
+    const sweep = sweeps.rows.find((row) => row.tripId === tripId);
+    return { ...totals, sweptAt: sweep?.occurredAt.toISOString() ?? null };
+  };
 
   const method = (note: string | null) => note === "journey:gps" ? "automatic" as const : "manual" as const;
 
@@ -947,6 +980,7 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
         replaced: event.replaced,
         recordedBy: event.recordedBy
       })),
+      riders: riderSummary(trip.id),
       gps: {
         samples: summary?.samples ?? 0,
         lastObservedAt: summary?.lastObservedAt?.toISOString() ?? null,

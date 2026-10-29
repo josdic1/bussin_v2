@@ -83,10 +83,10 @@ export function PlanTripForm({ buses, routes, day, onPlanned }: {
   </form>;
 }
 
+/** Dispatch is now: today, and tomorrow for planning. Earlier days live in Transit. */
 function DaySeg({ day, setDay }: { day: string; setDay: (day: string) => void }) {
   const today = localDate(new Date());
-  return <Seg label="Day" value={day} onChange={setDay} items={[
-    [shiftDay(today, -1), "Yesterday"], [today, "Today"], [shiftDay(today, 1), "Tomorrow"]]} />;
+  return <Seg label="Day" value={day} onChange={setDay} items={[[today, "Today"], [shiftDay(today, 1), "Tomorrow"]]} />;
 }
 
 const GROUPS: [string, (row: BusRow) => boolean][] = [
@@ -141,6 +141,11 @@ export function DispatchPage() {
   const navigate = useNavigate();
   const today = localDate(new Date());
   const [day, setDay] = useState(today);
+  // A trip saved for a later date: say where it is instead of leaving the two-day view.
+  const showDay = (target: string) => {
+    if (target === today || target === shiftDay(today, 1)) setDay(target);
+    else toast(`Saved for ${dayName(target)}, ${dateLabel(target)}. It shows here the day before, and in Transit now.`);
+  };
   const board = useBoard(day, { routes: true, staff: true });
 
   // Riders with no AM or PM route never show up on a bus, so check the roster directly.
@@ -247,7 +252,7 @@ export function DispatchPage() {
   const detail = (id: string) => {
     const found = rowForTrip(rows, id);
     return found ? <TripDetail row={found.row} trip={found.trip} staff={board.staff} drivers={board.drivers} buses={board.buses} routes={board.routes} now={now} actions={actions}
-      onEdited={(departureAt) => { setDay(localDate(new Date(departureAt))); board.reload(); }}
+      onEdited={(departureAt) => { showDay(localDate(new Date(departureAt))); board.reload(); }}
       editable={day === today} onOpenTrip={openTrip} onChanged={board.reload} toast={toast} riders={riderCount(found.trip.id)} />
       : <NoMatch>That trip is not on this day.</NoMatch>;
   };
@@ -258,7 +263,7 @@ export function DispatchPage() {
         <PlanTripForm buses={board.buses} routes={board.routes} day={day} onPlanned={(planned) => {
           setOverlay(null);
           toast(`Trip planned on ${planned.busLabel}.`);
-          setDay(planned.day);
+          showDay(planned.day);
           board.reload();
         }} /></>
       : selected ? detail(selected.trip.id) : <NoMatch>Select a bus.</NoMatch>}
@@ -289,8 +294,6 @@ export function DispatchPage() {
       actions={<>
         <LivePill state={board.live} />
         {mode === "desktop" && <DaySeg day={day} setDay={setDay} />}
-        {mode === "desktop" && <input type="date" aria-label="Pick a day" className="daypick" value={day}
-          onChange={(event) => { if (event.target.value) setDay(event.target.value); }} />}
         <button type="button" className="btn btn-primary" onClick={() => setOverlay("plan")}>+ Plan trip</button>
       </>} />
     {mode !== "desktop" && <DaySeg day={day} setDay={setDay} />}

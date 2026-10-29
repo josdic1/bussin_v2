@@ -775,6 +775,16 @@ export const historyTripSchema = z.strictObject({
     departureMethod: z.enum(["automatic", "manual"]).nullable()
   })),
   events: z.array(historyEventSchema),
+  /** Ride Check, totalled: who rode, who didn't, and anyone never accounted for. */
+  riders: z.strictObject({
+    total: z.number().int().nonnegative(),
+    rode: z.number().int().nonnegative(),
+    noShow: z.number().int().nonnegative(),
+    notRiding: z.number().int().nonnegative(),
+    unchecked: z.number().int().nonnegative(),
+    stillAboard: z.number().int().nonnegative(),
+    sweptAt: z.string().nullable()
+  }),
   gps: z.strictObject({
     samples: z.number().int().nonnegative(),
     lastObservedAt: z.string().nullable(),

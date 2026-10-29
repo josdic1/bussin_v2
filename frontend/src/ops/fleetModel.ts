@@ -29,7 +29,8 @@ export function busColors(buses: Bus[]) {
 
 export function busNumber(label: string) {
   const digits = label.match(/\d+/)?.[0];
-  return digits ?? label.slice(0, 2).toUpperCase();
+  // "Bus ALPHA" reads as AL, not BU.
+  return digits ?? label.replace(/^bus\s+/i, "").slice(0, 2).toUpperCase();
 }
 
 /** Stops finished: departed, or the final stop once arrived. */
