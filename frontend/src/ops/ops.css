@@ -714,3 +714,43 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .em-acts .btn-primary{background:var(--ink);color:#fff;border-color:var(--ink)}
 @keyframes em-pulse{50%{box-shadow:0 0 0 6px rgba(173,65,56,.25)}}
 @media (prefers-reduced-motion:reduce){.ops .em-banner{animation:none}}
+
+/* ---------- Live board (Dispatch): two plain tables, a slim route strip per bus ---------- */
+.ops .lb-table{border:1px solid var(--line);border-radius:var(--r);background:#fff;overflow-x:auto}
+.ops .lb-table .tbl{margin:0;border:0}
+.ops .lb-table td{white-space:nowrap}
+.ops .lb-table td.bad,.ops .lb-table .bad{color:var(--bad);font-weight:800}
+.ops .lb-table td.warn{color:var(--warn);font-weight:800}
+.ops .lb-table td.dim,.ops .lb-table .dim{color:var(--muted)}
+.ops .lb-table tr.late td{background:var(--badbg)}
+.ops .lb-bus-cell{display:inline-flex;align-items:center;gap:8px;font-weight:700}
+.ops .lb-strip{position:relative;width:200px;height:24px}
+.ops .lb-strip-track,.ops .lb-strip-done{position:absolute;left:0;top:11px;height:3px;border-radius:2px}
+.ops .lb-strip-track{right:0;background:var(--line)}
+.ops .lb-strip-done{background:var(--c)}
+.ops .lb-strip b{position:absolute;top:6px;width:13px;height:13px;margin-left:-6px;border-radius:50%;background:#fff;border:2px solid var(--line)}
+.ops .lb-strip b.f{background:var(--c);border-color:var(--c)}
+.ops .lb-strip u{position:absolute;top:-3px;margin-left:-6px;border:6px solid transparent;border-bottom:0;border-top-color:var(--ink);text-decoration:none}
+.ops .lb-where{margin-left:8px;font-size:11.5px;font-weight:800;color:var(--green)}
+.ops .lb-link{border:0;background:none;padding:0;font-weight:800;color:var(--green);text-decoration:underline;font-size:13px}
+.ops .lb-act{text-align:right}
+.ops .lb-empty{margin:0;padding:16px;border:1px dashed var(--line);border-radius:var(--r);color:var(--muted);font-size:13px;text-align:center;background:#fff}
+.ops .lb-done-note{margin:14px 0 0;font-size:12.5px;color:var(--muted)}
+.ops .lb-done-note button{border:0;background:none;color:var(--green);font-weight:800;text-decoration:underline;padding:0}
+/* Needs attention: one line per item */
+.ops .attn-list{border:1px solid var(--line);border-radius:var(--r);background:#fff;overflow:hidden}
+.ops .attn-row{display:grid;grid-template-columns:96px minmax(140px,auto) minmax(0,1fr) auto;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line2);font-size:13px}
+.ops .attn-row:last-child{border-bottom:0}
+.ops .attn-row b{white-space:nowrap}
+.ops .attn-text{color:var(--ink);min-width:0}
+.ops .attn-chip{justify-self:start;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;background:var(--warnbg);color:var(--warn)}
+.ops .attn-chip.high{background:var(--badbg);color:var(--bad)}
+.ops .attn-chip.clear{background:var(--okbg);color:var(--ok)}
+.ops .attn-acts{display:flex;gap:14px;justify-content:flex-end;white-space:nowrap}
+.ops .attn-acts button{border:0;background:none;padding:0;font-size:12.5px;font-weight:700;color:var(--muted);text-decoration:underline}
+.ops .attn-acts button.primary{color:var(--green);font-weight:850}
+.ops .m .attn-row{grid-template-columns:auto 1fr;gap:6px 10px}
+.ops .m .attn-text,.ops .m .attn-acts{grid-column:1 / -1}
+.ops .m .attn-acts{justify-content:flex-start}
+.ops .lb-map{position:relative;height:400px;margin:0 0 12px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#eef1ea}
+.ops .m .lb-map{height:280px}

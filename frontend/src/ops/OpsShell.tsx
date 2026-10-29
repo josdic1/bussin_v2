@@ -124,8 +124,6 @@ export function OpsShell() {
         <header className="topbar">
           <div className="crumb">BUSSIN / {current?.label ?? "Operations"}</div>
           <div className="top-actions">
-            {location.pathname === "/" && <span className="hint"><span className="kbd">J</span><span className="kbd">K</span> buses
-              <span className="kbd">Esc</span> close</span>}
             <span className="avatar" title={name}>{initials(name)}</span>
           </div>
         </header>

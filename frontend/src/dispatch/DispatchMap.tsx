@@ -21,6 +21,8 @@ export type MapProps = {
   selectedTripId: string | null;
   onSelect: (tripId: string) => void;
   now: number;
+  /** Always frame every bus shown; no "All buses / Selected bus" switch. The selected bus is only highlighted. */
+  fixedAll?: boolean;
 };
 
 type LngLat = [number, number];
@@ -71,13 +73,14 @@ export function DispatchMap(props: MapProps) {
 
 type Live = { marker: Marker; element: HTMLButtonElement; from: LngLat; to: LngLat; start: number };
 
-function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version }: MapProps & { version: number }) {
+function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, fixedAll }: MapProps & { version: number }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const buses = useRef(new Map<string, Live>());
   const lastBoundsKey = useRef("");
   // Fixed views, no free zooming or panning: the whole camp, or the selected bus's route.
-  const [view, setView] = useState<"all" | "selected">("all");
+  const [chosenView, setView] = useState<"all" | "selected">("all");
+  const view = fixedAll ? "all" : chosenView;
   useEffect(() => setView(selectedTripId ? "selected" : "all"), [selectedTripId]);
   const select = useRef(onSelect);
   const frame = useRef(0);
@@ -247,11 +250,11 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version }:
 
   return <div className="mapfill">
     <div className="map-live" ref={container} aria-label="Routes, stops and buses" />
-    <div className="map-views" role="group" aria-label="Map view">
+    {!fixedAll && <div className="map-views" role="group" aria-label="Map view">
       <button type="button" className={view === "all" ? "on" : ""} aria-pressed={view === "all"} onClick={() => setView("all")}>All buses</button>
       <button type="button" className={view === "selected" ? "on" : ""} aria-pressed={view === "selected"} disabled={!selectedTripId}
         onClick={() => setView("selected")}>Selected bus</button>
-    </div>
+    </div>}
   </div>;
 }
 

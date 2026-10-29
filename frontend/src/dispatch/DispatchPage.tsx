@@ -1,22 +1,22 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { createPlannedTripSchema, riderCoverageSchema, type BoardTrip, type Bus, type RiderCoverage, type Route } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
-import { dateLabel, dayName, localDate, plural, shiftDay, time, age, routeWithPeriod } from "../ops/format";
+import { dateLabel, dayName, localDate, plural, shiftDay, time, routeWithPeriod } from "../ops/format";
 import {
-  busColors, fleetRows, nextEta, severityRank, stopsDone, type Alert, type BusRow
+  busColors, fleetRows, severityRank, type Alert, type BusRow
 } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { CrewPills, Dot, ErrorNote, Head, LivePill, NoMatch, Seg, Tile } from "../ops/ui";
+import { ErrorNote, Head, LivePill, NoMatch, Seg, Tile } from "../ops/ui";
 import { useBoard, useNow } from "../ops/useBoard";
 import { useTripActions } from "../ops/useTripActions";
 import { alerts as checkAlerts, counts } from "../check/checkModel";
 import { useCheckBoard } from "../check/useCheckBoard";
-import { TripDetail, TripPill } from "./TripDetail";
+import { TripDetail } from "./TripDetail";
 import { useAttentionSignal } from "./attentionSignal";
+import { LiveBoard } from "./LiveBoard";
 import { useTripAlerts } from "./useTripAlerts";
 
-const DispatchMap = lazy(async () => ({ default: (await import("./DispatchMap")).DispatchMap }));
 
 function rowForTrip(rows: BusRow[], tripId: string | null) {
   if (!tripId) return null;
@@ -90,34 +90,13 @@ function DaySeg({ day, setDay }: { day: string; setDay: (day: string) => void })
   return <Seg label="Day" value={day} onChange={setDay} items={[[today, "Today"], [shiftDay(today, 1), "Tomorrow"]]} />;
 }
 
-const GROUPS: [string, (row: BusRow) => boolean][] = [
-  ["Needs attention", (row) => row.alerts.length > 0],
-  ["Running", (row) => !row.alerts.length && row.trip?.status === "active"],
-  ["Later", (row) => !row.alerts.length && row.trip?.status === "planned"],
-  ["Finished or idle", (row) => !row.alerts.length && (!row.trip || row.trip.status === "completed" || row.trip.status === "cancelled")]
-];
 
-function ListRow({ row, selected, now, onSelect }: { row: BusRow; selected: boolean; now: number; onSelect: (id: string) => void }) {
-  const trip = row.trip;
-  const eta = trip ? nextEta(trip) : null;
-  const first = row.alerts[0];
-  const sub = !trip ? "No trip on this day"
-    : trip.status === "active" ? `Running · ${stopsDone(trip)} of ${trip.stops.length} stops`
-      : trip.status === "planned" ? `Planned · ${time(trip.departureAt)}`
-        : trip.status === "completed" ? `Finished ${trip.routeName}` : `Cancelled ${trip.routeName}`;
-  const right = first
-    ? <span className={`pill ${first.sev === "high" ? "bad" : "warn"}`}>{first.short}</span>
-    : trip?.status === "active"
-      ? <><b>{eta ? `ETA ${time(eta.etaAt)}` : "ETA pending"}</b><small>GPS {trip.location ? age(trip.location.observedAt, now) : "none"}</small></>
-      : trip?.status === "planned" ? <span className="pill neutral">{time(trip.departureAt)}</span>
-        : trip ? <TripPill status={trip.status} /> : <span className="pill neutral">Idle</span>;
-  return <button type="button" disabled={!trip} className={`li2${selected ? " sel" : ""}`}
-    style={{ "--c": row.color } as CSSProperties} onClick={() => trip && onSelect(trip.id)}>
-    <span className="bar" />
-    <span><strong>{row.bus.label}{trip ? ` · ${routeWithPeriod(trip.routeName, trip.servicePeriod)}` : ""}</strong><small>{sub}</small>
-      {trip && <CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} />}</span>
-    <span className="right">{right}</span>
-  </button>;
+
+/** Most urgent first. "All clear" rows only show when nothing else does. */
+function attentionList(cards: Card[]) {
+  const rank = { high: 0, med: 1, clear: 2 } as const;
+  const real = cards.filter((card) => card.sev !== "clear");
+  return real.length ? [...real].sort((a, b) => rank[a.sev] - rank[b.sev]) : cards.slice(0, 1);
 }
 
 type Card = { key: string; sev: "high" | "med" | "clear"; title: string; pill: string; text: string; actions: { label: string; primary?: boolean; run: () => void }[] };
@@ -164,38 +143,23 @@ export function DispatchPage() {
   const actions = useTripActions(board.reload, toast);
   const [params, setParams] = useSearchParams();
   const [overlay, setOverlay] = useState<"plan" | "trip" | null>(null);
-  const [phoneView, setPhoneView] = useState<"board" | "map">("board");
 
   const rows = useMemo(() => fleetRows(board.buses, board.trips, now)
     .sort((a, b) => severityRank(a) - severityRank(b) || a.bus.label.localeCompare(b.bus.label, undefined, { numeric: true })),
   [board.buses, board.trips, now]);
   const colorOf = useMemo(() => busColors(board.buses), [board.buses]);
-  const ordered = GROUPS.flatMap(([, test]) => rows.filter(test)).filter((row) => row.trip);
 
   const paramTrip = params.get("trip");
-  const selected = rowForTrip(rows, paramTrip) ?? (ordered[0] ? { row: ordered[0], trip: ordered[0].trip! } : null);
+  const selected = rowForTrip(rows, paramTrip);
 
   function select(id: string) {
     setParams((current) => { const next = new URLSearchParams(current); next.set("trip", id); return next; }, { replace: true });
   }
   function openTrip(id: string) {
     select(id);
-    if (mode !== "desktop") setOverlay("trip");
+    setOverlay("trip");
   }
 
-  // J / K move through buses in list order.
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLElement && event.target.closest("input,select,textarea")) return;
-      if (event.key !== "j" && event.key !== "k") return;
-      if (!ordered.length) return;
-      const index = ordered.findIndex((row) => row.trip!.id === selected?.trip.id);
-      const next = ordered[(index + (event.key === "j" ? 1 : ordered.length - 1)) % ordered.length];
-      select(next.trip!.id);
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  });
 
   const riderCount = (tripId: string) => {
     const trip = check.trips.find((item) => item.id === tripId);
@@ -258,8 +222,6 @@ export function DispatchPage() {
     cards.push({ key: "none", sev: "clear", title: "Nothing needs you", pill: "Clear", text: "Every bus is on schedule and reporting.", actions: [] });
   }
 
-  const mapTrips = rows.flatMap((row) => row.trip && (row.trip.status === "active" || row.trip.status === "planned") ? [row.trip] : []);
-  if (selected && !mapTrips.some((trip) => trip.id === selected.trip.id)) mapTrips.push(selected.trip);
 
   const detail = (id: string) => {
     const found = rowForTrip(rows, id);
@@ -281,25 +243,9 @@ export function DispatchPage() {
       : selected ? detail(selected.trip.id) : <NoMatch>Select a bus.</NoMatch>}
   </Overlay>;
 
-  const map = <Suspense fallback={<div className="mapfill" />}>
-    <DispatchMap trips={mapTrips} colorForBus={colorOf} selectedTripId={selected?.trip.id ?? null}
-      onSelect={mode === "desktop" ? select : openTrip} now={now} />
-  </Suspense>;
 
-  const list = <>
-    {!board.loading && !rows.length && <NoMatch>No buses yet. Add one in Fleet.</NoMatch>}
-    {!board.loading && rows.length > 0 && !ordered.length && <NoMatch>No trips {dayName(day).toLowerCase()}.</NoMatch>}
-    {GROUPS.map(([label, test]) => {
-      const members = rows.filter(test);
-      if (!members.length) return null;
-      return <div key={label}>
-        <div className="grp">{label} · {members.length}</div>
-        {members.map((row) => <ListRow key={row.bus.id} row={row} now={now}
-          selected={!!row.trip && selected?.trip.id === row.trip.id} onSelect={mode === "desktop" ? select : openTrip} />)}
-      </div>;
-    })}
-  </>;
 
+  const issues = cards.filter((card) => card.sev !== "clear");
   return <>
     <Head eyebrow="Operations" title="Dispatch"
       sub={day === today ? "What needs attention now, then everything currently moving." : `${dayName(day)}, ${dateLabel(day)}`}
@@ -324,35 +270,26 @@ export function DispatchPage() {
     </section>)}
 
     <div className="tiles">
-      <Tile label="Needs attention" value={attention.length} className={attention.length ? "bad" : "good"}
-        sub={`${high} urgent · ${attention.length - high} follow-up`}
-        onClick={attention[0]?.trip ? () => openTrip(attention[0].trip!.id) : undefined} />
-      <Tile label="Running" value={running.length}
+      <Tile label="Needs attention" value={issues.length} className={issues.length ? "bad" : "good"}
+        sub={`${issues.filter((card) => card.sev === "high").length} urgent · ${issues.filter((card) => card.sev !== "high").length} follow-up`} />
+      <Tile label="On the road" value={running.length}
         sub={day === today ? `${aboard} ${plural(aboard, "rider", "riders")} aboard` : "Buses on the road"} />
-      <Tile label="Later" value={later.length} sub={later[0] ? `Next at ${time(later[0].trip!.departureAt)}` : "Nothing else planned"} />
+      <Tile label="Coming up" value={later.length} sub={later[0] ? `Next at ${time(later[0].trip!.departureAt)}` : "Nothing else planned"} />
       <Tile label="Fleet ready" value={`${activeBuses.length - stale} / ${activeBuses.length}`}
         sub={stale ? `${stale} GPS stale` : "All reporting"} />
     </div>
 
-    <div className="sec-h"><h2>Needs attention</h2><span>Only exceptions appear here</span></div>
-    <div className="attn-grid">{cards.map((card) => <article key={card.key} className={`acard ${card.sev}`}>
-      <div className="acard-top"><div className="acard-title"><Dot tone={card.sev === "high" ? "bad" : card.sev === "med" ? "warn" : "ok"} />{card.title}</div>
-        <span className={`pill ${card.sev === "high" ? "bad" : card.sev === "med" ? "warn" : "ok"}`}>{card.pill}</span></div>
-      <p>{card.text}</p>
-      {card.actions.length > 0 && <div className="acts">{card.actions.map((action) =>
-        <button key={action.label} type="button" className={`btn sm${action.primary ? " btn-primary" : ""}`} onClick={action.run}>{action.label}</button>)}</div>}
-    </article>)}</div>
+    <div className="sec-h"><h2>Needs attention</h2><span>Most urgent first</span></div>
+    <div className="attn-list">{attentionList(cards).map((card) => <div key={card.key} className={`attn-row ${card.sev}`}>
+      <span className={`attn-chip ${card.sev}`}>{card.sev === "high" ? "Urgent" : card.sev === "clear" ? "Clear" : card.pill === "From the bus" ? "From bus" : "Follow up"}</span>
+      <b>{card.title}</b>
+      <span className="attn-text">{card.text}</span>
+      <span className="attn-acts">{card.actions.map((action) =>
+        <button key={action.label} type="button" className={action.primary ? "primary" : ""} onClick={action.run}>{action.label}</button>)}</span>
+    </div>)}</div>
 
-    <div className="sec-h"><h2>Live board</h2><span>{mode === "desktop" ? "List, map and detail share one selection" : "Tap a bus for details"}</span></div>
-    {mode === "desktop" ? <div className="board">
-      <div className="panel listpanel"><div className="panel-head"><h3>{dayName(day)}&rsquo;s buses</h3><span>Sorted by what needs you</span></div>{list}</div>
-      <div className="panel mappanel"><div className="panel-head"><h3>Live map</h3><span>Road paths · buses glide between fixes</span></div>
-        <div className="mapwrap">{map}</div></div>
-      <div className="panel detailpanel"><div className="detail">{selected ? detail(selected.trip.id) : <NoMatch>Select a bus.</NoMatch>}</div></div>
-    </div> : <>
-      <Seg label="View" value={phoneView} onChange={setPhoneView} items={[["board", "List"], ["map", "Map"]]} />
-      {phoneView === "map" ? <div className="mapwrap">{map}</div> : <div className="panel">{list}</div>}
-    </>}
+    <LiveBoard trips={board.trips} colorOf={colorOf} now={now} isToday={day === today} riders={riderCount}
+      onOpen={openTrip} onStart={(trip) => actions.request(trip, "start")} onTransit={() => navigate("/transit")} />
     {overlayView}
   </>;
 }
