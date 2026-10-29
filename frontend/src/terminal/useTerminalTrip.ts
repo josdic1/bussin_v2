@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  GPS_FAR_CODE,
   staffJourneyProgressSchema,
   staffLocationSampleInputSchema,
   staffLocationSampleResponseSchema,
@@ -137,6 +138,8 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [confirming, setConfirming] = useState<null | "start" | "undo">(null);
+  // Arrived was refused because GPS puts the bus elsewhere: the phone asks "I'm here anyway?"
+  const [farPrompt, setFarPrompt] = useState<{ stopId: string; message: string } | null>(null);
   const [justCompleted, setJustCompleted] = useState(false);
   const [notice, setNotice] = useState<{ action: "arrived" | "departed"; stopId: string; stopLabel: string } | null>(null);
   useEffect(() => {
@@ -442,10 +445,11 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
     }
   }, [trip?.id, trip?.status, accept, failed, wantsGps]);
 
-  async function act(type: "start" | "arrive" | "depart" | "undo_arrival" | "complete", stopId?: string) {
+  async function act(type: "start" | "arrive" | "depart" | "undo_arrival" | "complete", stopId?: string, override = false) {
     if (!trip || pending) return;
     if (preview) { setError(PREVIEW_NOTE); return; }
-    const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}) });
+    setFarPrompt(null);
+    const action = tripActionSchema.safeParse({ type, ...(stopId ? { stopId } : {}), ...(override ? { override: true } : {}) });
     if (!action.success) return;
     setPending(true);
     setConfirming(null);
@@ -458,7 +462,15 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(action.data)
       });
-      if (!response.ok) throw new Error(await readError(response, "Could not update your trip."));
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        const text = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "Could not update your trip.";
+        if (type === "arrive" && stopId && body && typeof body === "object" && "code" in body && body.code === GPS_FAR_CODE) {
+          setFarPrompt({ stopId, message: text });
+          return;
+        }
+        throw new Error(text);
+      }
       const result = tripActionResponseSchema.parse(await response.json());
       if (result.status === "completed") { tripReadSeq.current += 1; setJustCompleted(true); setTrip(null); } else await loadTrip();
     } catch (cause) {
@@ -507,6 +519,7 @@ export function useTerminalTrip(mode: TerminalMode = { kind: "staff" }) {
 
   return {
     device, preview, wantsGps, member, tenant, trip, error, pending, confirming, setConfirming, justCompleted, notice, setNotice,
+    farPrompt, setFarPrompt,
     progress, fix, gps, online, dispatch, autoPaused, awake, now,
     refresh, requestWake, act, signOut,
     fixAge, active, problem, locked, finalStop, nextStop, nextIndex, readyToComplete, confirmingArrival, status

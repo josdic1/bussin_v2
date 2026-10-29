@@ -19,7 +19,7 @@ import {
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { snapshotTripRiders } from "../families/access.js";
-import { applyTripAction } from "../trips/actions.js";
+import { applyTripAction, arrivalMethodOf } from "../trips/actions.js";
 import { editPlannedTrip } from "../trips/edit.js";
 import { subscribeToDispatchLocations } from "./live.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
@@ -524,7 +524,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
       id: string; position: number; label: string;
       latitude: number; longitude: number;
       arrivedAt: string | null; departedAt: string | null;
-      arrivalMethod: "automatic" | "manual" | null;
+      arrivalMethod: "automatic" | "manual" | "override" | null;
       departureMethod: "automatic" | "manual" | null;
     }[]; location: {
       latitude: number; longitude: number;
@@ -564,7 +564,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
         latitude: row.stopLatitude, longitude: row.stopLongitude,
         arrivedAt: row.arrivedAt?.toISOString() ?? null,
         departedAt: row.departedAt?.toISOString() ?? null,
-        arrivalMethod: row.arrivedAt ? row.arrivalNote === "journey:gps" ? "automatic" : "manual" : null,
+        arrivalMethod: row.arrivedAt ? arrivalMethodOf(row.arrivalNote) : null,
         departureMethod: row.departedAt ? row.departureNote === "journey:gps" ? "automatic" : "manual" : null
       });
     }
@@ -930,7 +930,7 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
           label: stop.label,
           arrivedAt: arrived?.occurredAt.toISOString() ?? null,
           departedAt: departed?.occurredAt.toISOString() ?? null,
-          arrivalMethod: arrived ? method(arrived.note) : null,
+          arrivalMethod: arrived ? arrivalMethodOf(arrived.note) : null,
           departureMethod: departed ? method(departed.note) : null
         };
       }),

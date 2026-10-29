@@ -1,5 +1,6 @@
 import { staffTripResponseSchema, type StaffTrip } from "@bussin/shared";
 import { pool } from "../db/pool.js";
+import { arrivalMethodOf } from "../trips/actions.js";
 
 // The trip as a phone or bus tracker sees it: route, bus, status and every stop with
 // its arrival and departure. chosenSql is a subquery returning one trip_id column:
@@ -100,9 +101,7 @@ ${chosenSql}       ) chosen
       longitude: row.longitude,
       arrivedAt: row.arrivedAt?.toISOString() ?? null,
       departedAt: row.departedAt?.toISOString() ?? null,
-      arrivalMethod: row.arrivedAt
-        ? row.arrivalNote === "journey:gps" ? "automatic" : "manual"
-        : null,
+      arrivalMethod: row.arrivedAt ? arrivalMethodOf(row.arrivalNote) : null,
       departureMethod: row.departedAt
         ? row.departureNote === "journey:gps" ? "automatic" : "manual"
         : null

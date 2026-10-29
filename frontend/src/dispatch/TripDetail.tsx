@@ -179,7 +179,7 @@ export function StopsList({ trip, color, actions, readOnly, now }: {
       const minutes = eta ? Math.max(0, Math.round((Date.parse(eta) - now) / 60_000)) : null;
       const control = !readOnly && index === current && (!stop.arrivedAt || !last);
       const right = stop.arrivedAt
-        ? <>{time(stop.arrivedAt)}{stop.arrivalMethod && <span className={`mt ${stop.arrivalMethod}`}>{stop.arrivalMethod === "automatic" ? "AUTO" : "MANUAL"}</span>}</>
+        ? <>{time(stop.arrivedAt)}{stop.arrivalMethod && <span className={`mt ${stop.arrivalMethod}`}>{stop.arrivalMethod === "automatic" ? "AUTO" : stop.arrivalMethod === "override" ? "TAPPED, GPS DISAGREED" : "TAPPED"}</span>}</>
         : eta ? `ETA ${time(eta)} · ${minutes} min`
           : trip.status === "planned" ? "Planned" : "";
       return <li key={stop.id} className={done ? "done" : index === current ? "cur" : ""}>

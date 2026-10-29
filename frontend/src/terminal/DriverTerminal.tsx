@@ -121,8 +121,12 @@ export function DriverTerminal({ mode, deviceBus }: { mode?: TerminalMode; devic
     sub = confirming
       ? <>Checking arrival · {miles(confirming.distanceM)}</>
       : meters === null ? "Waiting for GPS" : <>{miles(meters)} · arrival records itself when you stop</>;
-    action = <button type="button" className="term-btn go big" disabled={pending || locked} onClick={() => void t.act("arrive", nextStop.id)}>
-      {locked ? LOCKED_TEXT : pending ? "Saving…" : "Arrived"}</button>;
+    action = t.farPrompt?.stopId === nextStop.id
+      ? <div className="term-confirm"><p>{t.farPrompt.message}</p>
+        <div><button type="button" className="term-btn ghost" onClick={() => t.setFarPrompt(null)}>Not yet</button>
+          <button type="button" className="term-btn warn" disabled={pending} onClick={() => void t.act("arrive", nextStop.id, true)}>I'm here anyway</button></div></div>
+      : <button type="button" className="term-btn go big" disabled={pending || locked} onClick={() => void t.act("arrive", nextStop.id)}>
+        {locked ? LOCKED_TEXT : pending ? "Saving…" : "Arrived"}</button>;
     upcoming = trip.stops.slice(nextIndex + 1, nextIndex + 3);
   }
 
@@ -182,7 +186,7 @@ export function DriverTerminal({ mode, deviceBus }: { mode?: TerminalMode; devic
           const done = !!stop.departedAt || (last && !!stop.arrivedAt);
           return <li key={stop.id} className={done ? "done" : nextStop?.id === stop.id ? "cur" : ""}>
             <span>{stop.position}</span>{stop.label}
-            <em>{stop.arrivedAt ? `${stop.arrivalMethod === "automatic" ? "Auto" : "Tapped"} ${clock(stop.arrivedAt)}` : nextStop?.id === stop.id ? "Next" : ""}</em></li>;
+            <em>{stop.arrivedAt ? `${stop.arrivalMethod === "automatic" ? "Auto" : stop.arrivalMethod === "override" ? "Tapped, GPS disagreed" : "Tapped"} ${clock(stop.arrivedAt)}` : nextStop?.id === stop.id ? "Next" : ""}</em></li>;
         })}</ol>}
         <div className="term-drawer-actions">
           <button type="button" className="term-btn ghost" disabled={locked || pending} onClick={t.refresh}><Icon name="refresh" />Check trip with Dispatch</button>

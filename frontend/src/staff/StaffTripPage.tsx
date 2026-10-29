@@ -146,10 +146,18 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         : next && <div className="cr-next">
           <span>{next.arrivedAt ? "At stop" : "Next stop"} · {t.nextIndex + 1} of {trip.stops.length}</span><b>{next.label}</b>
           <small>{trip.busPhoneLive || t.wantsGps ? "Arrive and depart record themselves from GPS." : ""}</small>
-          {/* Backup if GPS can't tell: tap it yourself. */}
-          <div className="cr-backup">{next.arrivedAt
-            ? <button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("depart", next.id)}>Leaving now</button>
-            : <button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("arrive", next.id)}>Arrived</button>}</div>
+          {/* Backup if GPS can't tell: tap it yourself. GPS gets a say first (see the prompt below). */}
+          {t.farPrompt?.stopId === next.id && !next.arrivedAt
+            ? <div className="cr-far"><p>{t.farPrompt.message}</p>
+              <div><button type="button" className="cr-btn plain" onClick={() => t.setFarPrompt(null)}>Not yet</button>
+                <button type="button" className="cr-btn warn" disabled={pending} onClick={() => void t.act("arrive", next.id, true)}>I'm here anyway</button></div></div>
+            : <div className="cr-backup">{next.arrivedAt
+              ? <>{t.confirming === "undo"
+                ? <><button type="button" className="cr-btn plain" onClick={() => t.setConfirming(null)}>Keep it</button>
+                  <button type="button" className="cr-btn warn" disabled={pending} onClick={() => void t.act("undo_arrival", next.id)}>Undo arrival</button></>
+                : <><button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("depart", next.id)}>Leaving now</button>
+                  <button type="button" className="cr-link" onClick={() => t.setConfirming("undo")}>Not here yet? Undo</button></>}</>
+              : <button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("arrive", next.id)}>Arrived</button>}</div>}
         </div>}
     </>;
   }

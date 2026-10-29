@@ -102,11 +102,12 @@ staffRoutes.post(
         tripId: assignment.rows[0].tripId,
         action: action.data,
         actorId: member.id,
-        assignedStaffMemberId: member.id
+        assignedStaffMemberId: member.id,
+        gpsGuard: true
       });
       if (!outcome.ok) {
         await client.query("ROLLBACK");
-        response.status(outcome.httpStatus).json({ error: outcome.error });
+        response.status(outcome.httpStatus).json({ error: outcome.error, ...(outcome.code ? { code: outcome.code } : {}) });
         return;
       }
       await client.query("COMMIT");

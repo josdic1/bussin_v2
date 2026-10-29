@@ -111,6 +111,7 @@
 .ops .mt{display:inline-block;font-size:8px;font-weight:900;letter-spacing:.08em;padding:2px 5px;border-radius:4px;background:var(--idlebg);color:var(--muted);vertical-align:1px;margin-left:6px}
 .ops .mt.automatic{background:var(--okbg);color:var(--ok)}
 .ops .mt.manual,.ops .mt.undone{background:var(--warnbg);color:var(--warn)}
+.ops .mt.override{background:var(--badbg);color:var(--bad)}
 
 /* ---------- buttons and forms ---------- */
 .ops .btn{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 14px;border:1px solid var(--line);border-radius:9px;font-size:12px;font-weight:850;background:#fff;color:var(--ink);white-space:nowrap}

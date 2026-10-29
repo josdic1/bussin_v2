@@ -33,8 +33,10 @@ function buildView(trip: HistoryTrip, now: number, color: string): TripView {
     if (!trip.assignedStaff) flags.push({ sev: "med", text: "No driver assigned" });
   }
   if (delayMin >= 5) flags.push({ sev: delayMin >= 10 ? "high" : "med", text: `Started ${delayMin} min late` });
-  const manual = trip.stops.filter((stop) => stop.arrivalMethod === "manual").length;
-  if (manual) flags.push({ sev: "med", text: `${manual} manual arrival${manual > 1 ? "s" : ""}` });
+  const manual = trip.stops.filter((stop) => stop.arrivalMethod === "manual" || stop.arrivalMethod === "override").length;
+  if (manual) flags.push({ sev: "med", text: `${manual} tapped arrival${manual > 1 ? "s" : ""}` });
+  const disputed = trip.stops.filter((stop) => stop.arrivalMethod === "override").length;
+  if (disputed) flags.push({ sev: "high", text: `${disputed} arrival${disputed > 1 ? "s" : ""} tapped while GPS disagreed` });
   const corrections = trip.events.filter((event) => event.type === "correction").length;
   if (corrections) flags.push({ sev: "med", text: `${corrections} correction${corrections > 1 ? "s" : ""}` });
   for (const gap of trip.gps.gaps) flags.push({ sev: gap.durationSeconds >= 120 ? "high" : "med", text: `GPS gap ${duration(gap.durationSeconds)}` });
@@ -144,7 +146,7 @@ function TripDetailView({ trip, tab, setTab }: { trip: TripView; tab: Tab; setTa
         <td>{stop.arrivedAt ? time(stop.arrivedAt) : <span className="dim">—</span>}</td>
         <td>{stop.departedAt ? time(stop.departedAt) : <span className="dim">—</span>}</td>
         <td>{stop.arrivedAt && stop.departedAt ? `${Math.round((Date.parse(stop.departedAt) - Date.parse(stop.arrivedAt)) / MIN)} min` : "—"}</td>
-        <td>{stop.arrivalMethod ? <span className={`mt ${stop.arrivalMethod}`}>{stop.arrivalMethod.toUpperCase()}</span> : <span className="dim">—</span>}</td>
+        <td>{stop.arrivalMethod ? <span className={`mt ${stop.arrivalMethod}`}>{stop.arrivalMethod === "automatic" ? "AUTO" : stop.arrivalMethod === "override" ? "GPS DISAGREED" : "TAPPED"}</span> : <span className="dim">—</span>}</td>
       </tr>)}</tbody></table></div>}
     {tab === "gps" && <GpsTab trip={trip} />}
   </>;

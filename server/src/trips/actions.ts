@@ -1,12 +1,30 @@
 import type { PoolClient } from "pg";
 import type { z } from "zod";
-import { tripActionSchema } from "@bussin/shared";
+import { GPS_FAR_CODE, tripActionSchema, type ArrivalMethod } from "@bussin/shared";
 
 type TripAction = z.infer<typeof tripActionSchema>;
 
 export type TripActionOutcome =
   | { ok: true; status: "active" | "completed" | "cancelled" }
-  | { ok: false; httpStatus: 404 | 409; error: string };
+  | { ok: false; httpStatus: 404 | 409; error: string; code?: typeof GPS_FAR_CODE };
+
+/*
+ * GPS is the source of truth for where the bus is; a tap is the backup.
+ * A phone tapping Arrived while fresh, accurate GPS puts the bus further than this from
+ * the stop is refused once. The person can answer "I'm here anyway" (override), which is
+ * saved and marked so Dispatch can double-check. With no fresh GPS the tap is simply saved.
+ */
+export const GPS_GUARD = { farM: 300, freshMs: 45_000, maxAccuracyM: 100 } as const;
+export const OVERRIDE_NOTE = "gps:override";
+
+/** The trip_events note says who recorded an arrival. */
+export function arrivalMethodOf(note: string | null): ArrivalMethod {
+  return note === "journey:gps" ? "automatic" : note === OVERRIDE_NOTE ? "override" : "manual";
+}
+
+function distanceLabel(meters: number): string {
+  return meters < 1609 ? `${Math.round(meters * 3.281 / 50) * 50} ft` : `${(meters / 1609.34).toFixed(1)} mi`;
+}
 
 export async function applyTripAction(
   client: PoolClient,
@@ -18,6 +36,8 @@ export async function applyTripAction(
     eventNote?: string;
     /** When the event really happened (GPS evidence time). Defaults to now. */
     occurredAt?: Date;
+    /** A person's tap on a phone: check Arrived against GPS first. */
+    gpsGuard?: boolean;
   }
 ): Promise<TripActionOutcome> {
   const trip = await client.query<{
@@ -143,6 +163,27 @@ export async function applyTripAction(
       else if (!next || next.id !== input.action.stopId || next.arrived) {
         problem = "Arrive at the next stop in route order.";
       } else {
+        if (input.gpsGuard && input.action.override !== true) {
+          const where = await client.query<{ meters: number; label: string }>(
+            `SELECT 2 * 6371000 * asin(sqrt(
+                      power(sin(radians(sample.latitude - stop.latitude) / 2), 2) +
+                      cos(radians(stop.latitude)) * cos(radians(sample.latitude)) *
+                      power(sin(radians(sample.longitude - stop.longitude) / 2), 2)))::double precision AS meters,
+                    stop.label
+               FROM trip_current_locations current_location
+               JOIN trip_location_samples sample ON sample.id = current_location.sample_id
+               JOIN trip_stops stop ON stop.id = $2
+              WHERE current_location.trip_id = $1
+                AND sample.observed_at > now() - make_interval(secs => $3)
+                AND sample.accuracy_m <= $4`,
+            [input.tripId, next.id, GPS_GUARD.freshMs / 1000, GPS_GUARD.maxAccuracyM]
+          );
+          const far = where.rows[0];
+          if (far && far.meters > GPS_GUARD.farM) {
+            return { ok: false, httpStatus: 409, code: GPS_FAR_CODE,
+              error: `GPS says the bus is ${distanceLabel(far.meters)} from ${far.label}.` };
+          }
+        }
         eventType = "arrived_stop";
         stopId = next.id;
       }
@@ -194,7 +235,8 @@ export async function applyTripAction(
       eventType!,
       stopId,
       input.actorId,
-      input.action.type === "undo_arrival" ? "staff:undo-arrival" : input.eventNote ?? null,
+      input.action.type === "undo_arrival" ? "staff:undo-arrival"
+        : input.action.type === "arrive" && input.action.override === true ? OVERRIDE_NOTE : input.eventNote ?? null,
       replacementEventId,
       input.occurredAt ?? null
     ]

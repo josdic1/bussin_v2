@@ -21,6 +21,10 @@
 .crew .cr-main{display:block;width:100%;min-height:58px;margin:0 0 12px;border:0;border-radius:16px;background:var(--g);color:#fff;font-size:18px;font-weight:850}
 .crew .cr-main.ghost{background:#fff;color:var(--g);border:2px solid var(--g)}
 .crew .cr-main:disabled{opacity:.5}
+.crew .cr-far{margin-top:10px;padding:12px;border-radius:12px;background:var(--warnbg);color:var(--ink)}
+.crew .cr-far p{margin:0 0 10px;font-weight:800;font-size:14.5px;line-height:1.35}
+.crew .cr-far div{display:flex;gap:8px}
+.crew .cr-link{border:0;background:none;color:rgba(255,255,255,.75);font-size:12.5px;font-weight:700;text-decoration:underline;padding:8px 4px}
 .crew .cr-confirm{margin:0 0 12px;padding:14px;border-radius:16px;background:var(--warnbg)}
 .crew .cr-confirm p{margin:0 0 10px;font-weight:700}
 .crew .cr-confirm div{display:flex;gap:8px}
@@ -28,7 +32,7 @@
 .crew .cr-next span{display:block;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--lime)}
 .crew .cr-next b{display:block;font-size:22px;margin-top:4px}
 .crew .cr-next small{display:block;margin-top:4px;color:rgba(255,255,255,.75);font-size:12.5px}
-.crew .cr-backup{margin-top:10px}
+.crew .cr-backup{margin-top:10px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .crew .cr-backup .cr-btn{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.3)}
 .crew .cr-check-head{display:flex;justify-content:space-between;align-items:baseline;margin:18px 2px 8px}
 .crew .cr-check-head h2{margin:0;font-size:18px}

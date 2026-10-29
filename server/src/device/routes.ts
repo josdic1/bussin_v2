@@ -192,11 +192,12 @@ deviceRoutes.post("/trip/actions", requireSameOrigin, requireDevice, async (requ
       tripId: trip.tripId,
       action: action.data,
       actorId: trip.leadId,
-      eventNote: "device:tap"
+      eventNote: "device:tap",
+      gpsGuard: true
     });
     if (!outcome.ok) {
       await client.query("ROLLBACK");
-      response.status(outcome.httpStatus).json({ error: outcome.error });
+      response.status(outcome.httpStatus).json({ error: outcome.error, ...(outcome.code ? { code: outcome.code } : {}) });
       return;
     }
     await client.query("COMMIT");

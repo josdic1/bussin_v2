@@ -233,9 +233,17 @@ export const updatePlannedTripSchema = createPlannedTripSchema.extend({
   expected: createPlannedTripSchema
 });
 
+/** How an arrival was recorded: by GPS, by a tap, or by a tap that GPS disagreed with. */
+export const arrivalMethodSchema = z.enum(["automatic", "manual", "override"]);
+export type ArrivalMethod = z.infer<typeof arrivalMethodSchema>;
+
+/** A tapped Arrived refused because GPS puts the bus somewhere else. The phone offers "I'm here anyway". */
+export const GPS_FAR_CODE = "gps_far";
+
 export const tripActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("start") }),
-  z.strictObject({ type: z.literal("arrive"), stopId: z.string().uuid() }),
+  /** override: the person tapped "I'm here anyway" after GPS said the bus was somewhere else. */
+  z.strictObject({ type: z.literal("arrive"), stopId: z.string().uuid(), override: z.boolean().optional() }),
   z.strictObject({ type: z.literal("depart"), stopId: z.string().uuid() }),
   z.strictObject({ type: z.literal("undo_arrival"), stopId: z.string().uuid() }),
   z.strictObject({ type: z.literal("complete") }),
@@ -269,7 +277,7 @@ export const boardStopSchema = z.strictObject({
   longitude: coordinateSchema.shape.longitude,
   arrivedAt: z.string().nullable(),
   departedAt: z.string().nullable(),
-  arrivalMethod: z.enum(["automatic", "manual"]).nullable(),
+  arrivalMethod: arrivalMethodSchema.nullable(),
   departureMethod: z.enum(["automatic", "manual"]).nullable()
 });
 
@@ -379,7 +387,7 @@ export const staffTripStopSchema = z.strictObject({
   longitude: coordinateSchema.shape.longitude,
   arrivedAt: z.string().nullable(),
   departedAt: z.string().nullable(),
-  arrivalMethod: z.enum(["automatic", "manual"]).nullable(),
+  arrivalMethod: arrivalMethodSchema.nullable(),
   departureMethod: z.enum(["automatic", "manual"]).nullable()
 });
 
@@ -760,7 +768,7 @@ export const historyTripSchema = z.strictObject({
     label: z.string(),
     arrivedAt: z.string().nullable(),
     departedAt: z.string().nullable(),
-    arrivalMethod: z.enum(["automatic", "manual"]).nullable(),
+    arrivalMethod: arrivalMethodSchema.nullable(),
     departureMethod: z.enum(["automatic", "manual"]).nullable()
   })),
   events: z.array(historyEventSchema),
