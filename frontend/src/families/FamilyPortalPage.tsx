@@ -41,18 +41,59 @@ function EarlierMessages({ messages }: { messages: FamilyMessage[] }) {
   </section>;
 }
 
-/** Siblings on the same trip and stop share one card. */
-type RideGroup = { key: string; riders: string[]; ride: FamilyPortalRide };
+/** Siblings on the same trip and stop share one card. Each kid keeps their own ride (riding or not). */
+type RideGroup = { key: string; riders: string[]; ride: FamilyPortalRide; kids: FamilyPortalRide[] };
 
 function groupRides(rides: FamilyPortalRide[]): RideGroup[] {
   const groups = new Map<string, RideGroup>();
   for (const ride of rides) {
     const key = `${ride.tripId}:${ride.stop.id}`;
     const group = groups.get(key);
-    if (group) group.riders.push(ride.riderName);
-    else groups.set(key, { key, riders: [ride.riderName], ride });
+    if (group) { group.kids.push(ride); if (ride.riding) group.riders.push(ride.riderName); }
+    else groups.set(key, { key, riders: ride.riding ? [ride.riderName] : [], ride, kids: [ride] });
   }
   return [...groups.values()];
+}
+
+type SetRiding = (ride: FamilyPortalRide, riding: boolean) => void;
+const rideKey = (ride: FamilyPortalRide) => `${ride.tripId}:${ride.riderId}`;
+const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+function dayWords(value: string) {
+  const day = new Date(value);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return sameDay(day, tomorrow) ? `Tomorrow, ${day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`
+    : day.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+}
+
+/** One kid on one bus: riding, or not, with the switch while it can still change. */
+function RidingRow({ ride, busy, setRiding, label }: { ride: FamilyPortalRide; busy: boolean; setRiding: SetRiding; label: string }) {
+  return <div className={`frow${ride.riding ? "" : " off"}`}>
+    <div><b>{label}</b><small>{ride.riding ? "Riding" : ride.ridingNote ?? "Not riding"}</small></div>
+    {ride.canChange && <button type="button" className={ride.riding ? "" : "back"} disabled={busy}
+      onClick={() => setRiding(ride, !ride.riding)}>{busy ? "Saving…" : ride.riding ? "Not riding" : "Riding after all"}</button>}
+  </div>;
+}
+
+/** Later days: one line per bus per kid, so a parent can mark days off ahead of time. */
+function ComingUp({ groups, busy, setRiding }: { groups: RideGroup[]; busy: Set<string>; setRiding: SetRiding }) {
+  const [all, setAll] = useState(false);
+  const days = new Map<string, RideGroup[]>();
+  for (const group of groups) {
+    const key = new Date(group.ride.departureAt).toDateString();
+    days.set(key, [...(days.get(key) ?? []), group]);
+  }
+  if (!days.size) return null;
+  return <section className="fcoming" aria-label="Coming up">
+    <h2>Coming up</h2>
+    <p className="fsub">Kid staying home? Mark it here and the counselors on the bus see it.</p>
+    {[...days.values()].slice(0, all ? undefined : 5).map((list) => <div key={list[0]!.key} className="fday">
+      <h3>{dayWords(list[0]!.ride.departureAt)}</h3>
+      {list.flatMap((group) => group.kids.map((ride) => <RidingRow key={rideKey(ride)} ride={ride} busy={busy.has(rideKey(ride))} setRiding={setRiding}
+        label={`${clock(ride.departureAt)} · ${ride.servicePeriod === "AM" ? "To camp" : "Home"} · ${ride.riderName.split(" ")[0]}`} />))}
+    </div>)}
+    {!all && days.size > 5 && <button type="button" className="fmsgs-more" onClick={() => setAll(true)}>Show {days.size - 5} more days</button>}
+  </section>;
 }
 
 function initials(name: string) {
@@ -105,8 +146,11 @@ function MiniMap({ ride }: { ride: FamilyPortalRide }) {
   </svg></div>;
 }
 
-function Card({ group, now, buffer, setBuffer }: { group: RideGroup; now: number; buffer: number; setBuffer: (minutes: number) => void }) {
+function Card({ group, now, buffer, setBuffer, busy, setRiding }: {
+  group: RideGroup; now: number; buffer: number; setBuffer: (minutes: number) => void; busy: Set<string>; setRiding: SetRiding;
+}) {
   const { ride, riders } = group;
+  const nobody = riders.length === 0;
   const who = names(riders);
   const stopEta = ride.eta?.stopEtaAt ?? null;
   const live = ride.tripStatus === "active" && !!stopEta;
@@ -118,7 +162,11 @@ function Card({ group, now, buffer, setBuffer }: { group: RideGroup; now: number
   const am = ride.servicePeriod === "AM";
 
   let banner: React.ReactNode;
-  if (ride.tripStatus === "planned") {
+  if (nobody) {
+    banner = <div className="leave idle"><span className="ov">NOT RIDING</span>
+      <div className="cd small">{ride.servicePeriod === "AM" ? "No pickup" : "No drop-off"}</div>
+      <p>{group.kids.length > 1 ? "None of your kids are" : `${names(group.kids.map((kid) => kid.riderName))} isn't`} on this bus. The counselors know.</p></div>;
+  } else if (ride.tripStatus === "planned") {
     banner = <div className="leave idle"><span className="ov">{new Date(ride.departureAt).toDateString() === new Date().toDateString() ? "LATER TODAY" : "NEXT TRIP"}</span>
       <div className="cd small">Leaves {clock(ride.departureAt)}</div><p>Live times start when the driver starts the trip.</p></div>;
   } else if (picked) {
@@ -143,10 +191,10 @@ function Card({ group, now, buffer, setBuffer }: { group: RideGroup; now: number
 
   return <section className="fcard">
     {banner}
-    {ride.crewNotice && !picked && <p className="fnotice"><b>From the bus · {clock(ride.crewNotice.at)}</b>{ride.crewNotice.text}</p>}
-    {ride.tripStatus === "active" && <MiniMap ride={ride} />}
+    {ride.crewNotice && !picked && !nobody && <p className="fnotice"><b>From the bus · {clock(ride.crewNotice.at)}</b>{ride.crewNotice.text}</p>}
+    {ride.tripStatus === "active" && !nobody && <MiniMap ride={ride} />}
     <div className="inner">
-      <div className="kids">{riders.map((name) => <span key={name} className="kid"><span>{initials(name)}</span>{name}</span>)}</div>
+      <div className="kids">{group.kids.map((kid) => <span key={kid.riderId} className={`kid${kid.riding ? "" : " off"}`}><span>{initials(kid.riderName)}</span>{kid.riderName}</span>)}</div>
       <p className="fline">{ride.tripStatus === "planned" ? `${ride.busLabel} · ${ride.routeName}`
         : picked ? (am ? "Heading to camp" : "Home stop reached")
           : away === 0 ? "Your stop is next" : away !== null ? `${away} ${away === 1 ? "stop" : "stops"} away` : ride.routeName}</p>
@@ -158,7 +206,9 @@ function Card({ group, now, buffer, setBuffer }: { group: RideGroup; now: number
       <div><dt>Your stop</dt><dd>{ride.stop.label}</dd></div>
       <div><dt>Bus</dt><dd>{ride.busLabel} · {ride.servicePeriod}</dd></div>
     </dl>
-    {am && !picked && <div className="buf">
+    {group.kids.some((kid) => kid.canChange) && <div className="frows">{group.kids.map((kid) =>
+      <RidingRow key={rideKey(kid)} ride={kid} busy={busy.has(rideKey(kid))} setRiding={setRiding} label={kid.riderName} />)}</div>}
+    {am && !picked && !nobody && <div className="buf">
       <div><b>Warn me before the bus</b><small>Your walk to the stop</small></div>
       <div className="step">
         <button type="button" aria-label="Less time" onClick={() => setBuffer(Math.max(0, buffer - 1))}>&minus;</button>
@@ -266,7 +316,28 @@ export function FamilyPortalPage({ preview }: { preview?: { memberId: string } }
     }, 600);
   }
 
-  const groups = groupRides(rides);
+  const [busy, setBusy] = useState<Set<string>>(() => new Set());
+  const setRiding: SetRiding = (ride, riding) => {
+    if (preview) { setError("Preview only. Nothing is saved."); return; }
+    const key = rideKey(ride);
+    setBusy((current) => new Set(current).add(key));
+    void fetch(`/api/families/rides/${ride.tripId}/riders/${ride.riderId}`, {
+      method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ riding })
+    }).then(async (response) => {
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        setError(body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "That didn't save. Try again.");
+      } else setError("");
+      await load();
+    }).catch(() => setError("No connection, so that didn't save. Try again."))
+      .finally(() => setBusy((current) => { const next = new Set(current); next.delete(key); return next; }));
+  };
+
+  // Today's buses get full cards; later days are a list where kids can be marked off ahead of time.
+  const all = groupRides(rides);
+  const today = new Date(now);
+  const groups = all.filter((group) => group.ride.tripStatus === "active" || sameDay(new Date(group.ride.departureAt), today));
+  const later = all.filter((group) => !groups.includes(group));
   const split = splitMessages(messages, fresh, now);
 
   return <main className="field">
@@ -280,8 +351,9 @@ export function FamilyPortalPage({ preview }: { preview?: { memberId: string } }
       {split.top.map((item) => <MessageItem key={item.id} item={item} isNew={fresh.has(item.id)} />)}</section>}
     {loading ? <p className="fsub">Loading your bus…</p>
       : groups.length === 0 ? <section className="fcard"><div className="inner">
-        <p className="fline">No bus today</p><p className="fsub">There is no running or upcoming trip for your riders. This page updates by itself.</p></div></section>
-        : groups.map((group) => <Card key={group.key} group={group} now={now} buffer={buffer} setBuffer={setBuffer} />)}
+        <p className="fline">No bus today</p><p className="fsub">{later.length ? "The next bus is listed below." : "There is no running or upcoming trip for your riders. This page updates by itself."}</p></div></section>
+        : groups.map((group) => <Card key={group.key} group={group} now={now} buffer={buffer} setBuffer={setBuffer} busy={busy} setRiding={setRiding} />)}
+    {!loading && <ComingUp groups={later} busy={busy} setRiding={setRiding} />}
     <EarlierMessages messages={split.earlier} />
   </main>;
 }

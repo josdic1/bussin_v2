@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
   familyPortalResponseSchema,
-  leaveBufferInputSchema,
+  leaveBufferInputSchema, familyRidingInputSchema, CAMP_TIME_ZONE,
   guardianInputSchema, guardiansResponseSchema, riderInputSchema,
   riderCoverageSchema, rosterResponseSchema, type Guardian, type Rider, PARENT_VISIBLE_UPDATES, tripAlertLabel
 } from "@bussin/shared";
@@ -14,6 +14,7 @@ import type { PoolClient } from "pg";
 import { syncPlannedTripRiders } from "./access.js";
 import { hashPassword } from "../auth/sessions.js";
 import { rosterCsv } from "./exportCsv.js";
+import { checkTransition, deriveRiderState, type RiderEventRow } from "../check/state.js";
 import { emailTakenMessage, guardianEmailOwner } from "./contacts.js";
 
 export const familyRoutes = Router();
@@ -145,12 +146,14 @@ export async function readFamilyPortal(memberId: string) {
        ON sample.id = current_location.sample_id
      WHERE access.member_id = $1
        AND t.status IN ('planned', 'active')
+       -- A planned trip from an earlier day never ran: it isn't the family's next bus.
+       AND (t.status = 'active' OR t.departure_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2))
      ORDER BY
        CASE WHEN t.status = 'active' THEN 0 ELSE 1 END,
        t.departure_at,
        rider.family_name,
        rider.given_name`,
-    [member.id]
+    [member.id, CAMP_TIME_ZONE]
   );
 
   const etaByTrip = new Map<string, Awaited<ReturnType<typeof buildDispatchEta>>>();
@@ -208,6 +211,24 @@ export async function readFamilyPortal(memberId: string) {
     }
   }
 
+  // Not riding: each kid's check log on each trip, replayed the same way Ride Check does.
+  const checks = new Map<string, ReturnType<typeof deriveRiderState>>();
+  if (tripIds.length) {
+    const events = await pool.query<RiderEventRow & { tripId: string; riderId: string }>(
+      `SELECT e.trip_id AS "tripId", e.rider_id AS "riderId", e.event_type AS "eventType",
+              e.occurred_at AS "occurredAt", m.display_name AS "recordedByName"
+         FROM trip_rider_events e JOIN members m ON m.id = e.recorded_by
+        WHERE e.trip_id = ANY($1::uuid[]) AND e.rider_id = ANY($2::uuid[])
+        ORDER BY e.occurred_at, e.recorded_at, e.id`,
+      [tripIds, [...new Set(result.rows.map((row) => row.riderId))]]);
+    const grouped = new Map<string, RiderEventRow[]>();
+    for (const event of events.rows) {
+      const key = `${event.tripId}:${event.riderId}`;
+      grouped.set(key, [...(grouped.get(key) ?? []), event]);
+    }
+    for (const [key, list] of grouped) checks.set(key, deriveRiderState(list));
+  }
+
   const buffer = await pool.query<{ minutes: number }>(
     `SELECT leave_buffer_minutes::integer AS minutes FROM guardians WHERE member_id = $1 ORDER BY id LIMIT 1`,
     [member.id]
@@ -233,7 +254,14 @@ export async function readFamilyPortal(memberId: string) {
         ).toISOString()
       : null;
 
+    const check = checks.get(`${row.tripId}:${row.riderId}`);
+    const riding = check?.state !== "not_riding";
     return {
+      riding,
+      ridingNote: !riding && check?.stateAt
+        ? `Marked not riding by ${check.stateBy ?? "someone"}, ${check.stateAt.toLocaleString("en-US", { timeZone: CAMP_TIME_ZONE, weekday: "short", hour: "numeric", minute: "2-digit" })}`
+        : null,
+      canChange: row.tripStatus === "planned" && (!check || check.state === "expected" || check.state === "not_riding"),
       riderId: row.riderId,
       riderName: row.riderName,
       tripId: row.tripId,
@@ -282,6 +310,63 @@ export async function readFamilyPortal(memberId: string) {
     leaveBufferMinutes: buffer.rows[0]?.minutes ?? 5
   });
 }
+
+/**
+ * A parent says a kid won't be on a bus (or will after all). Only before the bus leaves,
+ * and only for their own kids. The counselors' Ride Check shows it at once, with the
+ * parent's name, so nobody waits at the stop or searches for a kid who stayed home.
+ */
+familyRoutes.post("/rides/:tripId/riders/:riderId", requireSameOrigin, requireRole("family"), async (request, response) => {
+  const tripId = idSchema.safeParse(request.params.tripId);
+  const riderId = idSchema.safeParse(request.params.riderId);
+  const input = familyRidingInputSchema.safeParse(request.body);
+  if (!tripId.success || !riderId.success || !input.success) { response.status(400).json({ error: "Choose a ride." }); return; }
+  const member = currentMember(response);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const trip = await client.query<{ status: "planned" | "active" | "completed" | "cancelled" }>(
+      "SELECT status FROM trips WHERE id = $1 FOR UPDATE", [tripId.data]);
+    const mine = await client.query(
+      "SELECT 1 FROM family_trip_access WHERE member_id = $1 AND trip_id = $2 AND rider_id = $3",
+      [member.id, tripId.data, riderId.data]);
+    if (!trip.rowCount || !mine.rowCount) {
+      await client.query("ROLLBACK");
+      response.status(404).json({ error: "That ride isn't on your list." });
+      return;
+    }
+    if (trip.rows[0]!.status !== "planned") {
+      await client.query("ROLLBACK");
+      response.status(409).json({ error: "The bus has already left. Call the camp office." });
+      return;
+    }
+    const events = await client.query<RiderEventRow>(
+      `SELECT e.event_type AS "eventType", e.occurred_at AS "occurredAt", m.display_name AS "recordedByName"
+         FROM trip_rider_events e JOIN members m ON m.id = e.recorded_by
+        WHERE e.trip_id = $1 AND e.rider_id = $2 ORDER BY e.occurred_at, e.recorded_at, e.id`,
+      [tripId.data, riderId.data]);
+    const current = deriveRiderState(events.rows);
+    const wantRiding = input.data.riding;
+    if (wantRiding === (current.state !== "not_riding")) {
+      await client.query("ROLLBACK");
+      response.json({ riding: wantRiding });
+      return;
+    }
+    const step = checkTransition(current, wantRiding ? "undo" : "not_riding", "planned");
+    if (!step.ok) { await client.query("ROLLBACK"); response.status(409).json({ error: step.error }); return; }
+    await client.query(
+      `INSERT INTO trip_rider_events (trip_id, rider_id, event_type, recorded_by, occurred_at)
+       VALUES ($1, $2, $3, $4, GREATEST(now(), (SELECT max(occurred_at) FROM trip_rider_events WHERE trip_id = $1 AND rider_id = $2)))`,
+      [tripId.data, riderId.data, step.eventType, member.id]);
+    await client.query("COMMIT");
+    response.json({ riding: wantRiding });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+});
 
 /** Guardians choose how many minutes before the bus they want to leave. */
 familyRoutes.put("/me/leave-buffer", requireSameOrigin, requireRole("family"), async (request, response) => {

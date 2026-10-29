@@ -624,6 +624,11 @@ export const familyPortalRideSchema = z.strictObject({
     passed: z.boolean()
   })),
   eta: familyPortalEtaSchema.nullable(),
+  // Not riding: the parent (or a counselor) said this kid won't be on this bus.
+  riding: z.boolean(),
+  ridingNote: z.string().nullable(),
+  // The parent can still change it: the bus hasn't left yet.
+  canChange: z.boolean(),
   /** The crew's latest "running late" or "heavy traffic" note on this trip, if any. */
   crewNotice: z.strictObject({ text: z.string(), at: z.string() }).nullable()
 });
@@ -632,6 +637,9 @@ export const familyPortalResponseSchema = z.strictObject({
   rides: z.array(familyPortalRideSchema),
   leaveBufferMinutes: z.number().int().min(0).max(60)
 });
+
+/** A parent marks one kid as not riding one bus (or riding after all), before it leaves. */
+export const familyRidingInputSchema = z.strictObject({ riding: z.boolean() });
 
 export const leaveBufferInputSchema = z.strictObject({
   minutes: z.number().int().min(0).max(60)

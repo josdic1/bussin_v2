@@ -152,3 +152,23 @@ details.pd div{padding:0 12px 12px;font-size:11px;color:var(--muted);line-height
 /* Parent screen: the crew's "running late" note */
 .fnotice{margin:0;padding:10px 16px;background:#fff4dc;border-bottom:1px solid #ead7a8;color:#5c4510;font-size:14px;font-weight:700;line-height:1.35}
 .fnotice b{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8a651e;margin-bottom:2px}
+
+/* ---------- family: riding or not ---------- */
+.kid.off{color:var(--muted);text-decoration:line-through}
+.kid.off span{background:#b9c3bb}
+.frows{border-top:1px solid var(--line2)}
+.frow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line2)}
+.frows .frow:first-child{border-top:0}
+.frow b{display:block;font-size:13px}
+.frow small{display:block;font-size:11px;color:var(--ok);font-weight:750;margin-top:1px}
+.frow.off b{color:var(--muted)}
+.frow.off small{color:var(--warn)}
+.frow button{flex:none;min-height:38px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-size:12px;font-weight:850}
+.frow button.back{border-color:var(--green);background:var(--green);color:#fff}
+.frow button:disabled{opacity:.6}
+.fcoming{margin:20px 0 12px}
+.fcoming h2{margin:0 2px 2px;font-size:18px;letter-spacing:-.02em}
+.fcoming>.fsub{margin:0 2px 10px}
+.fday{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:10px}
+.fday h3{margin:0;padding:9px 14px;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);background:#fafbf9;border-bottom:1px solid var(--line2)}
+.fday .frow:first-of-type{border-top:0}
