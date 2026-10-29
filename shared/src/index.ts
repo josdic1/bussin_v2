@@ -1277,3 +1277,14 @@ export const tripScheduleSaveResponseSchema = z.strictObject({
   removed: z.number().int().nonnegative(),
   skipped: z.array(scheduleSkipSchema)
 });
+
+// ---------------------------------------------------------------------------
+// Phone alerts (Web Push) for parents: bus left, about 10 minutes away, at your stop.
+// ---------------------------------------------------------------------------
+
+export const pushKeyResponseSchema = z.strictObject({ publicKey: z.string().nullable() });
+export const pushSubscribeInputSchema = z.object({
+  endpoint: z.string().url().startsWith("https://").max(1000),
+  keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) })
+});
+export const pushUnsubscribeInputSchema = z.strictObject({ endpoint: z.string().max(1000) });

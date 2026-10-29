@@ -2,7 +2,7 @@
 // server is unreachable or returns an error page: a redeploy, a dead zone,
 // airplane mode, a Railway outage. API calls are never cached; data always
 // comes from the live server.
-const CACHE = "bussin-shell-v2";
+const CACHE = "bussin-shell-v3";
 const SHELL = "/index.html";
 
 self.addEventListener("install", (event) => {
@@ -80,5 +80,32 @@ self.addEventListener("fetch", (event) => {
     const hit = await cache.match(request);
     const network = fetch(request).then((fresh) => { if (fresh.ok) void cache.put(request, fresh.clone()); return fresh; }).catch(() => hit);
     return hit || network;
+  })());
+});
+
+// Bus alerts for parents: "Bus 1 left Camp", "10 min from JCC", "Bus 1 is at JCC".
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { title: "Bussin", body: event.data ? event.data.text() : "" }; }
+  event.waitUntil(self.registration.showNotification(data.title || "Bussin", {
+    body: data.body || "",
+    tag: data.tag || "bussin",
+    renotify: true,
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    data: { url: data.url || "/" }
+  }));
+});
+
+// Tapping the alert opens Bussin (or brings it to the front).
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || "/", self.location.origin).href;
+  event.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of open) {
+      if (client.url.startsWith(self.location.origin)) { await client.focus(); return; }
+    }
+    await self.clients.openWindow(target);
   })());
 });

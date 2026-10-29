@@ -172,3 +172,13 @@ details.pd div{padding:0 12px 12px;font-size:11px;color:var(--muted);line-height
 .fday{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:10px}
 .fday h3{margin:0;padding:9px 14px;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);background:#fafbf9;border-bottom:1px solid var(--line2)}
 .fday .frow:first-of-type{border-top:0}
+
+/* ---------- family: bus alerts on this phone ---------- */
+.falerts{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 12px}
+.falerts b{display:block;font-size:14px}
+.falerts small{display:block;font-size:12px;color:var(--muted);margin-top:2px;line-height:1.35}
+.falerts button{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-size:13px;font-weight:850}
+.falerts button.go{border:0;background:var(--green);color:#fff}
+.falerts button.quiet{border:0;color:var(--muted);text-decoration:underline;padding:0 6px}
+.falerts-btns{display:flex;gap:4px;align-items:center}
+.falerts-note{grid-column:1/-1;margin:0;font-size:12px;font-weight:750;color:var(--ok)}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { familyMessagesResponseSchema, familyPortalResponseSchema, type FamilyMessage, type FamilyPortalRide } from "@bussin/shared";
 import { useAuth } from "../auth/AuthProvider";
+import { BusAlerts } from "./BusAlerts";
 
 const clock = (value: string | number) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -353,6 +354,7 @@ export function FamilyPortalPage({ preview }: { preview?: { memberId: string } }
       : groups.length === 0 ? <section className="fcard"><div className="inner">
         <p className="fline">No bus today</p><p className="fsub">{later.length ? "The next bus is listed below." : "There is no running or upcoming trip for your riders. This page updates by itself."}</p></div></section>
         : groups.map((group) => <Card key={group.key} group={group} now={now} buffer={buffer} setBuffer={setBuffer} busy={busy} setRiding={setRiding} />)}
+    <BusAlerts preview={!!preview} />
     {!loading && <ComingUp groups={later} busy={busy} setRiding={setRiding} />}
     <EarlierMessages messages={split.earlier} />
   </main>;

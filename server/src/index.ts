@@ -18,6 +18,8 @@ import { driverRoutes } from "./drivers/routes.js";
 import { alertRoutes } from "./alerts/routes.js";
 import { scheduleRoutes } from "./schedules/routes.js";
 import { startScheduleBuilder } from "./schedules/build.js";
+import { pushRoutes } from "./push/routes.js";
+import { startPushAlerts } from "./push/watch.js";
 import { dataImportRoutes } from "./data/import.js";
 import { tableCsvRoutes } from "./data/tableCsv.js";
 import { deviceRoutes, trackerRoutes } from "./device/routes.js";
@@ -78,6 +80,7 @@ app.use("/api/preview", previewRoutes);
 app.use("/api/drivers", driverRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/schedules", scheduleRoutes);
+app.use("/api/push", pushRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });
@@ -133,6 +136,8 @@ const server = app.listen(port, isProduction ? "0.0.0.0" : "127.0.0.1", () => {
 const stopAutoFinish = startAutoFinish();
 // Keeps two weeks of repeating trips planned (hourly, and shortly after startup).
 const stopScheduleBuilder = startScheduleBuilder();
+// Parents' phone alerts: bus left, 10 minutes away, at your stop.
+const stopPushAlerts = startPushAlerts();
 
 /** Redeploys send SIGTERM: stop accepting, end live streams, drain the pool. */
 let shuttingDown = false;
@@ -141,6 +146,7 @@ function shutdown(signal: string) {
   shuttingDown = true;
   stopAutoFinish();
   stopScheduleBuilder();
+  stopPushAlerts();
   console.log(`${signal} received, shutting down`);
   closeAllStreams();
   const force = setTimeout(() => process.exit(0), 8_000);

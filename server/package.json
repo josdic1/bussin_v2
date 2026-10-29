@@ -14,18 +14,20 @@
     "db:bootstrap": "node --env-file-if-exists=.env --import tsx src/auth/bootstrap.ts",
     "db:seed-demo": "node --env-file-if-exists=.env --import tsx src/db/seed-demo.ts",
     "tenant:init": "node --env-file-if-exists=.env --import tsx src/db/claim-tenant.ts",
-    "test": "node --env-file-if-exists=.env --import tsx --test --test-concurrency=1 src/journey.test.ts src/productTruth.test.ts src/rideCheck.test.ts src/http.test.ts src/reset.test.ts src/tripEdit.test.ts src/crew.test.ts src/device.test.ts src/routeName.test.ts src/crewCheck.test.ts src/arrivalGuard.test.ts src/finishGate.test.ts src/tripAlerts.test.ts src/schedules.test.ts src/rideDays.test.ts"
+    "test": "node --env-file-if-exists=.env --import tsx --test --test-concurrency=1 src/journey.test.ts src/productTruth.test.ts src/rideCheck.test.ts src/http.test.ts src/reset.test.ts src/tripEdit.test.ts src/crew.test.ts src/device.test.ts src/routeName.test.ts src/crewCheck.test.ts src/arrivalGuard.test.ts src/finishGate.test.ts src/tripAlerts.test.ts src/schedules.test.ts src/rideDays.test.ts src/pushAlerts.test.ts"
   },
   "dependencies": {
     "@bussin/shared": "^0.1.0",
     "argon2": "^0.45.1",
     "express": "^5.2.1",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.23.15"
   }
 }
