@@ -183,11 +183,11 @@ function AddStaffForm({ taken, onCreated }: {
     setSaving(true);
     setError("");
     try {
-      const created = staffMemberSchema.parse(await send("POST", "/api/members", parsed.data, "Could not create staff login."));
+      const created = staffMemberSchema.parse(await send("POST", "/api/members", parsed.data, "Could not create counselor login."));
       onCreated(created, password);
       setDisplayName(""); setUsername(""); setTouched(false); setEmail(""); setPassword("");
     } catch (cause) {
-      setError(message(cause, "Could not create staff login."));
+      setError(message(cause, "Could not create counselor login."));
     } finally { setSaving(false); }
   }
 
@@ -204,7 +204,7 @@ function AddStaffForm({ taken, onCreated }: {
       <button type="button" onClick={() => setPassword(generatePassword())}>Generate</button></span>
       <small>12 characters or more.</small></label>
     <p className="mf-err" role="alert">{error}</p>
-    <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Creating…" : "Create staff login"}</button>
+    <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Creating…" : "Create counselor login"}</button>
   </form>;
 }
 
@@ -253,7 +253,8 @@ export function MembersPage() {
     {overlay.type === "staff"
       ? (selected ? <StaffDetail key={selected.id} person={selected} schedule={schedule}
           onChanged={(next, note) => { setStaff((list) => list.map((p) => (p.id === next.id ? next : p))); toast(note); }} /> : <NoMatch>Not found.</NoMatch>)
-      : <><p className="eyebrow">MEMBERS</p><h2 className="dt">Create staff login</h2>
+      : <><p className="eyebrow">MEMBERS</p><h2 className="dt">Create counselor login</h2>
+        <p className="muted">For counselors. Lead or counselor is picked on each trip, not here. Drivers don't sign in: add them in Data, Drivers.</p>
         {created && <div className="ok-note"><b>Created {created.name}</b>Give them username <code>{created.username}</code> and
           the temporary password <code>{created.password}</code>.</div>}
         <AddStaffForm taken={(username) => staff.some((person) => person.username === username)}
@@ -278,7 +279,7 @@ export function MembersPage() {
     }
     return <>
       <Head eyebrow="Staff" title="Members" sub="Everyone who signs in to run the camp: admins, dispatchers and counselors."
-        actions={<button type="button" className="btn btn-primary" onClick={openAdd}>Add staff login</button>} />
+        actions={<button type="button" className="btn btn-primary" onClick={openAdd}>Add counselor</button>} />
       {status}
       <div className="tiles">{tiles.map(([key, label, value, sub]) => <Tile key={key} label={label} value={value} sub={sub}
         pressed={tab === "staff" && filter === key} className={tab === "staff" && filter === key ? "on" : ""}
@@ -315,7 +316,7 @@ export function MembersPage() {
 
   const groups: [Status, string, string][] = [["SETUP REQUIRED", "Setup required", "warn"], ["ACTIVE", "Active", ""], ["SUSPENDED", "Suspended", "bad"]];
   return <>
-    <Head eyebrow="Staff" title="Members" sub={`${counts.ALL} logins`} actions={<Plus label="Add staff login" onClick={openAdd} />} />
+    <Head eyebrow="Staff" title="Members" sub={`${counts.ALL} logins`} actions={<Plus label="Add counselor" onClick={openAdd} />} />
     {status}
     <Search value={query} onChange={setQuery} placeholder="Search staff" />
     {groups.map(([key, label, cls]) => {
