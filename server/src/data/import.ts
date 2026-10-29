@@ -189,9 +189,11 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     if (!first || !last) return fail("First and Last are both required.");
     if (first.length > 80 || last.length > 80) return fail("Names must be under 80 characters.");
 
-    const am = findStop("AM", get("amRoute"), get("amStop"));
+    // Stops: only if the file has that period's route or stop column. A file without them
+    // (just names and ride days, say) leaves every kid's bus stops exactly as they are.
+    const am = index.amRoute >= 0 || index.amStop >= 0 ? findStop("AM", get("amRoute"), get("amStop")) : undefined;
     if (typeof am === "string") return fail(am);
-    const pm = findStop("PM", get("pmRoute"), get("pmStop"));
+    const pm = index.pmRoute >= 0 || index.pmStop >= 0 ? findStop("PM", get("pmRoute"), get("pmStop")) : undefined;
     if (typeof pm === "string") return fail(pm);
 
     // Care info: only columns present in the file change anything; a blank cell clears it.
@@ -250,7 +252,8 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     const changes: string[] = [];
     if (existing && existing.first !== first) changes.push(`First: ${existing.first} → ${first}`);
     if (existing && existing.last !== last) changes.push(`Last: ${existing.last} → ${last}`);
-    const stopChange = (period: "AM" | "PM", want: Stop | null): Stop | null | undefined => {
+    const stopChange = (period: "AM" | "PM", want: Stop | null | undefined): Stop | null | undefined => {
+      if (want === undefined) return undefined;
       const now = existing ? assigned.get(`${existing.id}|${period}`) : undefined;
       if (!now && !want) return undefined;
       if (now && want && now.stopId === want.stopId) return undefined;
