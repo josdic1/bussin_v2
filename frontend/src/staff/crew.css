@@ -21,6 +21,18 @@
 .crew .cr-main{display:block;width:100%;min-height:58px;margin:0 0 12px;border:0;border-radius:16px;background:var(--g);color:#fff;font-size:18px;font-weight:850}
 .crew .cr-main.ghost{background:#fff;color:var(--g);border:2px solid var(--g)}
 .crew .cr-main:disabled{opacity:.5}
+.crew .cr-danger{margin:0 0 12px;padding:14px 16px;border-radius:16px;background:var(--bad);color:#fff;animation:cr-pulse 1.4s ease-in-out infinite}
+.crew .cr-danger b{display:block;font-size:19px;line-height:1.2}
+.crew .cr-danger p{margin:6px 0 0;font-size:14px;line-height:1.4;font-weight:700}
+.crew .cr-warnbox{margin:0 0 12px;padding:12px 14px;border-radius:14px;background:var(--warnbg);border:1px solid #f0d9a8;color:var(--ink)}
+.crew .cr-warnbox b{display:block;font-size:16px;color:var(--warn)}
+.crew .cr-warnbox p{margin:4px 0 0;font-size:13.5px}
+.crew .cr-locked{margin:0 0 12px;padding:14px 16px;border-radius:16px;background:#f0f2ef;border:2px dashed #a9b3ab}
+.crew .cr-locked b{display:block;font-size:17px}
+.crew .cr-locked p{margin:6px 0 0;font-size:14px;font-weight:700}
+.crew .cr-locked small{display:block;margin-top:6px;color:var(--mut);font-size:12.5px}
+@keyframes cr-pulse{50%{box-shadow:0 0 0 6px rgba(180,35,24,.25)}}
+@media (prefers-reduced-motion:reduce){.crew .cr-danger{animation:none}}
 .crew .cr-far{margin-top:10px;padding:12px;border-radius:12px;background:var(--warnbg);color:var(--ink)}
 .crew .cr-far p{margin:0 0 10px;font-weight:800;font-size:14.5px;line-height:1.35}
 .crew .cr-far div{display:flex;gap:8px}

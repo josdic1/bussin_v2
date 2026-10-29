@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { staffCheckResponseSchema, type CheckRider, type CheckTrip, type RiderCheckAction } from "@bussin/shared";
 import { ChangeMyPassword } from "../auth/ChangeMyPassword";
 import { clock, EARLY_START_WARNING_MS, mmss, PREVIEW_NOTE, useTerminalTrip } from "../terminal/useTerminalTrip";
+import { missed, nameList } from "../check/checkModel";
 import "./crew.css";
 
 /*
@@ -110,6 +111,13 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
   const { trip, now, pending } = t;
   const lead = trip?.crewRole === "lead";
   const ride = check.trip && trip && check.trip.id === trip.id ? check.trip : null;
+  // Buzz the phone when a kid gets left behind (vibration is Android only; the red banner shows everywhere).
+  const leftCount = ride ? ride.riders.filter((rider) => missed(ride, rider)).length : 0;
+  const lastLeft = useRef(0);
+  useEffect(() => {
+    if (leftCount > lastLeft.current && !preview) navigator.vibrate?.([400, 200, 400, 200, 400]);
+    lastLeft.current = leftCount;
+  }, [leftCount, preview]);
 
   if (changingPassword) {
     return <main className="field crew"><header className="ftop"><div className="wm">BUSSIN<span>Change my password</span></div></header>
@@ -122,6 +130,19 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
   const finalStop = trip?.stops.at(-1);
   const atEnd = !!(trip?.status === "active" && finalStop?.arrivedAt);
   const until = trip ? Date.parse(trip.departureAt) - now : 0;
+
+  // ---------- Nobody left behind ----------
+  const fullName = (rider: CheckRider) => `${rider.givenName} ${rider.familyName}`;
+  const leftBehind = ride ? riders.filter((rider) => missed(ride, rider)) : [];
+  const unaccounted = riders.filter((rider) => rider.state === "expected" || rider.state === "aboard");
+  const firstStop = ride?.stops[0];
+  // Before leaving where kids get on: camp in the afternoon, the stop the bus is at in the morning.
+  const boardingHere = ride?.status === "active"
+    ? ride.servicePeriod === "PM"
+      ? firstStop && !firstStop.departedAt ? { label: firstStop.label, kids: riders.filter((r) => r.state === "expected") } : null
+      : (() => { const at = ride.stops.find((stop) => stop.arrivedAt && !stop.departedAt);
+          return at ? { label: at.label, kids: riders.filter((r) => r.state === "expected" && r.stopId === at.id) } : null; })()
+    : null;
 
   // ---------- GPS line: who is tracking this bus ----------
   const gpsLine = !trip ? null
@@ -140,9 +161,16 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         onClick={() => until > EARLY_START_WARNING_MS ? t.setConfirming("start") : void t.act("start")}>{pending ? "Starting…" : "Start trip"}</button>;
   } else if (trip && lead && trip.status === "active") {
     const next = t.nextStop;
+    const waitingNames = unaccounted.filter((r) => r.state === "expected").map(fullName);
+    const aboardNames = unaccounted.filter((r) => r.state === "aboard").map(fullName);
     control = <>
       {t.readyToComplete
-        ? <button type="button" className="cr-main" disabled={pending} onClick={() => void t.act("complete")}>{pending ? "Finishing…" : "Finish trip"}</button>
+        ? unaccounted.length
+          ? <div className="cr-locked"><b>Finish is locked</b>
+            {waitingNames.length > 0 && <p>{waitingNames.length} not checked: {nameList(waitingNames)}.</p>}
+            {aboardNames.length > 0 && <p>{aboardNames.length} still on the bus: {nameList(aboardNames)}.</p>}
+            <small>Mark every kid below, then Finish unlocks.</small></div>
+          : <button type="button" className="cr-main" disabled={pending} onClick={() => void t.act("complete")}>{pending ? "Finishing…" : "Finish trip"}</button>
         : next && <div className="cr-next">
           <span>{next.arrivedAt ? "At stop" : "Next stop"} · {t.nextIndex + 1} of {trip.stops.length}</span><b>{next.label}</b>
           <small>{trip.busPhoneLive || t.wantsGps ? "Arrive and depart record themselves from GPS." : ""}</small>
@@ -193,6 +221,14 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         {lead && !trip.busPhoneLive && t.problem && <button type="button" onClick={t.problem.run}>{t.problem.button}</button>}</p>}
     </section>}
 
+    {leftBehind.length > 0 && <section className="cr-danger" role="alert">
+      <b>{trip?.status === "active" ? `Left ${ride?.servicePeriod === "PM" ? firstStop?.label ?? "camp" : "a stop"} with ${leftBehind.length} not checked` : `${leftBehind.length} never checked`}</b>
+      <p>{nameList(leftBehind.map(fullName))}. Find each one: On bus if they're here, No-show if they're not. If you don't know where a kid is, call Dispatch now.</p>
+    </section>}
+    {!leftBehind.length && boardingHere && boardingHere.kids.length > 0 && <section className="cr-warnbox">
+      <b>{boardingHere.kids.length} not checked yet at {boardingHere.label}</b>
+      <p>Before you leave: On bus or No-show for each kid.</p>
+    </section>}
     {(t.error || check.message) && <p className="cr-alert" role="alert">{check.message || t.error}
       <button type="button" onClick={() => check.setMessage("")}>OK</button></p>}
     {control}
@@ -202,7 +238,7 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         <span>{trip.status === "active" ? `${onBus} on bus · ${rode} of ${riders.length} rode` : `${riders.length} kids expected`}</span></div>
       {!ride && <p className="cr-muted">Loading the kids…</p>}
       {/* Afternoon: everyone boards at camp, the first stop. */}
-      {trip.status === "active" && !am && stops[0] && riders.some((r) => r.state === "expected") &&
+      {trip.status === "active" && !am && stops[0] && !stops[0].departedAt && riders.some((r) => r.state === "expected") &&
         <button type="button" className="cr-main ghost" disabled={!!check.busy} onClick={() => check.bulk(stops[0]!.id, "board_waiting")}>
           Everyone waiting is on the bus ({riders.filter((r) => r.state === "expected").length})</button>}
       {ride && !riders.length && <p className="cr-muted">No kids are scheduled on this trip.</p>}

@@ -1,7 +1,7 @@
 import type { CheckRider, CheckTrip } from "@bussin/shared";
 import { time } from "../ops/format";
 
-export type CheckAlertKey = "stale" | "unconf" | "missed" | "final" | "after" | "sweep" | "noshow" | "nomon";
+export type CheckAlertKey = "stale" | "unconf" | "missed" | "left" | "final" | "after" | "sweep" | "noshow" | "nomon";
 export type CheckAlert = { sev: "high" | "med"; key: CheckAlertKey; text: string; short: string; rider?: CheckRider };
 
 const PRESENCE_STALE_MS = 60_000;
@@ -45,9 +45,21 @@ export function unconfirmed(trip: CheckTrip, rider: CheckRider) {
     rider.stopId !== trip.stops.at(-1)?.id;
 }
 
-/** AM: the bus left their pick-up stop and nobody checked them on or off. */
+/** Where a kid gets on: their own stop in the morning, the first stop (camp) in the afternoon. */
+export function boardingStopId(trip: CheckTrip, rider: CheckRider) {
+  return trip.servicePeriod === "AM" ? rider.stopId : trip.stops[0]?.id ?? rider.stopId;
+}
+
+/** The bus left where this kid gets on (or the trip ended) and nobody checked them on or marked them absent. */
 export function missed(trip: CheckTrip, rider: CheckRider) {
-  return trip.servicePeriod === "AM" && trip.status !== "planned" && rider.state === "expected" && stopPassed(trip, rider.stopId);
+  if (rider.state !== "expected" || trip.status === "planned" || trip.status === "cancelled") return false;
+  return trip.status === "completed" || stopPassed(trip, boardingStopId(trip, rider));
+}
+
+/** "Izzy Alpert, Carly Alpert and 3 more" */
+export function nameList(names: string[], max = 3) {
+  if (names.length <= max) return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
+  return `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
 }
 
 export function alerts(trip: CheckTrip, now: number): CheckAlert[] {
@@ -78,13 +90,22 @@ export function alerts(trip: CheckTrip, now: number): CheckAlert[] {
   if (trip.status === "completed" && !trip.sweep) {
     out.push({ sev: "high", key: "sweep", short: "Sweep not confirmed", text: "Trip is completed but nobody confirmed the bus is empty." });
   }
+  // Afternoon: kids board at camp. Leaving camp with kids never checked could mean a kid left behind.
+  const leftBehind = trip.servicePeriod === "PM" ? trip.riders.filter((rider) => missed(trip, rider)) : [];
+  if (leftBehind.length) {
+    const names = nameList(leftBehind.map((rider) => `${rider.givenName} ${rider.familyName}`));
+    out.push({ sev: "high", key: "left", short: `${leftBehind.length} not checked at ${trip.stops[0]?.label ?? "pickup"}`,
+      text: trip.status === "completed"
+        ? `Trip ended with ${leftBehind.length} never checked on: ${names}. Find out where they are.`
+        : `Bus left ${trip.stops[0]?.label ?? "the first stop"} with ${leftBehind.length} never checked on: ${names}. Call the bus now.` });
+  }
   for (const rider of trip.riders) {
     if (rider.state === "no_show" && !rider.handled) {
       const guardian = rider.guardians[0];
       out.push({ sev: "med", key: "noshow", rider, short: "No-show follow up",
         text: `${rider.givenName} was not at ${stopLabel(trip, rider.stopId)}.${guardian ? ` Contact ${guardian.name}.` : ""}` });
     }
-    if (missed(trip, rider)) {
+    if (trip.servicePeriod === "AM" && missed(trip, rider)) {
       out.push({ sev: "med", key: "missed", rider, short: "Not checked",
         text: `${rider.givenName} was not checked at ${stopLabel(trip, rider.stopId)}.` });
     }

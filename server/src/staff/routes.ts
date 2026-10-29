@@ -103,7 +103,8 @@ staffRoutes.post(
         action: action.data,
         actorId: member.id,
         assignedStaffMemberId: member.id,
-        gpsGuard: true
+        gpsGuard: true,
+        requireAccounted: true
       });
       if (!outcome.ok) {
         await client.query("ROLLBACK");

@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import type { z } from "zod";
 import { GPS_FAR_CODE, tripActionSchema, type ArrivalMethod } from "@bussin/shared";
+import { nameList, unaccountedRiders } from "../check/accounted.js";
 
 type TripAction = z.infer<typeof tripActionSchema>;
 
@@ -38,6 +39,8 @@ export async function applyTripAction(
     occurredAt?: Date;
     /** A person's tap on a phone: check Arrived against GPS first. */
     gpsGuard?: boolean;
+    /** A counselor finishing: every kid must be accounted for first (not Waiting, not On bus). */
+    requireAccounted?: boolean;
   }
 ): Promise<TripActionOutcome> {
   const trip = await client.query<{
@@ -115,6 +118,7 @@ export async function applyTripAction(
   let update: string | null = null;
   let replacementEventId: string | null = null;
   let problem: string | null = null;
+  let unaccounted: Awaited<ReturnType<typeof unaccountedRiders>> = [];
 
   switch (input.action.type) {
     case "start":
@@ -214,6 +218,15 @@ export async function applyTripAction(
           !finalStop?.arrived ||
           stops.rows.slice(0, -1).some((stop) => !stop.departed)) {
         problem = "Record departure from earlier stops and arrival at the final stop first.";
+      } else if (input.requireAccounted && (unaccounted = await unaccountedRiders(client, input.tripId)).length) {
+        const open = unaccounted;
+        const waiting = open.filter((rider) => rider.state === "expected").map((rider) => rider.name);
+        const aboard = open.filter((rider) => rider.state === "aboard").map((rider) => rider.name);
+        problem = [
+          waiting.length ? `${waiting.length} not checked: ${nameList(waiting)}.` : "",
+          aboard.length ? `${aboard.length} still on the bus: ${nameList(aboard)}.` : "",
+          "Mark each one before you finish."
+        ].filter(Boolean).join(" ");
       } else {
         eventType = "completed";
         update = "UPDATE trips SET status = 'completed', ended_at = now() WHERE id = $1";
