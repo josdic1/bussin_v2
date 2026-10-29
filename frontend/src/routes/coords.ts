@@ -5,12 +5,13 @@
  * Returns null for anything else, which then goes to the address search.
  */
 export function parseCoordinates(text: string): { latitude: number; longitude: number } | null {
-  const value = text.trim().replace(/[′’]/g, "'").replace(/[″”]/g, '"');
+  const value = text.trim().replace(/[′’‘]/g, "'").replace(/[″”“]/g, '"').replace(/''/g, '"');
 
   const decimal = value.match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
   if (decimal) return valid(Number(decimal[1]), Number(decimal[2]));
 
-  const part = String.raw`(\d{1,3})\s*°\s*(?:(\d{1,2}(?:\.\d+)?)\s*'\s*)?(?:(\d{1,2}(?:\.\d+)?)\s*"\s*)?([NSEW])`;
+  // Degree mark can be °, º, "d", or a mistyped period before the minutes (40.45'04.2"N).
+  const part = String.raw`(\d{1,3})\s*(?:[°º]|d|\.(?=\d{1,2}\s*'))\s*(?:(\d{1,2}(?:\.\d+)?)\s*'\s*)?(?:(\d{1,2}(?:\.\d+)?)\s*"\s*)?([NSEW])`;
   const dms = value.match(new RegExp(`^${part}\\s*,?\\s*${part}$`, "i"));
   if (dms) {
     const toDecimal = (deg: string, min = "0", sec = "0", hemi = "") =>
