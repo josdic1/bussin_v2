@@ -1,3 +1,4 @@
+import { parseCoordinates } from "./coords";
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
   addressSearchResponseSchema,
@@ -101,6 +102,16 @@ export function RoutesPage() {
   }, [address]);
 
   async function searchAddress(query: string) {
+    // Pasted coordinates (decimal or Google's 40°45'04.2"N form) drop the pin directly.
+    const pasted = parseCoordinates(query);
+    if (pasted) {
+      searchController.current?.abort();
+      setSearching(false);
+      setSearchError("");
+      setMatches([]);
+      setCandidate({ label: `Pin at ${pasted.latitude.toFixed(6)}, ${pasted.longitude.toFixed(6)}`, ...pasted, locationType: "place" });
+      return;
+    }
 
     searchController.current?.abort();
     const controller = new AbortController();
