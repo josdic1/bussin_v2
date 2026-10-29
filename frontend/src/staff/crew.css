@@ -1,16 +1,16 @@
 /* Counselor phone. Big touch targets, one column, nothing that needs zooming. */
-.crew{--g:#17382c;--lime:#cfff04;--ink:#17211b;--mut:#66736a;--ln:#dfe4dc;--bg:#fff;--ok:#28704c;--okbg:#e8f3ec;--warn:#9a5b00;--warnbg:#fff4dc;--bad:#b42318;--badbg:#fdecea}
+.crew{--g:#17382c;--lime:#cfff04;--ink:#17211b;--mut:#66736a;--ln:#dfe4dc;--bg:#fff;--ok:#28704c;--okbg:#e8f3ec;--warn:#9a5b00;--warnbg:#fff4dc;--bad:#b42318;--badbg:#fdecea;--card:#fff;--soft:#f0f2ef;--soft2:#f5f6f3;--ln2:#eef0ec}
 .crew .cr-top-acts{display:flex;gap:12px}
 .crew .cr-card{padding:18px;border:1px solid var(--ln);border-radius:18px;background:var(--bg);margin-bottom:12px}
 .crew .cr-eyebrow{display:block;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
 .crew h1{margin:6px 0 2px;font-size:26px;letter-spacing:-.02em;line-height:1.1}
 .crew .cr-muted{margin:4px 0 0;color:var(--mut);font-size:14px}
 .crew .cr-crew{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
-.crew .cr-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 11px;background:#f0f2ef;font-size:13px;font-weight:700}
+.crew .cr-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 11px;background:var(--soft);font-size:13px;font-weight:700}
 .crew .cr-pill b{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase}
 .crew .cr-pill.lead{background:var(--g);color:#fff}
 .crew .cr-pill.lead b{color:var(--lime)}
-.crew .cr-gps{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0 0;padding:10px 12px;border-radius:12px;background:#f5f6f3;font-size:13px;line-height:1.35}
+.crew .cr-gps{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0 0;padding:10px 12px;border-radius:12px;background:var(--soft2);font-size:13px;line-height:1.35}
 .crew .cr-gps i{width:9px;height:9px;border-radius:50%;background:#a9b3ab;flex:none}
 .crew .cr-gps.good i{background:var(--ok)}
 .crew .cr-gps.warn{background:var(--warnbg)}
@@ -19,7 +19,7 @@
 .crew .cr-alert{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:12px 14px;border-radius:14px;background:var(--badbg);color:var(--bad);font-size:14px;font-weight:700;line-height:1.35}
 .crew .cr-alert button{margin-left:auto;border:0;background:none;color:var(--bad);font-weight:900}
 .crew .cr-main{display:block;width:100%;min-height:58px;margin:0 0 12px;border:0;border-radius:16px;background:var(--g);color:#fff;font-size:18px;font-weight:850}
-.crew .cr-main.ghost{background:#fff;color:var(--g);border:2px solid var(--g)}
+.crew .cr-main.ghost{background:var(--card);color:var(--g);border:2px solid var(--g)}
 .crew .cr-main:disabled{opacity:.5}
 .crew .cr-danger{margin:0 0 12px;padding:14px 16px;border-radius:16px;background:var(--bad);color:#fff;animation:cr-pulse 1.4s ease-in-out infinite}
 .crew .cr-danger b{display:block;font-size:19px;line-height:1.2}
@@ -27,14 +27,14 @@
 .crew .cr-warnbox{margin:0 0 12px;padding:12px 14px;border-radius:14px;background:var(--warnbg);border:1px solid #f0d9a8;color:var(--ink)}
 .crew .cr-warnbox b{display:block;font-size:16px;color:var(--warn)}
 .crew .cr-warnbox p{margin:4px 0 0;font-size:13.5px}
-.crew .cr-locked{margin:0 0 12px;padding:14px 16px;border-radius:16px;background:#f0f2ef;border:2px dashed #a9b3ab}
+.crew .cr-locked{margin:0 0 12px;padding:14px 16px;border-radius:16px;background:var(--soft);border:2px dashed #a9b3ab}
 .crew .cr-locked b{display:block;font-size:17px}
 .crew .cr-locked p{margin:6px 0 0;font-size:14px;font-weight:700}
 .crew .cr-locked small{display:block;margin-top:6px;color:var(--mut);font-size:12.5px}
 @keyframes cr-pulse{50%{box-shadow:0 0 0 6px rgba(180,35,24,.25)}}
 @media (prefers-reduced-motion:reduce){.crew .cr-danger{animation:none}}
 .crew .cr-saved{display:block;margin-top:2px;font-size:11.5px;font-weight:800;color:var(--warn)}
-.crew .cr-queue{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#eef3ef;font-size:13.5px;font-weight:700;color:var(--g)}
+.crew .cr-queue{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:12px;background:var(--soft2);font-size:13.5px;font-weight:700;color:var(--g)}
 .crew .cr-queue i{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
 .crew .cr-queue.off{background:var(--warnbg);color:var(--warn)}
 .crew .cr-queue.off i{background:#d08700}
@@ -67,13 +67,13 @@
 .crew .cr-check-head span{font-size:13px;font-weight:700;color:var(--mut)}
 .crew .cr-stop{margin-bottom:10px;border:1px solid var(--ln);border-radius:16px;background:var(--bg);overflow:hidden}
 .crew .cr-stop.here{border-color:var(--g);box-shadow:0 0 0 1px var(--g)}
-.crew .cr-stop-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fafbf9;border-bottom:1px solid var(--ln)}
+.crew .cr-stop-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--soft2);border-bottom:1px solid var(--ln)}
 .crew .cr-stop-head b{font-size:14px}
 .crew .cr-stop-head em{font-style:normal;font-size:11px;font-weight:900;color:var(--ok);background:var(--okbg);padding:3px 8px;border-radius:999px}
 .crew .cr-stop-head .cr-btn{margin-left:auto}
 .crew .cr-num{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--g);color:var(--lime);font-size:11px;font-weight:900;flex:none}
 .crew .cr-stop ul{list-style:none;margin:0;padding:0}
-.crew .cr-rider{display:flex;align-items:center;gap:10px;padding:12px;border-top:1px solid #eef0ec}
+.crew .cr-rider{display:flex;align-items:center;gap:10px;padding:12px;border-top:1px solid var(--ln2)}
 .crew .cr-rider:first-child{border-top:0}
 .crew .cr-who{flex:1;min-width:0}
 .crew .cr-who b{display:block;font-size:16px}
@@ -82,27 +82,27 @@
 .crew .s-dropped .cr-who b,.crew .s-not_riding .cr-who b{color:var(--mut)}
 .crew .s-no_show .cr-state{color:var(--bad);font-weight:800}
 .crew .cr-btns{display:flex;gap:6px;flex:none}
-.crew .cr-btn{min-height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--ln);background:#fff;color:var(--ink);font-size:14px;font-weight:800}
+.crew .cr-btn{min-height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--ln);background:var(--card);color:var(--ink);font-size:14px;font-weight:800}
 .crew .cr-btn.small{min-height:34px;padding:0 10px;font-size:12.5px}
 .crew .cr-btn.go{background:var(--g);border-color:var(--g);color:#fff}
 .crew .cr-btn.warn{background:var(--warnbg);border-color:#f0d9a8;color:var(--warn)}
 .crew .cr-btn:disabled{opacity:.5}
 .crew .cr-done{margin:4px 2px 0;color:var(--ok);font-weight:800;font-size:14px}
 @media (max-width:380px){.crew .cr-rider{flex-wrap:wrap}.crew .cr-btns{width:100%}.crew .cr-btn{flex:1}}
-.crew .pw-acts .btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--ln);background:#fff;font-weight:800;font-size:14px}
+.crew .pw-acts .btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--ln);background:var(--card);font-weight:800;font-size:14px}
 .crew .pw-acts .btn-primary{background:var(--g);border-color:var(--g);color:#fff}
 
 /* Update Dispatch / Emergency */
 .crew .cr-help{margin:0 0 12px}
 .crew .cr-help-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .crew .cr-help-btns .cr-btn{min-height:48px;font-size:15px}
-.crew .cr-btn.em{background:#fff;color:var(--bad);border:2px solid var(--bad)}
+.crew .cr-btn.em{background:var(--card);color:var(--bad);border:2px solid var(--bad)}
 .crew .cr-sentlist{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
-.crew .cr-sentlist li{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:10px;background:#f0f2ef;font-size:12.5px}
+.crew .cr-sentlist li{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:10px;background:var(--soft);font-size:12.5px}
 .crew .cr-sentlist li.emergency{background:var(--badbg);color:var(--bad)}
 .crew .cr-sentlist span{color:var(--mut);font-weight:700;white-space:nowrap}
 .crew .cr-sheet{position:fixed;inset:0;z-index:50;background:rgba(10,20,14,.45);display:flex;align-items:flex-end;justify-content:center}
-.crew .cr-sheet-in{width:100%;max-width:520px;max-height:92vh;overflow:auto;background:#fff;border-radius:20px 20px 0 0;padding:16px 16px 24px}
+.crew .cr-sheet-in{width:100%;max-width:520px;max-height:92vh;overflow:auto;background:var(--card);border-radius:20px 20px 0 0;padding:16px 16px 24px}
 .crew .cr-sheet-in.em{border-top:6px solid var(--bad)}
 .crew .cr-sheet-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .crew .cr-sheet-top h2{margin:0;font-size:22px}
@@ -110,7 +110,7 @@
 .crew .cr-sheet-top button{border:0;background:none;font-weight:800;color:var(--mut);font-size:14px;padding:8px}
 .crew .cr-choices{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .crew .cr-choices.em{grid-template-columns:1fr}
-.crew .cr-choices button{min-height:54px;border:2px solid var(--ln);border-radius:14px;background:#fff;font-size:15px;font-weight:800;color:var(--ink);padding:6px 10px}
+.crew .cr-choices button{min-height:54px;border:2px solid var(--ln);border-radius:14px;background:var(--card);font-size:15px;font-weight:800;color:var(--ink);padding:6px 10px}
 .crew .cr-choices button.on{border-color:var(--g);background:var(--g);color:#fff}
 .crew .cr-choices.em button{min-height:60px;font-size:17px;border-color:var(--badline,#e6bbb6);color:var(--bad)}
 .crew .cr-choices.em button.on{background:var(--bad);border-color:var(--bad);color:#fff}
@@ -122,3 +122,25 @@
 .crew .cr-911{display:block;margin:0 0 12px;padding:12px;border-radius:14px;background:var(--badbg);color:var(--bad);text-align:center;font-weight:900;font-size:16px;text-decoration:none}
 .crew .cr-sent b{display:block;font-size:20px}
 .crew .cr-sent p{margin:6px 0 14px;color:var(--mut);font-size:15px}
+
+
+/* ---------- Morning and afternoon look ----------
+   Morning (JCC to camp) stays light. Afternoon (camp to JCC) goes dark, so nobody
+   mixes up which way the bus is going. Safety reds stay the same strong red in both. */
+.crew .cr-dir{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-18px -18px 14px;padding:10px 18px;border-radius:18px 18px 0 0;font-size:12px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.crew .cr-dir b{font-size:15px;letter-spacing:.02em;text-transform:none}
+.crew .cr-dir.am{background:#fff1c7;color:#6b4e00}
+.crew .cr-dir.pm{background:#0b1020;color:#cfff04}
+.crew.pm{--ink:#eef2ee;--mut:#a3b3a8;--ln:#2f3d35;--ln2:#26332c;--bg:#17211c;--card:#17211c;--soft:#223029;--soft2:#1c2722;
+  --g:#2e7d5b;--ok:#7ad7a3;--okbg:#173326;--warn:#f2c35f;--warnbg:#3a2f12;--bad:#ff9184;--badbg:#3d1d1a;
+  background:#0d1410;color:var(--ink)}
+body:has(.crew.pm){background:#0d1410}
+.crew.pm .ftop .wm,.crew.pm h1,.crew.pm h2{color:var(--ink)}
+.crew.pm .ftop .wm span,.crew.pm .ftop button{color:var(--mut)}
+.crew.pm .cr-danger,.crew.pm .cr-main.em,.crew.pm .cr-choices.em button.on{background:#c0352a;color:#fff}
+.crew.pm .cr-next{background:#0b1020}
+.crew.pm .cr-pill.lead{background:#0b1020}
+.crew.pm .cr-sheet-in{color:var(--ink)}
+.crew.pm .cr-note textarea{background:var(--soft2);color:var(--ink)}
+.crew.pm .cr-warnbox{border-color:#5c4a1b}
+.crew.pm .cr-locked{border-color:#4a5a50}

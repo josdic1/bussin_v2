@@ -294,7 +294,11 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
   const byStop = stops.map((stop) => ({ stop, riders: riders.filter((r) => r.stopId === stop.id) })).filter((g) => g.riders.length);
   const am = trip?.servicePeriod === "AM";
 
-  return <main className="field crew">
+  // Morning and afternoon look different on purpose: light going to camp, dark coming home.
+  const pm = trip?.servicePeriod === "PM";
+  const from = trip?.stops[0]?.label ?? "";
+  const to = trip?.stops.at(-1)?.label ?? "";
+  return <main className={`field crew ${pm ? "pm" : "am"}`}>
     <header className="ftop">
       <div className="wm">BUSSIN<span>{preview ? preview.name : t.member?.display_name ?? ""}{t.tenant ? ` · ${t.tenant.name}` : ""}</span></div>
       {!preview && <div className="cr-top-acts">
@@ -309,6 +313,8 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
       <p className="cr-muted">This screen updates by itself when Dispatch puts you on a trip.</p></section>}
 
     {trip && <section className="cr-card">
+      <div className={`cr-dir ${pm ? "pm" : "am"}`}><span>{pm ? "Afternoon" : "Morning"}</span>
+        {from && to && <b>{from} → {to}</b>}</div>
       <span className="cr-eyebrow">{trip.busLabel} · {trip.servicePeriod} · {trip.status === "active" ? "Running" : until > 0 ? `Leaves in ${mmss(until)}` : `${Math.floor(-until / 60_000)} min late`}</span>
       <h1>{trip.routeName}</h1>
       <p className="cr-muted">Departs {clock(trip.departureAt)}</p>
