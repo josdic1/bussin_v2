@@ -498,12 +498,24 @@ export const phoneSchema = z.string().transform((value, ctx) => {
   return result.value;
 });
 
+/** Blank text means "none". */
+const optionalText = (max: number, message: string) =>
+  z.string().trim().max(max, message).transform((value) => value || null).nullable();
+
+/** Care info for counselors. Each field is optional; leaving one out of an update keeps it as is. */
+export const riderCareInputSchema = z.strictObject({
+  careNotes: optionalText(500, "Keep care notes under 500 characters.").optional(),
+  emergencyName: optionalText(120, "Keep the emergency contact name under 120 characters.").optional(),
+  emergencyPhone: phoneSchema.transform((value) => value || null).nullable().optional()
+});
+
 export const riderInputSchema = z.strictObject({
   givenName: z.string().trim().min(1).max(80),
   familyName: z.string().trim().min(1).max(80),
   am: riderAssignmentInputSchema.nullable(),
   pm: riderAssignmentInputSchema.nullable(),
-  guardianIds: z.array(z.string().uuid()).min(1).max(10)
+  guardianIds: z.array(z.string().uuid()).min(1).max(10),
+  ...riderCareInputSchema.shape
 }).refine((rider) => new Set(rider.guardianIds).size === rider.guardianIds.length,
   { message: "Each guardian must be unique." });
 
@@ -534,7 +546,10 @@ export const riderSchema = z.strictObject({
     routeId: z.string().uuid(), routeName: z.string(),
     stopId: z.string().uuid(), stopLabel: z.string()
   }).nullable(),
-  guardians: z.array(guardianSchema)
+  guardians: z.array(guardianSchema),
+  careNotes: z.string().nullable(),
+  emergencyName: z.string().nullable(),
+  emergencyPhone: z.string().nullable()
 });
 
 export const rosterResponseSchema = z.strictObject({ riders: z.array(riderSchema) });
@@ -675,7 +690,9 @@ export const checkRiderSchema = z.strictObject({
   guardians: z.array(z.strictObject({
     name: z.string(),
     phone: z.string().nullable()
-  }))
+  })),
+  careNotes: z.string().nullable(),
+  emergency: z.strictObject({ name: z.string(), phone: z.string().nullable() }).nullable()
 });
 
 export type CheckRider = z.infer<typeof checkRiderSchema>;

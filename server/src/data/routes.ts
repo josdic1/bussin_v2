@@ -38,7 +38,9 @@ const TABLES: Record<DataTableKey, Table> = {
       col("first", "First", "text"), col("last", "Last", "text"),
       col("amRoute", "AM route", "stop-AM"), col("amStop", "AM stop", "stop-AM"),
       col("pmRoute", "PM route", "stop-PM"), col("pmStop", "PM stop", "stop-PM"),
-      col("guardians", "Guardians"), col("source", "Source")
+      col("guardians", "Guardians"),
+      col("careNotes", "Care notes", "text"), col("emergencyName", "Emergency contact", "text"),
+      col("emergencyPhone", "Emergency phone", "text"), col("source", "Source")
     ],
     sql: `SELECT r.id, r.given_name AS first, r.family_name AS last,
                  amr.name AS "amRoute", ams.label AS "amStop",
@@ -47,6 +49,7 @@ const TABLES: Record<DataTableKey, Table> = {
                  CASE WHEN pm.rider_id IS NULL THEN '' ELSE pm.route_id || ':' || pm.route_stop_id END AS "pmRef",
                  (SELECT string_agg(g.name, ', ' ORDER BY g.name) FROM rider_guardian_links l
                     JOIN guardians g ON g.id = l.guardian_id WHERE l.rider_id = r.id) AS guardians,
+                 r.care_notes AS "careNotes", r.emergency_name AS "emergencyName", r.emergency_phone AS "emergencyPhone",
                  CASE WHEN r.import_dataset IS NULL THEN 'Added in app' ELSE 'Imported' END AS source,
                  NULL::text AS "_locked"
             FROM riders r
@@ -250,6 +253,8 @@ const optionalEmail = z.string().trim().toLowerCase()
   .transform((value) => value || null)
   .pipe(z.email("That isn't a valid email address.").nullable());
 const optionalPhone = phoneSchema;
+const optionalCare = z.string().trim().max(500, "Keep care notes under 500 characters.").transform((value) => value || null);
+const optionalName120 = z.string().trim().max(120, "Keep it under 120 characters.").transform((value) => value || null);
 const stopRef = z.string().regex(/^$|^[0-9a-f-]{36}:[0-9a-f-]{36}$/i, "Pick a stop from the list.");
 
 function check<T>(schema: z.ZodType<T>, value: string): T {
@@ -275,6 +280,14 @@ async function editRider(client: PoolClient, row: DataRow, column: string, from:
     const next = check(name80, value);
     await client.query(`UPDATE riders SET ${column === "first" ? "given_name" : "family_name"} = $2 WHERE id = $1`, [row.id, next]);
     return { column, old: from, value: next };
+  }
+  if (column === "careNotes" || column === "emergencyName" || column === "emergencyPhone") {
+    if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
+    const next = column === "careNotes" ? check(optionalCare, value)
+      : column === "emergencyName" ? check(optionalName120, value) : check(optionalPhone, value);
+    const field = column === "careNotes" ? "care_notes" : column === "emergencyName" ? "emergency_name" : "emergency_phone";
+    await client.query(`UPDATE riders SET ${field} = $2 WHERE id = $1`, [row.id, next]);
+    return { column: column === "careNotes" ? "Care notes" : column === "emergencyName" ? "Emergency contact" : "Emergency phone", old: from || null, value: next };
   }
   const direction = column === "amRoute" || column === "amStop" ? "AM" : column === "pmRoute" || column === "pmStop" ? "PM" : null;
   if (!direction) throw new EditError(400, "That column can't be edited here.");

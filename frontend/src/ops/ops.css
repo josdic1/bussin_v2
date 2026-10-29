@@ -698,3 +698,9 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .map-views button.on{background:var(--green);color:#fff}
 .ops .map-views button:disabled{opacity:.4;cursor:default}
 .ops .who-acts{display:flex;gap:2px}
+/* Rider care info (Riders page) */
+.ops .rf textarea{width:100%;resize:vertical;border:1px solid var(--line);border-radius:9px;background:#fff;padding:10px 11px;font:inherit;font-size:13px;line-height:1.45}
+.ops .care-box{margin:12px 0;padding:10px 12px;border-radius:var(--r2);background:var(--warnbg);border:1px solid var(--warnline)}
+.ops .care-box p{margin:0;font-size:13px;line-height:1.45}
+.ops .care-box p+p{margin-top:6px}
+.ops .care-box b{display:block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--warn)}

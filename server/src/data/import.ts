@@ -48,6 +48,7 @@ type Action = {
   pm: Stop | null | undefined;
   guardians: GuardianPick[] | null; // null = leave links alone
   unlink: string[];
+  care: Partial<Record<"careNotes" | "emergencyName" | "emergencyPhone", string | null>>; // only columns in the file
 };
 
 type Plan = { items: RosterImportItem[]; actions: Action[]; newGuardians: GuardianWant[]; missing: string[] };
@@ -64,7 +65,10 @@ const HEADERS: Record<string, string[]> = {
   first: ["first", "first name", "given name"],
   last: ["last", "last name", "family name", "surname"],
   amRoute: ["am route"], amStop: ["am stop"],
-  pmRoute: ["pm route"], pmStop: ["pm stop"]
+  pmRoute: ["pm route"], pmStop: ["pm stop"],
+  careNotes: ["care notes", "care", "medical notes", "allergies"],
+  emergencyName: ["emergency contact", "emergency name"],
+  emergencyPhone: ["emergency phone"]
 };
 
 function mapHeaders(headers: string[]) {
@@ -92,7 +96,10 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
 
   const riders = new Map((await client.query<{
     id: string; first: string; last: string; imported: boolean;
-  }>(`SELECT id, given_name AS first, family_name AS last, import_dataset IS NOT NULL AS imported FROM riders`)).rows
+    careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null;
+  }>(`SELECT id, given_name AS first, family_name AS last, import_dataset IS NOT NULL AS imported,
+             care_notes AS "careNotes", emergency_name AS "emergencyName", emergency_phone AS "emergencyPhone"
+        FROM riders`)).rows
     .map((r) => [r.id, r]));
   const assigned = new Map((await client.query<{ riderId: string; direction: "AM" | "PM"; routeId: string; stopId: string }>(
     `SELECT rider_id AS "riderId", direction, route_id AS "routeId", route_stop_id AS "stopId" FROM rider_stop_assignments`
@@ -185,6 +192,25 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     const pm = findStop("PM", get("pmRoute"), get("pmStop"));
     if (typeof pm === "string") return fail(pm);
 
+    // Care info: only columns present in the file change anything; a blank cell clears it.
+    const care: Action["care"] = {};
+    const careNotes = get("careNotes");
+    if (index.careNotes >= 0) {
+      if (careNotes.length > 500) return fail("Care notes must be under 500 characters.");
+      care.careNotes = careNotes || null;
+    }
+    if (index.emergencyName >= 0) {
+      const value = get("emergencyName");
+      if (value.length > 120) return fail("Emergency contact must be under 120 characters.");
+      care.emergencyName = value || null;
+    }
+    if (index.emergencyPhone >= 0) {
+      const raw = get("emergencyPhone");
+      const formatted = formatPhone(raw);
+      if (!formatted.ok) return fail(`Emergency phone "${raw}": ${formatted.error}`);
+      care.emergencyPhone = formatted.value || null;
+    }
+
     // Guardians listed on this row.
     const wants: GuardianWant[] = [];
     for (const g of gcols) {
@@ -223,6 +249,12 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     };
     const amChange = stopChange("AM", am);
     const pmChange = stopChange("PM", pm);
+    const CARE_WORDS = { careNotes: "Care notes", emergencyName: "Emergency contact", emergencyPhone: "Emergency phone" } as const;
+    for (const field of Object.keys(care) as (keyof typeof CARE_WORDS)[]) {
+      const now = existing ? existing[field] : null;
+      if ((now ?? null) === (care[field] ?? null)) { delete care[field]; continue; }
+      changes.push(care[field] ? `${CARE_WORDS[field]}: ${care[field]}` : `${CARE_WORDS[field]}: cleared`);
+    }
 
     let unlink: string[] = [];
     if (picks.length) {
@@ -249,7 +281,7 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     if (kind !== "same") {
       actions.push({
         line, riderId: existing?.id ?? null, first, last, am: existing ? amChange : am, pm: existing ? pmChange : pm,
-        guardians: picks.length ? picks : null, unlink
+        guardians: picks.length ? picks : null, unlink, care
       });
     }
   });
@@ -343,6 +375,10 @@ dataImportRoutes.post("/apply", requireSameOrigin, requireRole("admin"), async (
         await client.query(`UPDATE riders SET given_name = $2, family_name = $3 WHERE id = $1`, [riderId, a.first, a.last]);
         updated += 1;
         await log("riders", riderId, "CSV import", null, `Line ${a.line} applied`);
+      }
+      const CARE_COLUMNS = { careNotes: "care_notes", emergencyName: "emergency_name", emergencyPhone: "emergency_phone" } as const;
+      for (const [field, column] of Object.entries(CARE_COLUMNS) as [keyof typeof CARE_COLUMNS, string][]) {
+        if (field in a.care) await client.query(`UPDATE riders SET ${column} = $2 WHERE id = $1`, [riderId, a.care[field] ?? null]);
       }
       for (const [direction, stop] of [["AM", a.am], ["PM", a.pm]] as const) {
         if (stop === undefined) continue;

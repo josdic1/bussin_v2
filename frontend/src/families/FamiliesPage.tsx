@@ -164,15 +164,17 @@ function actionsFor(guardian: Guardian): { key: GuardianAction; label: string; p
   return [{ key: "reset-password", label: "Reset password" }, { key: "deactivate", label: "Deactivate" }];
 }
 
-type Draft = { givenName: string; familyName: string; guardianIds: string[]; amRoute: string; amStop: string; pmRoute: string; pmStop: string };
+type Draft = { givenName: string; familyName: string; guardianIds: string[]; amRoute: string; amStop: string; pmRoute: string; pmStop: string;
+  careNotes: string; emergencyName: string; emergencyPhone: string };
 
 function RiderForm({ rider, guardians, riders, routes, onSaved }: {
   rider: Rider | null; guardians: Guardian[]; riders: Rider[]; routes: Route[]; onSaved: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => rider ? {
     givenName: rider.givenName, familyName: rider.familyName, guardianIds: rider.guardians.map((guardian) => guardian.id),
-    amRoute: rider.am?.routeId ?? "", amStop: rider.am?.stopId ?? "", pmRoute: rider.pm?.routeId ?? "", pmStop: rider.pm?.stopId ?? ""
-  } : { givenName: "", familyName: "", guardianIds: [], amRoute: "", amStop: "", pmRoute: "", pmStop: "" });
+    amRoute: rider.am?.routeId ?? "", amStop: rider.am?.stopId ?? "", pmRoute: rider.pm?.routeId ?? "", pmStop: rider.pm?.stopId ?? "",
+    careNotes: rider.careNotes ?? "", emergencyName: rider.emergencyName ?? "", emergencyPhone: rider.emergencyPhone ?? ""
+  } : { givenName: "", familyName: "", guardianIds: [], amRoute: "", amStop: "", pmRoute: "", pmStop: "", careNotes: "", emergencyName: "", emergencyPhone: "" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const change = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
@@ -184,9 +186,14 @@ function RiderForm({ rider, guardians, riders, routes, onSaved }: {
       givenName: draft.givenName, familyName: draft.familyName,
       am: draft.amRoute ? { routeId: draft.amRoute, stopId: draft.amStop } : null,
       pm: draft.pmRoute ? { routeId: draft.pmRoute, stopId: draft.pmStop } : null,
-      guardianIds: draft.guardianIds
+      guardianIds: draft.guardianIds,
+      careNotes: draft.careNotes, emergencyName: draft.emergencyName, emergencyPhone: draft.emergencyPhone
     });
-    if (!input.success) { setError(draft.guardianIds.length ? "Enter the rider's name and valid stops." : "Add at least one guardian: search for one, or use + New guardian."); return; }
+    if (!input.success) {
+      const careIssue = input.error.issues.find((issue) => ["careNotes", "emergencyName", "emergencyPhone"].includes(String(issue.path[0])));
+      setError(careIssue ? careIssue.message : draft.guardianIds.length ? "Enter the rider's name and valid stops." : "Add at least one guardian: search for one, or use + New guardian.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -225,6 +232,16 @@ function RiderForm({ rider, guardians, riders, routes, onSaved }: {
     {assignment("AM")}
     {assignment("PM")}
     {!draft.amRoute && !draft.pmRoute && <p className="cov-hint">No route yet. No bus will pick this child up until one is chosen.</p>}
+    <label><b className="lt">Care notes for the bus crew <span>(optional)</span></b>
+      <textarea rows={3} maxLength={500} value={draft.careNotes} placeholder="Allergies, medication, anything counselors should know. Example: Peanut allergy, EpiPen in front pocket of backpack."
+        onChange={(event) => change({ careNotes: event.target.value })} />
+      <small>Shown on the phones of the counselors on this child's bus.</small></label>
+    <div className="rf2">
+      <label><b className="lt">Emergency contact <span>(optional)</span></b><input value={draft.emergencyName} maxLength={120} autoComplete="off"
+        placeholder="Not a guardian, e.g. Grandma Ruth" onChange={(event) => change({ emergencyName: event.target.value })} /></label>
+      <label><b className="lt">Emergency phone</b><input type="tel" value={draft.emergencyPhone} maxLength={40} autoComplete="off"
+        onChange={(event) => change({ emergencyPhone: event.target.value })} onBlur={() => change({ emergencyPhone: tidyPhone(draft.emergencyPhone) })} /></label>
+    </div>
     <p className="rf-err" role="alert">{error}</p>
     <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save rider"}</button>
   </form>;
@@ -410,6 +427,10 @@ export function FamiliesPage() {
       <div><b>AM</b>{rider.am ? <>{rider.am.stopLabel} <span className="dim">{rider.am.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
       <div><b>PM</b>{rider.pm ? <>{rider.pm.stopLabel} <span className="dim">{rider.pm.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
     </div>
+    {(rider.careNotes || rider.emergencyName || rider.emergencyPhone) && <div className="care-box">
+      {rider.careNotes && <p><b>Care notes</b>{rider.careNotes}</p>}
+      {(rider.emergencyName || rider.emergencyPhone) && <p><b>Emergency contact</b>{rider.emergencyName ?? "Emergency contact"}{rider.emergencyPhone ? ` · ${rider.emergencyPhone}` : ""}</p>}
+    </div>}
     <div className="acts">
       <button type="button" className="btn sm" onClick={() => setOverlay({ type: "riderForm", id: rider.id })}>Edit rider</button>
       <button type="button" className="btn sm" onClick={() => setOverlay({ type: "links", id: rider.id })}>Manage guardians</button>

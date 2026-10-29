@@ -57,6 +57,9 @@ type RiderRow = {
   givenName: string;
   familyName: string;
   stopId: string;
+  careNotes: string | null;
+  emergencyName: string | null;
+  emergencyPhone: string | null;
 };
 
 type GuardianRow = {
@@ -155,7 +158,8 @@ async function checkTrips(where: string, values: unknown[]) {
     pool.query<RiderRow>(
       `SELECT tr.trip_id AS "tripId", tr.rider_id AS "riderId",
               r.given_name AS "givenName", r.family_name AS "familyName",
-              tr.trip_stop_id AS "stopId"
+              tr.trip_stop_id AS "stopId", r.care_notes AS "careNotes",
+              r.emergency_name AS "emergencyName", r.emergency_phone AS "emergencyPhone"
          FROM trip_riders tr
          JOIN riders r ON r.id = tr.rider_id
         WHERE tr.trip_id = ANY($1::uuid[])
@@ -251,7 +255,10 @@ async function checkTrips(where: string, values: unknown[]) {
           stateBy: derived.stateBy,
           boardedAt: derived.boardedAt?.toISOString() ?? null,
           handled: derived.handled,
-          guardians: guardiansByRider.get(rider.riderId) ?? []
+          guardians: guardiansByRider.get(rider.riderId) ?? [],
+          careNotes: rider.careNotes,
+          emergency: rider.emergencyName || rider.emergencyPhone
+            ? { name: rider.emergencyName ?? "Emergency contact", phone: rider.emergencyPhone } : null
         };
       }),
       events: log

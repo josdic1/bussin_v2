@@ -308,8 +308,10 @@ familyRoutes.get("/roster", requireRole("admin"), async (_request, response) => 
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const ridersResult = await client.query<{
       id: string; givenName: string; familyName: string; imported: boolean;
+      careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null;
     }>(`SELECT id, given_name AS "givenName", family_name AS "familyName",
-                import_dataset IS NOT NULL AS imported
+                import_dataset IS NOT NULL AS imported, care_notes AS "careNotes",
+                emergency_name AS "emergencyName", emergency_phone AS "emergencyPhone"
            FROM riders ORDER BY family_name, given_name, id`);
     const stopsResult = await client.query<{
       riderId: string; direction: "AM" | "PM"; routeId: string; routeName: string;
@@ -736,6 +738,18 @@ async function writeRider(request: Request, response: Response, id?: string) {
           `INSERT INTO riders (given_name, family_name) VALUES ($1, $2) RETURNING id`,
           [parsed.data.givenName, parsed.data.familyName]);
     const riderId = rider.rows[0].id;
+    // Care info: only fields the form sent are changed.
+    const care = parsed.data;
+    if (care.careNotes !== undefined || care.emergencyName !== undefined || care.emergencyPhone !== undefined) {
+      await client.query(
+        `UPDATE riders SET
+           care_notes = CASE WHEN $2 THEN $3 ELSE care_notes END,
+           emergency_name = CASE WHEN $4 THEN $5 ELSE emergency_name END,
+           emergency_phone = CASE WHEN $6 THEN $7 ELSE emergency_phone END
+         WHERE id = $1`,
+        [riderId, care.careNotes !== undefined, care.careNotes ?? null, care.emergencyName !== undefined,
+          care.emergencyName ?? null, care.emergencyPhone !== undefined, care.emergencyPhone ?? null]);
+    }
     if (!(await saveManualLinks(client, riderId, parsed.data.guardianIds))) {
       await client.query("ROLLBACK");
       response.status(400).json({ error: "Choose existing guardians." });

@@ -168,8 +168,11 @@ function RiderRow({ rider, tripStatus, busy, saved, tap }: {
   rider: CheckRider; tripStatus: CheckTrip["status"]; busy: string | null; saved: boolean;
   tap: (rider: CheckRider, type: RiderCheckAction["type"]) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const running = tripStatus === "active";
   const state = rider.state;
+  const calls = [...rider.guardians.filter((g) => g.phone).map((g) => ({ label: g.name, phone: g.phone! })),
+    ...(rider.emergency?.phone ? [{ label: `${rider.emergency.name} (emergency)`, phone: rider.emergency.phone }] : [])];
   const buttons: [RiderCheckAction["type"], string, string][] = running
     ? state === "expected" ? [["board", "On bus", "go"], ["no_show", "No-show", "warn"]]
       : state === "aboard" ? [["drop", "Dropped off", "go"]]
@@ -177,12 +180,20 @@ function RiderRow({ rider, tripStatus, busy, saved, tap }: {
           : [["undo", "Undo", "plain"]]
     : state === "expected" ? [["not_riding", "Not riding today", "plain"]]
       : state === "not_riding" ? [["undo", "Undo", "plain"]] : [];
-  return <li className={`cr-rider s-${state}`}>
-    <div className="cr-who"><b>{rider.givenName} {rider.familyName}</b>
+  return <li className={`cr-rider s-${state}${open ? " open" : ""}`}>
+    <div className="cr-who"><button type="button" className="cr-name" aria-expanded={open} onClick={() => setOpen(!open)}>
+      {rider.givenName} {rider.familyName}{rider.careNotes && <span className="cr-care-tag" aria-label="Has care notes">CARE</span>}</button>
       <span className="cr-state">{STATE_LABEL[state]}{rider.stateBy && state !== "expected" ? ` · ${rider.stateBy}` : ""}{rider.stateAt && state !== "expected" ? ` · ${clock(rider.stateAt)}` : ""}</span>
       {saved && <span className="cr-saved">Saved on phone, sending</span>}</div>
     <div className="cr-btns">{buttons.map(([type, label, tone]) =>
       <button key={type} type="button" className={`cr-btn ${tone}`} disabled={!!busy} onClick={() => tap(rider, type)}>{label}</button>)}</div>
+    {open && <div className="cr-info">
+      {rider.careNotes ? <p className="cr-care"><b>Care notes</b>{rider.careNotes}</p> : <p className="cr-muted">No care notes.</p>}
+      {calls.length ? <div className="cr-calls">{calls.map((call) =>
+        <a key={`${call.label}-${call.phone}`} className="cr-call" href={`tel:${call.phone.replace(/[^\d+]/g, "")}`}>
+          <span>Call {call.label}</span><small>{call.phone}</small></a>)}</div>
+        : <p className="cr-muted">No phone numbers on file. Ask Dispatch.</p>}
+    </div>}
   </li>;
 }
 
