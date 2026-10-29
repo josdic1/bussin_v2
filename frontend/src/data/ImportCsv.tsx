@@ -17,7 +17,7 @@ export type CsvSetup = { title: string; download: string; preview: string; apply
 const RIDERS: CsvSetup = {
   title: "Riders and guardians", download: "/api/families/roster.csv",
   preview: "/api/data/import/preview", apply: "/api/data/import/apply", noun: ["rider", "riders"],
-  help: "One row per rider, with their guardians on the same row. Leave Rider key blank to add a new rider. Load routes first: stops are matched by route and stop name. Optional columns: Care notes, Emergency contact, Emergency phone (shown to the counselors on that bus)."
+  help: "One row per rider, with their guardians on the same row. Leave Rider key blank to add a new rider. Load routes first: stops are matched by route and stop name. Optional columns: Ride days (like Mon Wed Fri or Mon-Thu; blank means every day), Care notes, Emergency contact, Emergency phone (shown to the counselors on that bus)."
 };
 const ROUTES: CsvSetup = {
   title: "Routes and stops", download: "/api/data/csv/routes",

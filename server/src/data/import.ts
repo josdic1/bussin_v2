@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import express, { Router } from "express";
 import type { PoolClient } from "pg";
 import {
-  formatPhone, rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
+  formatPhone, parseRideDays, weekdaysLabel, rosterImportInputSchema, rosterImportPreviewSchema, rosterImportResultSchema,
   type RosterImportInput, type RosterImportItem
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
@@ -49,6 +49,7 @@ type Action = {
   guardians: GuardianPick[] | null; // null = leave links alone
   unlink: string[];
   care: Partial<Record<"careNotes" | "emergencyName" | "emergencyPhone", string | null>>; // only columns in the file
+  rideDays: number[] | null | undefined; // undefined = no change; null = every day
 };
 
 type Plan = { items: RosterImportItem[]; actions: Action[]; newGuardians: GuardianWant[]; missing: string[] };
@@ -68,7 +69,8 @@ const HEADERS: Record<string, string[]> = {
   pmRoute: ["pm route"], pmStop: ["pm stop"],
   careNotes: ["care notes", "care", "medical notes", "allergies"],
   emergencyName: ["emergency contact", "emergency name"],
-  emergencyPhone: ["emergency phone"]
+  emergencyPhone: ["emergency phone"],
+  rideDays: ["ride days", "days", "riding days", "bus days"]
 };
 
 function mapHeaders(headers: string[]) {
@@ -96,9 +98,9 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
 
   const riders = new Map((await client.query<{
     id: string; first: string; last: string; imported: boolean;
-    careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null;
+    careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null; rideDays: number[] | null;
   }>(`SELECT id, given_name AS first, family_name AS last, import_dataset IS NOT NULL AS imported,
-             care_notes AS "careNotes", emergency_name AS "emergencyName", emergency_phone AS "emergencyPhone"
+             ride_days::int[] AS "rideDays", care_notes AS "careNotes", emergency_name AS "emergencyName", emergency_phone AS "emergencyPhone"
         FROM riders`)).rows
     .map((r) => [r.id, r]));
   const assigned = new Map((await client.query<{ riderId: string; direction: "AM" | "PM"; routeId: string; stopId: string }>(
@@ -211,6 +213,14 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
       care.emergencyPhone = formatted.value || null;
     }
 
+    // Ride days: only if the file has the column. Blank means every day.
+    let rideDays: number[] | null | undefined;
+    if (index.rideDays >= 0) {
+      const parsed = parseRideDays(get("rideDays"));
+      if (!parsed.ok) return fail(`Ride days: ${parsed.error}`);
+      rideDays = parsed.days;
+    }
+
     // Guardians listed on this row.
     const wants: GuardianWant[] = [];
     for (const g of gcols) {
@@ -256,6 +266,12 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
       changes.push(care[field] ? `${CARE_WORDS[field]}: ${care[field]}` : `${CARE_WORDS[field]}: cleared`);
     }
 
+    if (rideDays !== undefined) {
+      const now = existing?.rideDays ?? null;
+      if (existing && (now ?? []).join() === (rideDays ?? []).join()) rideDays = undefined;
+      else if (existing || rideDays) changes.push(`Ride days: ${weekdaysLabel(rideDays)}`);
+    }
+
     let unlink: string[] = [];
     if (picks.length) {
       const keep = new Set(picks.filter((p) => p.kind === "existing").map((p) => (p as { id: string }).id));
@@ -281,7 +297,7 @@ async function plan(client: PoolClient, input: RosterImportInput): Promise<Plan>
     if (kind !== "same") {
       actions.push({
         line, riderId: existing?.id ?? null, first, last, am: existing ? amChange : am, pm: existing ? pmChange : pm,
-        guardians: picks.length ? picks : null, unlink, care
+        guardians: picks.length ? picks : null, unlink, care, rideDays
       });
     }
   });
@@ -380,6 +396,7 @@ dataImportRoutes.post("/apply", requireSameOrigin, requireRole("admin"), async (
       for (const [field, column] of Object.entries(CARE_COLUMNS) as [keyof typeof CARE_COLUMNS, string][]) {
         if (field in a.care) await client.query(`UPDATE riders SET ${column} = $2 WHERE id = $1`, [riderId, a.care[field] ?? null]);
       }
+      if (a.rideDays !== undefined) await client.query(`UPDATE riders SET ride_days = $2 WHERE id = $1`, [riderId, a.rideDays]);
       for (const [direction, stop] of [["AM", a.am], ["PM", a.pm]] as const) {
         if (stop === undefined) continue;
         await client.query(`DELETE FROM rider_stop_assignments WHERE rider_id = $1 AND direction = $2`, [riderId, direction]);

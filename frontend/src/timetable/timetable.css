@@ -12,10 +12,6 @@
 .ops .tt-stopped summary{cursor:pointer;font-size:12px;font-weight:800;color:var(--muted);margin-bottom:10px}
 
 .ops .tt-form fieldset{border:0;margin:0;padding:0;display:grid;gap:12px;min-width:0}
-.ops .tt-pick{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
-.ops .tt-pick button{height:36px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px;font-weight:800;color:var(--ink);cursor:pointer}
-.ops .tt-pick button.on{background:var(--green);border-color:var(--green);color:#fff}
-.ops .tt-pick button:disabled{cursor:default}
 .ops .tt-form .dblock{border-top:1px solid var(--line2);padding-top:12px;display:grid;gap:8px}
 .ops .tt-form .confirm{margin-top:4px}
 .ops .tt-result ul{margin:0 0 12px;padding-left:18px;font-size:13px;line-height:1.6}

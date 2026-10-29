@@ -1,13 +1,14 @@
 import type { Request, Response } from "express";
+import { weekdaysLabel } from "@bussin/shared";
 import { pool } from "../db/pool.js";
 import { readTenant } from "../db/tenant.js";
 
 // The master roster as one spreadsheet: one row per rider.
-//   Rider key | First | Last | Source | AM route | AM stop | PM route | PM stop |
+//   Rider key | First | Last | Source | AM route | AM stop | PM route | PM stop | Ride days |
 //   Guardian 1 | Guardian 1 phone | Guardian 1 email | Guardian 1 app access | Guardian 2 ...
 // Read-only. Opens in Excel, Numbers or Google Sheets.
 
-type RiderRow = { id: string; first: string; last: string; imported: boolean; careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null };
+type RiderRow = { id: string; first: string; last: string; imported: boolean; careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null; rideDays: number[] | null };
 type StopRow = { riderId: string; direction: "AM" | "PM"; route: string; stop: string };
 type GuardianRow = {
   riderId: string; name: string; phone: string | null; email: string | null;
@@ -34,7 +35,7 @@ export async function rosterCsv(_request: Request, response: Response): Promise<
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     riders = (await client.query<RiderRow>(
       `SELECT id, given_name AS first, family_name AS last,
-              import_dataset IS NOT NULL AS imported, care_notes AS "careNotes",
+              import_dataset IS NOT NULL AS imported, care_notes AS "careNotes", ride_days::int[] AS "rideDays",
               emergency_name AS "emergencyName", emergency_phone AS "emergencyPhone"
          FROM riders ORDER BY family_name, given_name, id`
     )).rows;
@@ -71,7 +72,7 @@ export async function rosterCsv(_request: Request, response: Response): Promise<
   for (const g of guardians) byRider.set(g.riderId, [...(byRider.get(g.riderId) ?? []), g]);
   const most = Math.max(1, ...[...byRider.values()].map((list) => list.length));
 
-  const header = ["Rider key", "First", "Last", "Source", "AM route", "AM stop", "PM route", "PM stop",
+  const header = ["Rider key", "First", "Last", "Source", "AM route", "AM stop", "PM route", "PM stop", "Ride days",
     "Care notes", "Emergency contact", "Emergency phone"];
   for (let n = 1; n <= most; n += 1) {
     header.push(`Guardian ${n}`, `Guardian ${n} phone`, `Guardian ${n} email`, `Guardian ${n} app access`);
@@ -81,7 +82,7 @@ export async function rosterCsv(_request: Request, response: Response): Promise<
   for (const r of riders) {
     const row: (string | null | undefined)[] = [
       r.id, r.first, r.last, r.imported ? "Imported" : "Added in app",
-      am.get(r.id)?.route, am.get(r.id)?.stop, pm.get(r.id)?.route, pm.get(r.id)?.stop,
+      am.get(r.id)?.route, am.get(r.id)?.stop, pm.get(r.id)?.route, pm.get(r.id)?.stop, weekdaysLabel(r.rideDays),
       r.careNotes, r.emergencyName, r.emergencyPhone
     ];
     const list = byRider.get(r.id) ?? [];

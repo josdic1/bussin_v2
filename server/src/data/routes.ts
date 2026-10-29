@@ -4,13 +4,24 @@ import { z } from "zod";
 import {
   dataEditResponseSchema, dataEditSchema, dataStopOptionsResponseSchema, dataTableKeySchema,
   dataTableResponseSchema, dataTablesResponseSchema, driverInputSchema, phoneSchema,
-  type DataCell, type DataColumn, type DataRow, type DataTableKey
+  type DataCell, type DataColumn, type DataRow, type DataTableKey,
+  parseRideDays, weekdaysLabel
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { syncPlannedTripRiders } from "../families/access.js";
 import { emailTakenMessage, guardianEmailOwner } from "../families/contacts.js";
 import { generateAndStoreRouteGeometry } from "../routes/geometry.js";
+
+/** A kid's ride days as the grid shows them: "Mon to Fri", "Mon, Wed, Fri", or "Every day". Same words as weekdaysLabel. */
+const RIDE_DAYS_LABEL = `CASE
+    WHEN r.ride_days IS NULL THEN 'Every day'
+    WHEN r.ride_days = ARRAY(SELECT generate_series(r.ride_days[1], r.ride_days[1] + cardinality(r.ride_days) - 1))::smallint[]
+         AND cardinality(r.ride_days) >= 3
+      THEN (ARRAY['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])[r.ride_days[1]] || ' to '
+        || (ARRAY['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])[r.ride_days[cardinality(r.ride_days)]]
+    ELSE array_to_string(ARRAY(SELECT (ARRAY['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])[d] FROM unnest(r.ride_days) d ORDER BY d), ', ')
+  END`;
 
 // Data mode: every table the office manages, as a plain grid.
 //
@@ -38,7 +49,7 @@ const TABLES: Record<DataTableKey, Table> = {
       col("first", "First", "text"), col("last", "Last", "text"),
       col("amRoute", "AM route", "stop-AM"), col("amStop", "AM stop", "stop-AM"),
       col("pmRoute", "PM route", "stop-PM"), col("pmStop", "PM stop", "stop-PM"),
-      col("guardians", "Guardians"),
+      col("guardians", "Guardians"), col("rideDays", "Ride days", "text"),
       col("careNotes", "Care notes", "text"), col("emergencyName", "Emergency contact", "text"),
       col("emergencyPhone", "Emergency phone", "text"), col("source", "Source")
     ],
@@ -49,6 +60,7 @@ const TABLES: Record<DataTableKey, Table> = {
                  CASE WHEN pm.rider_id IS NULL THEN '' ELSE pm.route_id || ':' || pm.route_stop_id END AS "pmRef",
                  (SELECT string_agg(g.name, ', ' ORDER BY g.name) FROM rider_guardian_links l
                     JOIN guardians g ON g.id = l.guardian_id WHERE l.rider_id = r.id) AS guardians,
+                 ${RIDE_DAYS_LABEL} AS "rideDays",
                  r.care_notes AS "careNotes", r.emergency_name AS "emergencyName", r.emergency_phone AS "emergencyPhone",
                  CASE WHEN r.import_dataset IS NULL THEN 'Added in app' ELSE 'Imported' END AS source,
                  NULL::text AS "_locked"
@@ -288,6 +300,15 @@ async function editRider(client: PoolClient, row: DataRow, column: string, from:
     const field = column === "careNotes" ? "care_notes" : column === "emergencyName" ? "emergency_name" : "emergency_phone";
     await client.query(`UPDATE riders SET ${field} = $2 WHERE id = $1`, [row.id, next]);
     return { column: column === "careNotes" ? "Care notes" : column === "emergencyName" ? "Emergency contact" : "Emergency phone", old: from || null, value: next };
+  }
+  if (column === "rideDays") {
+    if (!sameAsShown(row.cells.rideDays, from)) throw new EditError(409, STALE);
+    const parsed = parseRideDays(value);
+    if (!parsed.ok) throw new EditError(400, parsed.error);
+    await client.query(`UPDATE riders SET ride_days = $2 WHERE id = $1`, [row.id, parsed.days]);
+    // Kids come off (or onto) planned trips on the days that changed.
+    await syncPlannedTripRiders(client);
+    return { column: "Ride days", old: from || null, value: weekdaysLabel(parsed.days) };
   }
   const direction = column === "amRoute" || column === "amStop" ? "AM" : column === "pmRoute" || column === "pmStop" ? "PM" : null;
   if (!direction) throw new EditError(400, "That column can't be edited here.");

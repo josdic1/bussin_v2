@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   busesResponseSchema, dispatchStaffResponseSchema, routesResponseSchema, SCHEDULE_HORIZON_DAYS,
-  tripScheduleInputSchema, tripScheduleSaveResponseSchema, tripSchedulesResponseSchema, WEEKDAY_NAMES,
+  tripScheduleInputSchema, tripScheduleSaveResponseSchema, tripSchedulesResponseSchema, WEEKDAY_NAMES, weekdaysLabel,
   type Bus, type Route, type TripDriver, type TripSchedule, type TripStaff
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
@@ -25,17 +25,8 @@ function clockLabel(hhmm: string) {
   return new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-/** "Mon to Fri", "Mon, Wed, Fri", "Every day". */
-export function daysLabel(days: number[]) {
-  const sorted = [...days].sort((a, b) => a - b);
-  if (sorted.length === 7) return "Every day";
-  const run = sorted.every((day, index) => index === 0 || day === sorted[index - 1]! + 1);
-  if (run && sorted.length >= 3) return `${WEEKDAY_NAMES[sorted[0]! - 1]} to ${WEEKDAY_NAMES[sorted.at(-1)! - 1]}`;
-  return sorted.map((day) => WEEKDAY_NAMES[day - 1]).join(", ");
-}
-
 function Days({ days }: { days: number[] }) {
-  return <span className="tt-days" aria-label={daysLabel(days)}>{WEEKDAY_NAMES.map((name, index) =>
+  return <span className="tt-days" aria-label={weekdaysLabel(days)}>{WEEKDAY_NAMES.map((name, index) =>
     <i key={name} className={days.includes(index + 1) ? "on" : ""}>{name.slice(0, 2)}</i>)}</span>;
 }
 
@@ -89,7 +80,7 @@ export function TimetablePage() {
     : <div className="surface">{list.map((s) => <button key={s.id} type="button" className="it" onClick={() => setEditing(s)}>
       <span className="av" style={{ "--c": colorOf(s.busId), "--s": "34px" } as CSSProperties}>{busNumber(s.busLabel)}</span>
       <div><div className="a"><strong>{clockLabel(s.departTime)} · {routeWithPeriod(s.routeName, s.servicePeriod)}</strong></div>
-        <div className="b muted">{daysLabel(s.weekdays)} · {s.lead ? `Lead ${s.lead.displayName}` : "No lead"} · {plannedLabel(s)}</div></div>
+        <div className="b muted">{weekdaysLabel(s.weekdays)} · {s.lead ? `Lead ${s.lead.displayName}` : "No lead"} · {plannedLabel(s)}</div></div>
     </button>)}</div>;
 
   const am = running.filter((s) => s.servicePeriod === "AM");
@@ -196,7 +187,7 @@ function ScheduleForm({ data, schedule, onDone }: { data: Data; schedule: TripSc
           {routes.map((route) => <option key={route.id} value={route.id}>{routeWithPeriod(route.name, route.servicePeriod)} ({route.stops.length} stops)</option>)}
         </select></div>
       <div className="ctl-row"><span className="lt">Runs on</span>
-        <div className="tt-pick" role="group" aria-label="Days it runs">{WEEKDAY_NAMES.map((name, index) =>
+        <div className="daypick" role="group" aria-label="Days it runs">{WEEKDAY_NAMES.map((name, index) =>
           <button key={name} type="button" aria-pressed={weekdays.includes(index + 1)} className={weekdays.includes(index + 1) ? "on" : ""}
             onClick={() => toggle(index + 1)}>{name}</button>)}</div></div>
       <div className="rf2">

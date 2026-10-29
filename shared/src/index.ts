@@ -515,6 +515,8 @@ export const riderInputSchema = z.strictObject({
   am: riderAssignmentInputSchema.nullable(),
   pm: riderAssignmentInputSchema.nullable(),
   guardianIds: z.array(z.string().uuid()).min(1).max(10),
+  // Leaving it out keeps the rider's days as they are.
+  rideDays: z.lazy(() => rideDaysSchema).optional(),
   ...riderCareInputSchema.shape
 }).refine((rider) => new Set(rider.guardianIds).size === rider.guardianIds.length,
   { message: "Each guardian must be unique." });
@@ -547,6 +549,7 @@ export const riderSchema = z.strictObject({
     stopId: z.string().uuid(), stopLabel: z.string()
   }).nullable(),
   guardians: z.array(guardianSchema),
+  rideDays: z.array(z.number().int().min(1).max(7)).nullable(),
   careNotes: z.string().nullable(),
   emergencyName: z.string().nullable(),
   emergencyPhone: z.string().nullable()
@@ -1173,6 +1176,50 @@ export const saveReportInputSchema = z.strictObject({
 // ---------------------------------------------------------------------------
 
 export const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+/** The camp's clock. Trip times and weekdays are worked out in this zone. */
+export const CAMP_TIME_ZONE = "America/New_York";
+
+/** "Mon to Fri", "Mon, Wed, Fri", "Every day". Null (no limit) is every day. */
+export function weekdaysLabel(days: readonly number[] | null) {
+  if (!days || days.length >= 7) return "Every day";
+  const sorted = [...days].sort((a, b) => a - b);
+  const run = sorted.every((day, index) => index === 0 || day === sorted[index - 1]! + 1);
+  if (run && sorted.length >= 3) return `${WEEKDAY_NAMES[sorted[0]! - 1]} to ${WEEKDAY_NAMES[sorted.at(-1)! - 1]}`;
+  return sorted.map((day) => WEEKDAY_NAMES[day - 1]).join(", ");
+}
+
+/** A kid's ride days: null = every day. Six days or fewer, each once, in order. */
+export const rideDaysSchema = z.array(z.number().int().min(1).max(7)).min(1, "Pick at least one day.").max(7)
+  .nullable()
+  .transform((days) => days ? [...new Set(days)].sort((a, b) => a - b) : null)
+  .transform((days) => days && days.length === 7 ? null : days);
+
+const DAY_WORDS: Record<string, number> = {
+  mo: 1, mon: 1, monday: 1, tu: 2, tue: 2, tues: 2, tuesday: 2, we: 3, wed: 3, wednesday: 3,
+  th: 4, thu: 4, thur: 4, thurs: 4, thursday: 4, fr: 5, fri: 5, friday: 5,
+  sa: 6, sat: 6, saturday: 6, su: 7, sun: 7, sunday: 7
+};
+
+/**
+ * Ride days typed in a spreadsheet: "Mon Wed Fri", "Mon, Tue", "Mon-Thu", "Mon to Fri".
+ * Blank, "every day" or "all" means every day (null).
+ */
+export function parseRideDays(text: string): { ok: true; days: number[] | null } | { ok: false; error: string } {
+  const value = text.trim().toLowerCase();
+  if (!value || ["every day", "everyday", "all", "daily", "all days"].includes(value)) return { ok: true, days: null };
+  const days: number[] = [];
+  const parts = value.replace(/\s+(to|through|thru)\s+/g, "-").replace(/\s*-\s*/g, "-").split(/[\s,;/&]+|\band\b/).filter(Boolean);
+  for (const part of parts) {
+    const [from, to, extra] = part.split("-");
+    const start = DAY_WORDS[from!.replace(/\.$/, "")];
+    const end = to === undefined ? start : DAY_WORDS[to.replace(/\.$/, "")];
+    if (!start || !end || extra !== undefined) return { ok: false, error: `"${text.trim()}" isn't a list of days. Use something like Mon Wed Fri or Mon-Thu.` };
+    if (end < start) return { ok: false, error: `"${part}" runs backwards. Write it Monday first, like Mon-Fri.` };
+    for (let day = start; day <= end; day += 1) days.push(day);
+  }
+  const parsed = rideDaysSchema.safeParse(days);
+  return parsed.success ? { ok: true, days: parsed.data } : { ok: false, error: "Pick at least one day." };
+}
 /** How far ahead repeating trips are built. */
 export const SCHEDULE_HORIZON_DAYS = 14;
 

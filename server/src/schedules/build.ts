@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { SCHEDULE_HORIZON_DAYS } from "@bussin/shared";
+import { CAMP_TIME_ZONE, SCHEDULE_HORIZON_DAYS } from "@bussin/shared";
 import { pool } from "../db/pool.js";
 import { createTrip } from "../trips/create.js";
 import { CrewError, saveCrew } from "../dispatch/crew.js";
@@ -10,7 +10,7 @@ import { CrewError, saveCrew } from "../dispatch/crew.js";
 // one trip per day (a cancelled day stays cancelled).
 
 /** The camp's clock. Schedule times ("8:00") are local times here. */
-export const CAMP_TIME_ZONE = "America/New_York";
+export { CAMP_TIME_ZONE };
 const BUILD_EVERY_MS = 60 * 60_000;
 
 export type Skip = { scheduleId: string; day: string; reason: string };

@@ -62,6 +62,10 @@ export async function editPlannedTrip(
        SELECT $1, route_id, id, position, label, latitude, longitude
          FROM route_stops WHERE route_id = $2 ORDER BY position`, [tripId, input.routeId]);
     await snapshotTripRiders(client, tripId);
+  } else if (timeChanged) {
+    // A new day can mean different kids (ride days). Kids already checked stay on the trip.
+    await client.query("DELETE FROM trip_riders WHERE trip_id = $1", [tripId]);
+    await snapshotTripRiders(client, tripId);
   }
   await client.query(
     `INSERT INTO trip_events (trip_id, event_type, recorded_by, note) VALUES ($1, 'note', $2, $3)`,

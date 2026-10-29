@@ -754,3 +754,8 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .m .attn-acts{justify-content:flex-start}
 .ops .lb-map{position:relative;height:400px;margin:0 0 12px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#eef1ea}
 .ops .m .lb-map{height:280px}
+/* Weekday picker (Mon..Sun toggles): kid ride days, repeating trips. */
+.ops .daypick{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.ops .daypick button{height:36px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px;font-weight:800;color:var(--ink);cursor:pointer}
+.ops .daypick button.on{background:var(--green);border-color:var(--green);color:#fff}
+.ops .daypick button:disabled{cursor:default}

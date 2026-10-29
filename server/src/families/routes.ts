@@ -329,9 +329,9 @@ familyRoutes.get("/roster", requireRole("admin"), async (_request, response) => 
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const ridersResult = await client.query<{
       id: string; givenName: string; familyName: string; imported: boolean;
-      careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null;
+      careNotes: string | null; emergencyName: string | null; emergencyPhone: string | null; rideDays: number[] | null;
     }>(`SELECT id, given_name AS "givenName", family_name AS "familyName",
-                import_dataset IS NOT NULL AS imported, care_notes AS "careNotes",
+                import_dataset IS NOT NULL AS imported, care_notes AS "careNotes", ride_days::int[] AS "rideDays",
                 emergency_name AS "emergencyName", emergency_phone AS "emergencyPhone"
            FROM riders ORDER BY family_name, given_name, id`);
     const stopsResult = await client.query<{
@@ -770,6 +770,9 @@ async function writeRider(request: Request, response: Response, id?: string) {
          WHERE id = $1`,
         [riderId, care.careNotes !== undefined, care.careNotes ?? null, care.emergencyName !== undefined,
           care.emergencyName ?? null, care.emergencyPhone !== undefined, care.emergencyPhone ?? null]);
+    }
+    if (parsed.data.rideDays !== undefined) {
+      await client.query(`UPDATE riders SET ride_days = $2 WHERE id = $1`, [riderId, parsed.data.rideDays]);
     }
     if (!(await saveManualLinks(client, riderId, parsed.data.guardianIds))) {
       await client.query("ROLLBACK");

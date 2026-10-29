@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type 
 import { useSearchParams } from "react-router";
 import {
   guardianInputSchema, guardiansResponseSchema, riderInputSchema, rosterResponseSchema, routesResponseSchema,
-  type Guardian, type Rider, type Route
+  type Guardian, type Rider, type Route,
+  WEEKDAY_NAMES, weekdaysLabel,
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
 import { contactProblem, tidyEmail, tidyPhone } from "../ops/contact";
@@ -165,7 +166,9 @@ function actionsFor(guardian: Guardian): { key: GuardianAction; label: string; p
 }
 
 type Draft = { givenName: string; familyName: string; guardianIds: string[]; amRoute: string; amStop: string; pmRoute: string; pmStop: string;
-  careNotes: string; emergencyName: string; emergencyPhone: string };
+  rideDays: number[]; careNotes: string; emergencyName: string; emergencyPhone: string };
+
+const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
 
 function RiderForm({ rider, guardians, riders, routes, onSaved }: {
   rider: Rider | null; guardians: Guardian[]; riders: Rider[]; routes: Route[]; onSaved: (id: string) => void;
@@ -173,8 +176,9 @@ function RiderForm({ rider, guardians, riders, routes, onSaved }: {
   const [draft, setDraft] = useState<Draft>(() => rider ? {
     givenName: rider.givenName, familyName: rider.familyName, guardianIds: rider.guardians.map((guardian) => guardian.id),
     amRoute: rider.am?.routeId ?? "", amStop: rider.am?.stopId ?? "", pmRoute: rider.pm?.routeId ?? "", pmStop: rider.pm?.stopId ?? "",
+    rideDays: rider.rideDays ?? EVERY_DAY,
     careNotes: rider.careNotes ?? "", emergencyName: rider.emergencyName ?? "", emergencyPhone: rider.emergencyPhone ?? ""
-  } : { givenName: "", familyName: "", guardianIds: [], amRoute: "", amStop: "", pmRoute: "", pmStop: "", careNotes: "", emergencyName: "", emergencyPhone: "" });
+  } : { givenName: "", familyName: "", guardianIds: [], amRoute: "", amStop: "", pmRoute: "", pmStop: "", rideDays: EVERY_DAY, careNotes: "", emergencyName: "", emergencyPhone: "" });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const change = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
@@ -186,11 +190,11 @@ function RiderForm({ rider, guardians, riders, routes, onSaved }: {
       givenName: draft.givenName, familyName: draft.familyName,
       am: draft.amRoute ? { routeId: draft.amRoute, stopId: draft.amStop } : null,
       pm: draft.pmRoute ? { routeId: draft.pmRoute, stopId: draft.pmStop } : null,
-      guardianIds: draft.guardianIds,
+      guardianIds: draft.guardianIds, rideDays: draft.rideDays.length ? draft.rideDays : [],
       careNotes: draft.careNotes, emergencyName: draft.emergencyName, emergencyPhone: draft.emergencyPhone
     });
     if (!input.success) {
-      const careIssue = input.error.issues.find((issue) => ["careNotes", "emergencyName", "emergencyPhone"].includes(String(issue.path[0])));
+      const careIssue = input.error.issues.find((issue) => ["rideDays", "careNotes", "emergencyName", "emergencyPhone"].includes(String(issue.path[0])));
       setError(careIssue ? careIssue.message : draft.guardianIds.length ? "Enter the rider's name and valid stops." : "Add at least one guardian: search for one, or use + New guardian.");
       return;
     }
@@ -232,6 +236,13 @@ function RiderForm({ rider, guardians, riders, routes, onSaved }: {
     {assignment("AM")}
     {assignment("PM")}
     {!draft.amRoute && !draft.pmRoute && <p className="cov-hint">No route yet. No bus will pick this child up until one is chosen.</p>}
+    <div className="ctl-row"><b className="lt">Rides on</b>
+      <div className="daypick" role="group" aria-label="Days this child rides">{WEEKDAY_NAMES.map((name, index) => {
+        const on = draft.rideDays.includes(index + 1);
+        return <button key={name} type="button" aria-pressed={on} className={on ? "on" : ""} onClick={() => change({
+          rideDays: on ? draft.rideDays.filter((day) => day !== index + 1) : [...draft.rideDays, index + 1].sort((a, b) => a - b) })}>{name}</button>;
+      })}</div>
+      <small>{draft.rideDays.length ? `${weekdaysLabel(draft.rideDays)}, both ways. On other days this child isn't on the bus list.` : "Pick at least one day."}</small></div>
     <label><b className="lt">Care notes for the bus crew <span>(optional)</span></b>
       <textarea rows={3} maxLength={500} value={draft.careNotes} placeholder="Allergies, medication, anything counselors should know. Example: Peanut allergy, EpiPen in front pocket of backpack."
         onChange={(event) => change({ careNotes: event.target.value })} />
@@ -426,6 +437,7 @@ export function FamiliesPage() {
     <div className="asg">
       <div><b>AM</b>{rider.am ? <>{rider.am.stopLabel} <span className="dim">{rider.am.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
       <div><b>PM</b>{rider.pm ? <>{rider.pm.stopLabel} <span className="dim">{rider.pm.routeName}</span></> : <span className="dim">Not assigned</span>}</div>
+      <div><b>Days</b>{weekdaysLabel(rider.rideDays)}</div>
     </div>
     {(rider.careNotes || rider.emergencyName || rider.emergencyPhone) && <div className="care-box">
       {rider.careNotes && <p><b>Care notes</b>{rider.careNotes}</p>}
