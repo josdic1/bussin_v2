@@ -35,7 +35,7 @@ const PAGES: Page[] = [
   { path: "/check", mark: "RC", label: "Ride Check", group: "live" },
   { path: "/fleet", mark: "F", label: "Fleet", group: "live" },
   { path: "/routes", mark: "RT", label: "Routes", group: "live", desktopOnly: true },
-  { path: "/members", mark: "M", label: "Members", group: "records", adminOnly: true },
+  { path: "/team", mark: "TM", label: "Team", group: "records", adminOnly: true },
   { path: "/families", mark: "R", label: "Riders", group: "records", adminOnly: true },
   { path: "/messages", mark: "MS", label: "Messages", group: "records", adminOnly: true },
   { path: "/data", mark: "DA", label: "Data", group: "records", adminOnly: true, desktopOnly: true },

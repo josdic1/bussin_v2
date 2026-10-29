@@ -84,7 +84,7 @@ export function ViewAsPicker({ watching, dispatchView, onWatch, onDispatchView }
         onClick={() => { setTab(key); setSearch(""); }}>{label}</button>)}</div>
 
     {tab === "dispatch" ? <div className="va-dispatch">
-      <p>Your screen switches to what a dispatcher sees: Dispatch, Ride Check, Fleet, Routes, Transit and Reports. Members, Riders, Messages and Data are hidden.</p>
+      <p>Your screen switches to what a dispatcher sees: Dispatch, Ride Check, Fleet, Routes, Transit and Reports. Team, Riders, Messages and Data are hidden.</p>
       <button type="button" className="btn btn-primary" onClick={() => onDispatchView(!dispatchView)}>
         {dispatchView ? "Back to Admin view" : "Switch to Dispatch view"}</button>
     </div> : <>
@@ -94,7 +94,7 @@ export function ViewAsPicker({ watching, dispatchView, onWatch, onDispatchView }
       {!people && !error && <p className="va-empty">Loading…</p>}
       {people && !rows.length && <p className="va-empty">{search ? "No match." : tab === "parent"
         ? "No parent has a login yet. Turn on a login from Riders, then they show up here."
-        : tab === "counselor" ? "No counselors yet. Add them in Members." : "No buses yet. Add them in Fleet."}</p>}
+        : tab === "counselor" ? "No counselors yet. Add them in Team." : "No buses yet. Add them in Fleet."}</p>}
       <ul className="va-list">{rows.map((row) => {
         const on = watching?.kind === tab && watching.id === row.id;
         return <li key={row.id}><button type="button" className={on ? "on" : ""}

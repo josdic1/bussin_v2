@@ -14,6 +14,7 @@ import { messageRoutes } from "./messages/routes.js";
 import { dataRoutes } from "./data/routes.js";
 import { reportRoutes } from "./reports/routes.js";
 import { previewRoutes } from "./preview/routes.js";
+import { driverRoutes } from "./drivers/routes.js";
 import { dataImportRoutes } from "./data/import.js";
 import { tableCsvRoutes } from "./data/tableCsv.js";
 import { deviceRoutes, trackerRoutes } from "./device/routes.js";
@@ -71,6 +72,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/data", dataRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/preview", previewRoutes);
+app.use("/api/drivers", driverRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });

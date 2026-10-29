@@ -345,7 +345,7 @@ async function editBus(client: PoolClient, row: DataRow, column: string, from: s
 // Staff: name, username, email and Active/Suspended. Username and email are the two ways
 // to sign in, so one of them must stay. Roles are changed on the Members page.
 async function editMember(client: PoolClient, row: DataRow, column: string, from: string, value: string, me: string): Promise<EditResult> {
-  if (!["name", "username", "email", "status"].includes(column)) throw new EditError(400, "Roles are changed on the Members page.");
+  if (!["name", "username", "email", "status"].includes(column)) throw new EditError(400, "Roles (Admin, Dispatch) can't be changed here.");
   if (!sameAsShown(row.cells[column], from)) throw new EditError(409, STALE);
   if (column === "username") {
     const next = check(z.string().trim().toLowerCase()

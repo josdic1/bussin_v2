@@ -7,7 +7,7 @@ import { StaffTripPage } from "./staff/StaffTripPage";
 import { FamilyPortalPage } from "./families/FamilyPortalPage";
 import { OpsShell, useOps } from "./ops/OpsShell";
 import { BusPage } from "./bus/BusPage";
-const MembersPage = lazy(async () => ({ default: (await import("./members/MembersPage")).MembersPage }));
+const TeamPage = lazy(async () => ({ default: (await import("./team/TeamPage")).TeamPage }));
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
 const DataPage = lazy(async () => ({ default: (await import("./data/DataPage")).DataPage }));
 const MessagesPage = lazy(async () => ({ default: (await import("./messages/MessagesPage")).MessagesPage }));
@@ -252,7 +252,8 @@ export function App() {
           <Route path="mybus" element={<Navigate to="/check" replace />} />
           <Route path="fleet" element={<FleetPage />} />
           <Route path="routes" element={<Suspense fallback={<p className="hint">Loading routes…</p>}><RoutesPage /></Suspense>} />
-          <Route path="members" element={<AdminOnly><MembersPage /></AdminOnly>} />
+          <Route path="team" element={<AdminOnly><TeamPage /></AdminOnly>} />
+          <Route path="members" element={<Navigate to="/team" replace />} />
           <Route path="families" element={<AdminOnly><FamiliesPage /></AdminOnly>} />
           <Route path="riders" element={<Navigate to="/families" replace />} />
           <Route path="messages" element={<AdminOnly><MessagesPage /></AdminOnly>} />

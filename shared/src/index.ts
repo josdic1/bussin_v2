@@ -915,6 +915,19 @@ export const driverInputSchema = z.strictObject({
 });
 export type DriverInput = z.input<typeof driverInputSchema>;
 
+/** A driver on the Team page. Drivers never sign in: a name and a phone on each trip. */
+export const teamDriverSchema = z.strictObject({
+  id: z.string().uuid(),
+  name: z.string(),
+  phone: z.string().nullable(),
+  active: z.boolean(),
+  /** Trips they're on in the next 7 days, soonest first. */
+  upcoming: z.array(z.strictObject({ tripId: z.string().uuid(), routeName: z.string(), busLabel: z.string(), departureAt: z.string() }))
+});
+export type TeamDriver = z.infer<typeof teamDriverSchema>;
+export const teamDriversResponseSchema = z.strictObject({ drivers: z.array(teamDriverSchema) });
+export const driverStatusInputSchema = z.strictObject({ active: z.boolean() });
+
 // Choices for the AM and PM stop dropdowns: active routes only.
 export const dataStopOptionSchema = z.strictObject({ value: z.string(), label: z.string() });
 export const dataStopOptionsResponseSchema = z.strictObject({
