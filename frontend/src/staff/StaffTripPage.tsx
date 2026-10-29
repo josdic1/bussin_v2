@@ -3,6 +3,7 @@ import { staffCheckResponseSchema, type CheckRider, type CheckTrip, type RiderCh
 import { ChangeMyPassword } from "../auth/ChangeMyPassword";
 import { clock, EARLY_START_WARNING_MS, mmss, PREVIEW_NOTE, useTerminalTrip } from "../terminal/useTerminalTrip";
 import { missed, nameList } from "../check/checkModel";
+import { bulkTargets, loadQueue, newId, resultOf, saveQueue, withQueue, type QueuedTap } from "./tapQueue";
 import "./crew.css";
 
 /*
@@ -21,12 +22,21 @@ async function readError(response: Response, fallback: string) {
   return body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : fallback;
 }
 
-/** Ride Check for this phone's trip, kept live by the same stream the trip uses. In preview: read-only, polled. */
+/**
+ * Ride Check for this phone's trip, kept live by the same stream the trip uses. In preview: read-only, polled.
+ * Every tap goes into a queue on the phone first, so the screen updates at once and a tap made with
+ * no signal is kept and sent (with its real time) as soon as signal returns.
+ */
 function useRideCheck(previewId?: string) {
   const url = previewId ? `/api/preview/counselor/${previewId}/check` : "/api/check/mine";
   const [trip, setTrip] = useState<CheckTrip | null | undefined>();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [queue, setQueueState] = useState<QueuedTap[]>(() => previewId ? [] : loadQueue());
+  const queueRef = useRef(queue);
+  const setQueue = useCallback((next: QueuedTap[]) => { queueRef.current = next; setQueueState(next); saveQueue(next); }, []);
+  const flushing = useRef(false);
   const seq = useRef(0);
 
   const load = useCallback(async () => {
@@ -41,51 +51,125 @@ function useRideCheck(previewId?: string) {
     }
   }, [url]);
 
+  /** Send saved taps in order. Stops at the first one that can't reach the server and tries again later. */
+  const flush = useCallback(async () => {
+    if (previewId || flushing.current || !queueRef.current.length) return;
+    flushing.current = true;
+    const refused: string[] = [];
+    try {
+      while (queueRef.current.length) {
+        const item = queueRef.current[0]!;
+        let response: Response;
+        try {
+          response = item.kind === "sweep"
+            ? await fetch(`/api/check/trips/${item.tripId}/sweep`, {
+              method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}" })
+            : await fetch(`/api/check/trips/${item.tripId}/riders/${item.riderId}`, {
+              method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: item.type, expected: item.expected, occurredAt: item.at }) });
+        } catch {
+          break; // still no signal: keep it for the next try
+        }
+        if (response.status >= 500) break;
+        if (!response.ok) {
+          const body: unknown = await response.json().catch(() => null);
+          const serverState = body && typeof body === "object" && "state" in body ? body.state : null;
+          // Already where this tap meant to put them (someone else got there first): nothing lost.
+          const landed = item.kind === "tap" && item.result !== null && serverState === item.result;
+          if (!landed && item.kind === "tap") {
+            refused.push(body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "A saved tap couldn't be applied.");
+          }
+        }
+        setQueue(queueRef.current.filter((queued) => queued.id !== item.id));
+      }
+    } finally {
+      flushing.current = false;
+      await load();
+      if (refused.length) setMessage(refused.length === 1 ? refused[0]! : `${refused.length} saved taps didn't apply. First: ${refused[0]}`);
+    }
+  }, [load, previewId, setQueue]);
+
   useEffect(() => {
     void load();
     if (previewId) {
       const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 5_000);
       return () => window.clearInterval(poll);
     }
+    void flush();
     const source = new EventSource("/api/staff/live");
     source.addEventListener("trip", () => void load());
-    source.addEventListener("ready", () => void load());
+    source.addEventListener("ready", () => { void load(); void flush(); });
     const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 20_000);
-    return () => { source.close(); window.clearInterval(poll); };
-  }, [load, previewId]);
+    const retry = window.setInterval(() => { if (queueRef.current.length) void flush(); }, 8_000);
+    const up = () => { setOnline(true); void flush(); };
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      source.close(); window.clearInterval(poll); window.clearInterval(retry);
+      window.removeEventListener("online", up); window.removeEventListener("offline", down);
+    };
+  }, [load, flush, previewId]);
 
-  async function post(path: string, body: unknown, key: string) {
-    if (busy) return;
+  const shown = trip ? withQueue(trip, queue) : null;
+  const view = trip === undefined ? undefined : shown ? shown.trip : null;
+
+  function enqueue(items: QueuedTap[]) {
+    setMessage("");
+    setQueue([...queueRef.current, ...items]);
+    void flush();
+  }
+
+  const tap = (rider: CheckRider, type: RiderCheckAction["type"]) => {
+    if (!view) return;
     if (previewId) { setMessage(PREVIEW_NOTE); return; }
-    setBusy(key); setMessage("");
+    // Undo of a tap still waiting on the phone: just take it back.
+    if (type === "undo") {
+      let index = -1;
+      queueRef.current.forEach((item, i) => { if (item.kind === "tap" && item.riderId === rider.riderId && item.tripId === view.id) index = i; });
+      // (A tap already on its way to the server can't be pulled back; it gets a real undo instead.)
+      if (index >= 0 && !(flushing.current && index === 0)) { setQueue(queueRef.current.filter((_, i) => i !== index)); return; }
+    }
+    enqueue([{ id: newId(), kind: "tap", tripId: view.id, riderId: rider.riderId, type, expected: rider.state,
+      result: resultOf(type, rider.state), at: new Date().toISOString() }]);
+  };
+
+  async function bulk(stopId: string, type: "board_waiting" | "drop_aboard") {
+    if (!view || busy) return;
+    if (previewId) { setMessage(PREVIEW_NOTE); return; }
+    const kids = bulkTargets(view, stopId, type);
+    const asTaps = () => enqueue(kids.map((rider) => ({ id: newId(), kind: "tap" as const, tripId: view.id, riderId: rider.riderId,
+      type: type === "board_waiting" ? "board" as const : "drop" as const, expected: rider.state,
+      result: type === "board_waiting" ? "aboard" as const : "dropped" as const, at: new Date().toISOString() })));
+    // With signal and nothing waiting, one request does the whole stop; otherwise each kid is saved on the phone.
+    if (!navigator.onLine || queueRef.current.length) { asTaps(); return; }
+    setBusy(`bulk:${stopId}`); setMessage("");
     try {
-      const response = await fetch(path, {
-        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
-      });
+      const response = await fetch(`/api/check/trips/${view.id}/bulk`, {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, stopId }) });
       if (!response.ok) setMessage(await readError(response, "That didn't save. Tap again."));
+      await load();
     } catch {
-      setMessage("No signal, so that tap didn't save. Tap again when you have signal.");
+      asTaps();
     } finally {
       setBusy(null);
-      await load();
     }
   }
 
-  const tap = (rider: CheckRider, type: RiderCheckAction["type"]) =>
-    trip && post(`/api/check/trips/${trip.id}/riders/${rider.riderId}`, { type, expected: rider.state }, `${rider.riderId}:${type}`);
-  const bulk = (stopId: string, type: "board_waiting" | "drop_aboard") =>
-    trip && post(`/api/check/trips/${trip.id}/bulk`, { type, stopId }, `bulk:${stopId}`);
-  const sweep = () => trip && post(`/api/check/trips/${trip.id}/sweep`, {}, "sweep");
-  return { trip, busy, message, setMessage, tap, bulk, sweep };
+  const sweep = () => {
+    if (!view) return;
+    if (previewId) { setMessage(PREVIEW_NOTE); return; }
+    enqueue([{ id: newId(), kind: "sweep", tripId: view.id, at: new Date().toISOString() }]);
+  };
+  return { trip: view, pending: shown?.pending ?? new Set<string>(), queued: queue.length, online, busy, message, setMessage, tap, bulk, sweep };
 }
 
-function RiderRow({ rider, tripStatus, busy, tap }: {
-  rider: CheckRider; tripStatus: CheckTrip["status"]; busy: string | null;
+function RiderRow({ rider, tripStatus, busy, saved, tap }: {
+  rider: CheckRider; tripStatus: CheckTrip["status"]; busy: string | null; saved: boolean;
   tap: (rider: CheckRider, type: RiderCheckAction["type"]) => void;
 }) {
   const running = tripStatus === "active";
   const state = rider.state;
-  const pending = busy?.startsWith(rider.riderId) ?? false;
   const buttons: [RiderCheckAction["type"], string, string][] = running
     ? state === "expected" ? [["board", "On bus", "go"], ["no_show", "No-show", "warn"]]
       : state === "aboard" ? [["drop", "Dropped off", "go"]]
@@ -95,10 +179,10 @@ function RiderRow({ rider, tripStatus, busy, tap }: {
       : state === "not_riding" ? [["undo", "Undo", "plain"]] : [];
   return <li className={`cr-rider s-${state}`}>
     <div className="cr-who"><b>{rider.givenName} {rider.familyName}</b>
-      <span className="cr-state">{STATE_LABEL[state]}{rider.stateBy && state !== "expected" ? ` · ${rider.stateBy}` : ""}{rider.stateAt && state !== "expected" ? ` · ${clock(rider.stateAt)}` : ""}</span></div>
+      <span className="cr-state">{STATE_LABEL[state]}{rider.stateBy && state !== "expected" ? ` · ${rider.stateBy}` : ""}{rider.stateAt && state !== "expected" ? ` · ${clock(rider.stateAt)}` : ""}</span>
+      {saved && <span className="cr-saved">Saved on phone, sending</span>}</div>
     <div className="cr-btns">{buttons.map(([type, label, tone]) =>
-      <button key={type} type="button" className={`cr-btn ${tone}`} disabled={!!busy} onClick={() => tap(rider, type)}>
-        {pending && busy === `${rider.riderId}:${type}` ? "…" : label}</button>)}</div>
+      <button key={type} type="button" className={`cr-btn ${tone}`} disabled={!!busy} onClick={() => tap(rider, type)}>{label}</button>)}</div>
   </li>;
 }
 
@@ -229,6 +313,9 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
       <b>{boardingHere.kids.length} not checked yet at {boardingHere.label}</b>
       <p>Before you leave: On bus or No-show for each kid.</p>
     </section>}
+    {check.queued > 0 && <p className={`cr-queue${check.online ? "" : " off"}`} role="status"><i />
+      {check.online ? `Sending ${check.queued} saved ${check.queued === 1 ? "tap" : "taps"}…`
+        : `No signal. ${check.queued === 1 ? "1 tap is saved on this phone. It sends" : `${check.queued} taps are saved on this phone. They send`} when signal is back.`}</p>}
     {(t.error || check.message) && <p className="cr-alert" role="alert">{check.message || t.error}
       <button type="button" onClick={() => check.setMessage("")}>OK</button></p>}
     {control}
@@ -254,7 +341,8 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
             {trip.status === "active" && !am && aboard > 1 && <button type="button" className="cr-btn go small" disabled={!!check.busy}
               onClick={() => check.bulk(stop.id, "drop_aboard")}>All {aboard} off here</button>}
           </div>
-          <ul>{list.map((rider) => <RiderRow key={rider.riderId} rider={rider} tripStatus={ride!.status} busy={check.busy} tap={check.tap} />)}</ul>
+          <ul>{list.map((rider) => <RiderRow key={rider.riderId} rider={rider} tripStatus={ride!.status} busy={check.busy}
+            saved={check.pending.has(rider.riderId)} tap={check.tap} />)}</ul>
         </div>;
       })}
       {/* Morning: everyone gets off at camp, the last stop. */}

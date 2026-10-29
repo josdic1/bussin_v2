@@ -33,6 +33,11 @@
 .crew .cr-locked small{display:block;margin-top:6px;color:var(--mut);font-size:12.5px}
 @keyframes cr-pulse{50%{box-shadow:0 0 0 6px rgba(180,35,24,.25)}}
 @media (prefers-reduced-motion:reduce){.crew .cr-danger{animation:none}}
+.crew .cr-saved{display:block;margin-top:2px;font-size:11.5px;font-weight:800;color:var(--warn)}
+.crew .cr-queue{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#eef3ef;font-size:13.5px;font-weight:700;color:var(--g)}
+.crew .cr-queue i{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
+.crew .cr-queue.off{background:var(--warnbg);color:var(--warn)}
+.crew .cr-queue.off i{background:#d08700}
 .crew .cr-far{margin-top:10px;padding:12px;border-radius:12px;background:var(--warnbg);color:var(--ink)}
 .crew .cr-far p{margin:0 0 10px;font-weight:800;font-size:14.5px;line-height:1.35}
 .crew .cr-far div{display:flex;gap:8px}

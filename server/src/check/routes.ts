@@ -373,10 +373,15 @@ checkRoutes.post(
         return;
       }
 
+      // A tap that waited on the phone for signal keeps its real time, clamped so it can't
+      // be in the future, more than 6 hours old, or earlier than this rider's last event.
       await client.query(
-        `INSERT INTO trip_rider_events (trip_id, rider_id, event_type, recorded_by)
-         VALUES ($1, $2, $3, $4)`,
-        [tripId.data, riderId.data, transition.eventType, actor.id]
+        `INSERT INTO trip_rider_events (trip_id, rider_id, event_type, recorded_by, occurred_at)
+         VALUES ($1, $2, $3, $4, GREATEST(
+           LEAST(COALESCE($5::timestamptz, now()), now()),
+           now() - interval '6 hours',
+           (SELECT max(e.occurred_at) FROM trip_rider_events e WHERE e.trip_id = $1 AND e.rider_id = $2)))`,
+        [tripId.data, riderId.data, transition.eventType, actor.id, action.data.occurredAt ?? null]
       );
       await client.query("COMMIT");
       const next = deriveRiderState([

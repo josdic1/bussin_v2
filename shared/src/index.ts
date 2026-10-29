@@ -648,7 +648,10 @@ export const riderCheckActionSchema = z.strictObject({
   type: z.enum(["board", "drop", "no_show", "not_riding", "undo", "handled"]),
   // What the tapping phone saw. If someone else changed the rider since, the tap is refused
   // instead of silently overwriting them.
-  expected: riderCheckStateSchema.optional()
+  expected: riderCheckStateSchema.optional(),
+  // When the counselor tapped. A tap saved on the phone with no signal is sent later with its
+  // real time; the server keeps it within the last 6 hours and never before the rider's last event.
+  occurredAt: z.string().datetime({ offset: true }).optional()
 });
 
 export type RiderCheckAction = z.infer<typeof riderCheckActionSchema>;
