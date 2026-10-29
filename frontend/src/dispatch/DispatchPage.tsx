@@ -14,6 +14,7 @@ import { alerts as checkAlerts, counts } from "../check/checkModel";
 import { useCheckBoard } from "../check/useCheckBoard";
 import { TripDetail, TripPill } from "./TripDetail";
 import { useAttentionSignal } from "./attentionSignal";
+import { useTripAlerts } from "./useTripAlerts";
 
 const DispatchMap = lazy(async () => ({ default: (await import("./DispatchMap")).DispatchMap }));
 
@@ -211,7 +212,10 @@ export function DispatchPage() {
   const stale = rows.filter((row) => row.status === "GPS STALE").length;
   const aboard = check.trips.filter((trip) => trip.status === "active").reduce((sum, trip) => sum + counts(trip).aboard, 0);
   const high = attention.filter((row) => row.alerts.some((alert) => alert.sev === "high")).length;
-  useAttentionSignal(day === today ? high : 0);
+  const tripAlerts = useTripAlerts(day === today);
+  const emergencies = tripAlerts.open.filter((alert) => alert.kind === "emergency");
+  const resolveAlert = (id: string) => { void tripAlerts.resolve(id).catch((cause) => toast(message(cause, "Could not mark it handled."))); };
+  useAttentionSignal(day === today ? high + emergencies.length : 0);
 
   const cards: Card[] = attention.map((row) => alertCard(row, row.alerts[0], openTrip, (trip) => actions.request(trip, "start")));
   if (day === today) {
@@ -240,6 +244,14 @@ export function DispatchPage() {
       pill: "Riders",
       text: `${shown}: no AM or PM stop, so no bus will pick them up.`,
       actions: [{ label: "Fix in Riders", primary: true, run: () => navigate("/families?attention=1") }]
+    });
+  }
+  // Updates from the crews: running late, bathroom stop. Emergencies get the red banner instead.
+  for (const alert of tripAlerts.open.filter((item) => item.kind === "update")) {
+    cards.unshift({
+      key: `crew-${alert.id}`, sev: "med", title: `${alert.busLabel} · ${alert.label}`, pill: "From the bus",
+      text: `${alert.sentBy} at ${time(alert.createdAt)}${alert.note ? `: "${alert.note}"` : "."}`,
+      actions: [{ label: "Got it", primary: true, run: () => resolveAlert(alert.id) }, { label: "Open bus", run: () => openTrip(alert.tripId) }]
     });
   }
   if (!cards.length && !board.loading) {
@@ -299,6 +311,17 @@ export function DispatchPage() {
     {mode !== "desktop" && <DaySeg day={day} setDay={setDay} />}
     <ErrorNote text={board.error} />
     {board.loading && <p className="hint">Loading buses…</p>}
+    {emergencies.map((alert) => <section key={alert.id} className="em-banner" role="alert">
+      <div><span>Emergency · {alert.busLabel} · {time(alert.createdAt)}</span>
+        <b>{alert.label}</b>
+        <p>{alert.sentBy}, {routeWithPeriod(alert.routeName, alert.servicePeriod)}{alert.note ? `: "${alert.note}"` : ""}</p></div>
+      <div className="em-acts">
+        <button type="button" className="btn sm" onClick={() => openTrip(alert.tripId)}>Show bus</button>
+        {alert.latitude !== null && alert.longitude !== null &&
+          <a className="btn sm" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${alert.latitude},${alert.longitude}`}>Where they are</a>}
+        <button type="button" className="btn sm btn-primary" onClick={() => resolveAlert(alert.id)}>Handled</button>
+      </div>
+    </section>)}
 
     <div className="tiles">
       <Tile label="Needs attention" value={attention.length} className={attention.length ? "bad" : "good"}

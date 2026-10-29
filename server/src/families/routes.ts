@@ -5,7 +5,7 @@ import {
   familyPortalResponseSchema,
   leaveBufferInputSchema,
   guardianInputSchema, guardiansResponseSchema, riderInputSchema,
-  riderCoverageSchema, rosterResponseSchema, type Guardian, type Rider
+  riderCoverageSchema, rosterResponseSchema, type Guardian, type Rider, PARENT_VISIBLE_UPDATES, tripAlertLabel
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
@@ -67,6 +67,13 @@ familyRoutes.get("/portal", requireRole("family"), async (_request, response) =>
 });
 
 /** The parent's bus screen for one family login. Also used by the admin's View as preview. */
+const PARENT_NOTICE: Record<string, string> = {
+  late_5: "The bus is running about 5 minutes late.",
+  late_10: "The bus is running about 10 minutes late.",
+  late_15: "The bus is running 15 or more minutes late.",
+  traffic: "The bus is in heavy traffic and may be late."
+};
+
 export async function readFamilyPortal(memberId: string) {
   const member = { id: memberId };
   const result = await pool.query<FamilyPortalRow>(
@@ -188,6 +195,19 @@ export async function readFamilyPortal(memberId: string) {
     stopsByTrip.set(stop.tripId, list);
   }
 
+  // Parents see the crew's latest "running late" or "heavy traffic" on a running trip.
+  const notices = new Map<string, { text: string; at: string }>();
+  if (tripIds.length) {
+    const latest = await pool.query<{ tripId: string; code: string; createdAt: Date }>(
+      `SELECT DISTINCT ON (trip_id) trip_id AS "tripId", code, created_at AS "createdAt"
+         FROM trip_alerts
+        WHERE trip_id = ANY($1::uuid[]) AND kind = 'update' AND code = ANY($2::text[])
+        ORDER BY trip_id, created_at DESC`, [tripIds, [...PARENT_VISIBLE_UPDATES]]);
+    for (const row of latest.rows) {
+      notices.set(row.tripId, { text: PARENT_NOTICE[row.code] ?? tripAlertLabel("update", row.code), at: row.createdAt.toISOString() });
+    }
+  }
+
   const buffer = await pool.query<{ minutes: number }>(
     `SELECT leave_buffer_minutes::integer AS minutes FROM guardians WHERE member_id = $1 ORDER BY id LIMIT 1`,
     [member.id]
@@ -252,7 +272,8 @@ export async function readFamilyPortal(memberId: string) {
             leaveAt,
             leaveBufferMinutes: row.leaveBufferMinutes
           }
-        : null
+        : null,
+      crewNotice: row.tripStatus === "active" ? notices.get(row.tripId) ?? null : null
     };
   });
 

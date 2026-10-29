@@ -4,6 +4,8 @@ import { ChangeMyPassword } from "../auth/ChangeMyPassword";
 import { clock, EARLY_START_WARNING_MS, mmss, PREVIEW_NOTE, useTerminalTrip } from "../terminal/useTerminalTrip";
 import { missed, nameList } from "../check/checkModel";
 import { bulkTargets, loadQueue, newId, resultOf, saveQueue, withQueue, type QueuedTap } from "./tapQueue";
+import { AlertSheet, CrewHelp, useCrewAlerts } from "./CrewAlerts";
+import type { TripAlertKind } from "@bussin/shared";
 import "./crew.css";
 
 /*
@@ -202,6 +204,8 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
   const t = useTerminalTrip(preview
     ? { kind: "preview", as: "staff", tripUrl: `/api/preview/counselor/${preview.memberId}/trip` } : { kind: "staff" });
   const check = useRideCheck(preview?.memberId);
+  const crewAlerts = useCrewAlerts(!preview && !!t.trip);
+  const [sheet, setSheet] = useState<TripAlertKind | null>(null);
   const [changingPassword, setChangingPassword] = useState(false);
   const { trip, now, pending } = t;
   const lead = trip?.crewRole === "lead";
@@ -329,6 +333,7 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         : `No signal. ${check.queued === 1 ? "1 tap is saved on this phone. It sends" : `${check.queued} taps are saved on this phone. They send`} when signal is back.`}</p>}
     {(t.error || check.message) && <p className="cr-alert" role="alert">{check.message || t.error}
       <button type="button" onClick={() => check.setMessage("")}>OK</button></p>}
+    {trip && <CrewHelp alerts={crewAlerts.alerts} onOpen={setSheet} />}
     {control}
 
     {trip && <section className="cr-check">
@@ -364,5 +369,7 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         <button type="button" className="cr-main ghost" disabled={!!check.busy} onClick={() => check.sweep()}>Walked the bus: it's empty</button>}
       {ride?.sweep && <p className="cr-done">Bus checked empty by {ride.sweep.confirmedBy} at {clock(ride.sweep.confirmedAt)}</p>}
     </section>}
+    {sheet && <AlertSheet kind={sheet} fix={t.fix} preview={!!preview} onClose={() => setSheet(null)}
+      onSent={(alert) => { crewAlerts.add(alert); void crewAlerts.reload(); }} />}
   </main>;
 }

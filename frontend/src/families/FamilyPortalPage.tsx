@@ -143,11 +143,12 @@ function Card({ group, now, buffer, setBuffer }: { group: RideGroup; now: number
 
   return <section className="fcard">
     {banner}
+    {ride.crewNotice && !picked && <p className="fnotice"><b>From the bus · {clock(ride.crewNotice.at)}</b>{ride.crewNotice.text}</p>}
     {ride.tripStatus === "active" && <MiniMap ride={ride} />}
     <div className="inner">
       <div className="kids">{riders.map((name) => <span key={name} className="kid"><span>{initials(name)}</span>{name}</span>)}</div>
       <p className="fline">{ride.tripStatus === "planned" ? `${ride.busLabel} · ${ride.routeName}`
-        : picked ? (am ? "Heading to school" : "Home stop reached")
+        : picked ? (am ? "Heading to camp" : "Home stop reached")
           : away === 0 ? "Your stop is next" : away !== null ? `${away} ${away === 1 ? "stop" : "stops"} away` : ride.routeName}</p>
       <p className="fsub">{ride.tripStatus === "active" && ride.location ? `Live · updated ${clock(ride.location.observedAt)}` : ride.routeName}</p>
       {ride.tripStatus === "active" && myIndex >= 0 && <div className="away" aria-hidden="true">

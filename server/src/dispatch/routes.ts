@@ -25,6 +25,7 @@ import { subscribeToDispatchLocations } from "./live.js";
 import { buildDispatchEta } from "../eta/dispatchEta.js";
 import { openStream } from "../sse.js";
 import { deriveRiderState, type RiderEventRow } from "../check/state.js";
+import { readAlerts } from "../alerts/routes.js";
 import { CrewError, loadCrew, saveCrew } from "./crew.js";
 
 export const dispatchRoutes = Router();
@@ -857,7 +858,7 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
     return;
   }
 
-  const [stops, events, gpsSummary, gpsGaps, tripRiders, riderEvents, sweeps] = await Promise.all([
+  const [stops, events, gpsSummary, gpsGaps, tripRiders, riderEvents, sweeps, alerts] = await Promise.all([
     pool.query<HistoryStopRow>(
       `SELECT trip_id AS "tripId", id, position, label
          FROM trip_stops WHERE trip_id = ANY($1::uuid[])
@@ -909,7 +910,8 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
         WHERE e.trip_id = ANY($1::uuid[])
         ORDER BY e.occurred_at, e.recorded_at, e.id`, [ids]),
     pool.query<{ tripId: string; occurredAt: Date }>(
-      `SELECT trip_id AS "tripId", occurred_at AS "occurredAt" FROM trip_sweeps WHERE trip_id = ANY($1::uuid[])`, [ids])
+      `SELECT trip_id AS "tripId", occurred_at AS "occurredAt" FROM trip_sweeps WHERE trip_id = ANY($1::uuid[])`, [ids]),
+    readAlerts("a.trip_id = ANY($1::uuid[])", [ids])
   ]);
 
   // Ride Check per trip: replay each rider's taps, then count the outcomes.
@@ -981,6 +983,10 @@ dispatchRoutes.get("/history", requireRole("admin", "dispatch"), async (request,
         recordedBy: event.recordedBy
       })),
       riders: riderSummary(trip.id),
+      alerts: alerts.filter((alert) => alert.tripId === trip.id).reverse().map((alert) => ({
+        kind: alert.kind, label: alert.label, note: alert.note, sentBy: alert.sentBy,
+        createdAt: alert.createdAt, resolvedAt: alert.resolvedAt, resolvedBy: alert.resolvedBy
+      })),
       gps: {
         samples: summary?.samples ?? 0,
         lastObservedAt: summary?.lastObservedAt?.toISOString() ?? null,

@@ -91,3 +91,34 @@
 @media (max-width:380px){.crew .cr-rider{flex-wrap:wrap}.crew .cr-btns{width:100%}.crew .cr-btn{flex:1}}
 .crew .pw-acts .btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--ln);background:#fff;font-weight:800;font-size:14px}
 .crew .pw-acts .btn-primary{background:var(--g);border-color:var(--g);color:#fff}
+
+/* Update Dispatch / Emergency */
+.crew .cr-help{margin:0 0 12px}
+.crew .cr-help-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.crew .cr-help-btns .cr-btn{min-height:48px;font-size:15px}
+.crew .cr-btn.em{background:#fff;color:var(--bad);border:2px solid var(--bad)}
+.crew .cr-sentlist{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
+.crew .cr-sentlist li{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:10px;background:#f0f2ef;font-size:12.5px}
+.crew .cr-sentlist li.emergency{background:var(--badbg);color:var(--bad)}
+.crew .cr-sentlist span{color:var(--mut);font-weight:700;white-space:nowrap}
+.crew .cr-sheet{position:fixed;inset:0;z-index:50;background:rgba(10,20,14,.45);display:flex;align-items:flex-end;justify-content:center}
+.crew .cr-sheet-in{width:100%;max-width:520px;max-height:92vh;overflow:auto;background:#fff;border-radius:20px 20px 0 0;padding:16px 16px 24px}
+.crew .cr-sheet-in.em{border-top:6px solid var(--bad)}
+.crew .cr-sheet-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.crew .cr-sheet-top h2{margin:0;font-size:22px}
+.crew .cr-sheet-in.em .cr-sheet-top h2{color:var(--bad)}
+.crew .cr-sheet-top button{border:0;background:none;font-weight:800;color:var(--mut);font-size:14px;padding:8px}
+.crew .cr-choices{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.crew .cr-choices.em{grid-template-columns:1fr}
+.crew .cr-choices button{min-height:54px;border:2px solid var(--ln);border-radius:14px;background:#fff;font-size:15px;font-weight:800;color:var(--ink);padding:6px 10px}
+.crew .cr-choices button.on{border-color:var(--g);background:var(--g);color:#fff}
+.crew .cr-choices.em button{min-height:60px;font-size:17px;border-color:var(--badline,#e6bbb6);color:var(--bad)}
+.crew .cr-choices.em button.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.crew .cr-note{display:grid;gap:6px;margin-bottom:12px;font-size:13px;font-weight:800}
+.crew .cr-note i{font-style:normal;color:var(--mut);font-weight:600}
+.crew .cr-note textarea{width:100%;box-sizing:border-box;border:1px solid var(--ln);border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;resize:vertical}
+.crew .cr-sheet-err{margin:0 0 10px;color:var(--bad);font-weight:800;font-size:14px}
+.crew .cr-main.em{background:var(--bad)}
+.crew .cr-911{display:block;margin:0 0 12px;padding:12px;border-radius:14px;background:var(--badbg);color:var(--bad);text-align:center;font-weight:900;font-size:16px;text-decoration:none}
+.crew .cr-sent b{display:block;font-size:20px}
+.crew .cr-sent p{margin:6px 0 14px;color:var(--mut);font-size:15px}

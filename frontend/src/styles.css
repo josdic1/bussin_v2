@@ -148,3 +148,7 @@ details.pd div{padding:0 12px 12px;font-size:11px;color:var(--muted);line-height
 .pw-hint{margin:0;font-size:13px;line-height:1.45;color:#66736a}
 .pw-err{margin:0;font-size:13px;font-weight:700;color:#b42318}
 .pw-acts{display:flex;gap:8px;justify-content:flex-end}
+
+/* Parent screen: the crew's "running late" note */
+.fnotice{margin:0;padding:10px 16px;background:#fff4dc;border-bottom:1px solid #ead7a8;color:#5c4510;font-size:14px;font-weight:700;line-height:1.35}
+.fnotice b{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8a651e;margin-bottom:2px}

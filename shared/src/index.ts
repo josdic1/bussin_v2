@@ -620,7 +620,9 @@ export const familyPortalRideSchema = z.strictObject({
     longitude: coordinateSchema.shape.longitude,
     passed: z.boolean()
   })),
-  eta: familyPortalEtaSchema.nullable()
+  eta: familyPortalEtaSchema.nullable(),
+  /** The crew's latest "running late" or "heavy traffic" note on this trip, if any. */
+  crewNotice: z.strictObject({ text: z.string(), at: z.string() }).nullable()
 });
 
 export const familyPortalResponseSchema = z.strictObject({
@@ -742,6 +744,57 @@ export const checkBoardResponseSchema = z.strictObject({
 /** A counselor's phone: Ride Check for the one trip they are on. */
 export const staffCheckResponseSchema = z.strictObject({ trip: checkTripSchema.nullable() });
 
+// ---------------------------------------------------------------------------
+// Trip alerts: a counselor tells Dispatch something (an update) or calls for help (an emergency).
+// ---------------------------------------------------------------------------
+
+export const TRIP_ALERT_CHOICES = {
+  update: {
+    late_5: "Running 5 min late", late_10: "Running 10 min late", late_15: "Running 15+ min late",
+    traffic: "Heavy traffic", bathroom: "Bathroom stop", kid_issue: "Kid issue, handling it",
+    bus_problem: "Bus problem", other: "Update"
+  },
+  emergency: {
+    accident: "Accident", medical: "Medical emergency", breakdown: "Bus broke down", other: "Emergency, call me"
+  }
+} as const;
+export type TripAlertKind = keyof typeof TRIP_ALERT_CHOICES;
+/** Updates parents also see on their bus screen. */
+export const PARENT_VISIBLE_UPDATES = ["late_5", "late_10", "late_15", "traffic"] as const;
+
+export function tripAlertLabel(kind: TripAlertKind, code: string): string {
+  return (TRIP_ALERT_CHOICES[kind] as Record<string, string>)[code] ?? (kind === "emergency" ? "Emergency" : "Update");
+}
+
+export const tripAlertInputSchema = z.strictObject({
+  kind: z.enum(["update", "emergency"]),
+  code: z.string().regex(/^[a-z_0-9]{1,40}$/),
+  note: z.string().trim().max(300, "Keep it under 300 characters.").transform((value) => value || null).nullable().optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional()
+}).refine((input) => input.code in TRIP_ALERT_CHOICES[input.kind], { message: "Pick one of the choices." })
+  .refine((input) => (input.latitude === undefined) === (input.longitude === undefined), { message: "Send both coordinates." });
+
+export const tripAlertSchema = z.strictObject({
+  id: z.string().uuid(),
+  tripId: z.string().uuid(),
+  busLabel: z.string(),
+  routeName: z.string(),
+  servicePeriod: routeServicePeriodSchema,
+  kind: z.enum(["update", "emergency"]),
+  code: z.string(),
+  label: z.string(),
+  note: z.string().nullable(),
+  latitude: z.number().nullable(),
+  longitude: z.number().nullable(),
+  sentBy: z.string(),
+  createdAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  resolvedBy: z.string().nullable()
+});
+export type TripAlert = z.infer<typeof tripAlertSchema>;
+export const tripAlertsResponseSchema = z.strictObject({ alerts: z.array(tripAlertSchema) });
+
 /** Admin's View as picker: every counselor and bus, with the trip their phone would open to. */
 export const previewPeopleSchema = z.strictObject({
   counselors: z.array(z.strictObject({ id: z.string().uuid(), name: z.string(), trip: z.string().nullable() })),
@@ -792,6 +845,11 @@ export const historyTripSchema = z.strictObject({
     departureMethod: z.enum(["automatic", "manual"]).nullable()
   })),
   events: z.array(historyEventSchema),
+  /** Updates and emergencies the crew sent from the bus. */
+  alerts: z.array(z.strictObject({
+    kind: z.enum(["update", "emergency"]), label: z.string(), note: z.string().nullable(),
+    sentBy: z.string(), createdAt: z.string(), resolvedAt: z.string().nullable(), resolvedBy: z.string().nullable()
+  })),
   /** Ride Check, totalled: who rode, who didn't, and anyone never accounted for. */
   riders: z.strictObject({
     total: z.number().int().nonnegative(),

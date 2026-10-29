@@ -704,3 +704,13 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .care-box p{margin:0;font-size:13px;line-height:1.45}
 .ops .care-box p+p{margin-top:6px}
 .ops .care-box b{display:block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--warn)}
+/* Emergency from a bus: impossible to miss */
+.ops .em-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 14px;padding:14px 18px;border-radius:var(--r);background:var(--bad);color:#fff;animation:em-pulse 1.4s ease-in-out infinite}
+.ops .em-banner span{display:block;font-size:10.5px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#ffd9d4}
+.ops .em-banner b{display:block;font-size:22px;letter-spacing:-.01em;margin-top:2px}
+.ops .em-banner p{margin:4px 0 0;font-size:13.5px;font-weight:600}
+.ops .em-acts{display:flex;gap:8px;flex-wrap:wrap}
+.ops .em-acts .btn{background:#fff;color:var(--bad);border-color:#fff;text-decoration:none}
+.ops .em-acts .btn-primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+@keyframes em-pulse{50%{box-shadow:0 0 0 6px rgba(173,65,56,.25)}}
+@media (prefers-reduced-motion:reduce){.ops .em-banner{animation:none}}

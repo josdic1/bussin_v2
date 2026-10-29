@@ -59,6 +59,7 @@ function buildView(trip: HistoryTrip, now: number, color: string): TripView {
     flags.push({ sev: "high", text: `${trip.riders.stillAboard} still marked on bus` });
   }
   if (trip.status === "completed" && trip.riders.total > 0 && !trip.riders.sweptAt) flags.push({ sev: "med", text: "Bus not walked" });
+  for (const alert of trip.alerts.filter((item) => item.kind === "emergency")) flags.push({ sev: "high", text: `Emergency: ${alert.label}` });
   for (const gap of trip.gps.gaps) flags.push({ sev: gap.durationSeconds >= 120 ? "high" : "med", text: `GPS gap ${duration(gap.durationSeconds)}` });
   if (trip.status === "active") {
     const silent = trip.gps.lastObservedAt ? now - Date.parse(trip.gps.lastObservedAt) : null;
@@ -102,6 +103,11 @@ function eventRows(trip: TripView): LogRow[] {
       default: return { at: event.occurredAt, kind: event.type, text: "Note", sub: `By ${event.recordedBy}` };
     }
   });
+  for (const alert of trip.alerts) {
+    rows.push({ at: alert.createdAt, kind: `alert-${alert.kind}`, sev: alert.kind === "emergency" ? "high" : undefined,
+      text: alert.kind === "emergency" ? `EMERGENCY: ${alert.label}` : `From the bus: ${alert.label}`,
+      sub: `${alert.sentBy}${alert.note ? `: "${alert.note}"` : ""}${alert.resolvedAt ? ` · handled by ${alert.resolvedBy ?? "Dispatch"} at ${time(alert.resolvedAt)}` : " · not handled"}` });
+  }
   for (const gap of trip.gps.gaps) {
     rows.push({ at: gap.startedAt, kind: "gap", text: `GPS gap ${duration(gap.durationSeconds)}`, sev: "high",
       sub: `No fixes from ${timeWithSeconds(gap.startedAt)} to ${timeWithSeconds(gap.resumedAt)}` });
