@@ -1166,3 +1166,59 @@ export const saveReportInputSchema = z.strictObject({
   name: z.string().trim().min(1, "Give the report a name.").max(80, "Keep the name under 80 characters."),
   definition: reportDefinitionSchema
 });
+
+// ---------------------------------------------------------------------------
+// Repeating trips: "Bus 1 runs ALPHA AM at 8:00, Mon to Fri, all summer, with this crew".
+// Bussin builds the real trips two weeks ahead. Weekdays are ISO: 1 = Monday ... 7 = Sunday.
+// ---------------------------------------------------------------------------
+
+export const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+/** How far ahead repeating trips are built. */
+export const SCHEDULE_HORIZON_DAYS = 14;
+
+const isoDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.");
+const dayNumber = (day: string) => Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)) / 86_400_000;
+
+export const tripScheduleInputSchema = z.strictObject({
+  routeId: z.string().uuid("Pick a route."),
+  busId: z.string().uuid("Pick a bus."),
+  weekdays: z.array(z.number().int().min(1).max(7)).min(1, "Pick at least one day.").max(7),
+  departTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Pick a time it leaves."),
+  startsOn: isoDaySchema,
+  endsOn: isoDaySchema,
+  crew: assignTripCrewSchema
+}).refine((input) => new Set(input.weekdays).size === input.weekdays.length, { message: "Each day only once." })
+  .refine((input) => input.endsOn >= input.startsOn, { message: "The last day must be on or after the first day." })
+  .refine((input) => dayNumber(input.endsOn) - dayNumber(input.startsOn) <= 366, { message: "Keep it to one year or less." });
+export type TripScheduleInput = z.infer<typeof tripScheduleInputSchema>;
+
+export const tripScheduleSchema = z.strictObject({
+  id: z.string().uuid(),
+  routeId: z.string().uuid(),
+  routeName: z.string(),
+  servicePeriod: routeServicePeriodSchema,
+  routeUsable: z.boolean(),
+  busId: z.string().uuid(),
+  busLabel: z.string(),
+  weekdays: z.array(z.number().int().min(1).max(7)),
+  departTime: z.string(),
+  startsOn: z.string(),
+  endsOn: z.string(),
+  lead: tripStaffSchema.nullable(),
+  counselors: z.array(tripStaffSchema),
+  driver: tripDriverSchema.nullable(),
+  stoppedAt: z.string().nullable(),
+  upcoming: z.number().int().nonnegative(),
+  nextDepartureAt: z.string().nullable()
+});
+export type TripSchedule = z.infer<typeof tripScheduleSchema>;
+export const tripSchedulesResponseSchema = z.strictObject({ schedules: z.array(tripScheduleSchema) });
+
+/** A day that couldn't be built (bus already booked, route has no stops) and why. */
+export const scheduleSkipSchema = z.strictObject({ day: z.string(), reason: z.string() });
+export const tripScheduleSaveResponseSchema = z.strictObject({
+  schedule: tripScheduleSchema,
+  built: z.number().int().nonnegative(),
+  removed: z.number().int().nonnegative(),
+  skipped: z.array(scheduleSkipSchema)
+});

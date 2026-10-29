@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { createPlannedTripSchema, riderCoverageSchema, type BoardTrip, type Bus, type RiderCoverage, type Route } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
 import { dateLabel, dayName, localDate, plural, shiftDay, time, routeWithPeriod } from "../ops/format";
@@ -81,6 +81,7 @@ export function PlanTripForm({ buses, routes, day, onPlanned }: {
     </div>
     <ErrorNote text={error} />
     <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Planning…" : "Plan trip"}</button>
+    <p className="hint">Runs every week? Add it once in <Link to="/timetable">Timetable</Link> instead.</p>
   </form>;
 }
 

@@ -23,6 +23,7 @@ const OPERATIONAL_TABLES = [
   "staff_assignments",
   "trip_stops",
   "trips",
+  "trip_schedules",
   "rider_stop_assignments",
   "rider_guardian_links",
   "riders",

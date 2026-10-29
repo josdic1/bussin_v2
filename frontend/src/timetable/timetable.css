@@ -1,0 +1,23 @@
+/* Timetable: trips that repeat every week. A plain table per period, a form in the drawer. */
+.ops .tt .tbl{margin-bottom:6px}
+.ops .tt-table td{white-space:nowrap}
+.ops .tt-table tbody tr{cursor:pointer}
+.ops .tt-table tbody tr:hover td{background:#fafbf9}
+.ops .tt-table.dim td{color:var(--muted)}
+.ops .tt-table .fc{margin-left:8px}
+.ops .tt-days{display:inline-flex;gap:3px}
+.ops .tt-days i{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;font-style:normal;font-size:9.5px;font-weight:850;color:#b9c3bb;border:1px solid var(--line2)}
+.ops .tt-days i.on{background:var(--green);border-color:var(--green);color:#fff}
+.ops .tt-stopped{margin-top:18px}
+.ops .tt-stopped summary{cursor:pointer;font-size:12px;font-weight:800;color:var(--muted);margin-bottom:10px}
+
+.ops .tt-form fieldset{border:0;margin:0;padding:0;display:grid;gap:12px;min-width:0}
+.ops .tt-pick{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.ops .tt-pick button{height:36px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px;font-weight:800;color:var(--ink);cursor:pointer}
+.ops .tt-pick button.on{background:var(--green);border-color:var(--green);color:#fff}
+.ops .tt-pick button:disabled{cursor:default}
+.ops .tt-form .dblock{border-top:1px solid var(--line2);padding-top:12px;display:grid;gap:8px}
+.ops .tt-form .confirm{margin-top:4px}
+.ops .tt-result ul{margin:0 0 12px;padding-left:18px;font-size:13px;line-height:1.6}
+.ops .tt-result li b{margin-right:6px}
+.ops .tt .tr-busc{display:inline-flex;align-items:center;gap:7px}

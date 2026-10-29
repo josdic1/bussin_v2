@@ -18,7 +18,7 @@ import {
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
-import { snapshotTripRiders } from "../families/access.js";
+import { createTrip } from "../trips/create.js";
 import { applyTripAction, arrivalMethodOf } from "../trips/actions.js";
 import { editPlannedTrip } from "../trips/edit.js";
 import { subscribeToDispatchLocations } from "./live.js";
@@ -675,81 +675,14 @@ dispatchRoutes.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const route = await client.query<{ id: string; name: string; servicePeriod: "AM" | "PM" }>(
-        `SELECT id, name, service_period AS "servicePeriod"
-           FROM routes
-          WHERE id = $1 AND active = true AND superseded_at IS NULL
-          FOR SHARE`,
-        [input.data.routeId]
-      );
-      const bus = await client.query<{ id: string; label: string }>(
-        "SELECT id, label FROM buses WHERE id = $1 AND active = true FOR UPDATE",
-        [input.data.busId]
-      );
-      if (!route.rowCount || !bus.rowCount) {
+      const created = await createTrip(client, { routeId: input.data.routeId, busId: input.data.busId, departure });
+      if (!created.ok) {
         await client.query("ROLLBACK");
-        response.status(409).json({ error: "The selected route or bus is unavailable." });
+        response.status(409).json({ error: created.error });
         return;
       }
-
-      // Locking the bus above serializes competing bookings for the same time.
-      const booked = await client.query(
-        `SELECT 1 FROM trips t
-          WHERE t.bus_id = $1 AND t.departure_at = $2
-            AND t.status <> 'cancelled'
-          LIMIT 1`,
-        [bus.rows[0].id, departure]
-      );
-      if (booked.rowCount) {
-        await client.query("ROLLBACK");
-        response.status(409).json({ error: "This bus already has a trip at that time." });
-        return;
-      }
-      const stops = await client.query<{
-        id: string; position: number; label: string;
-        latitude: string | null; longitude: string | null;
-      }>(
-        `SELECT id, position, label, latitude, longitude
-           FROM route_stops WHERE route_id = $1 ORDER BY position
-           FOR SHARE`,
-        [route.rows[0].id]
-      );
-      if (!stops.rowCount || stops.rows.some((stop) =>
-        stop.latitude === null || stop.longitude === null
-      )) {
-        await client.query("ROLLBACK");
-        response.status(409).json({ error: "The route needs stops with locations." });
-        return;
-      }
-      const trip = await client.query<{ id: string; status: TripRow["status"] }>(
-        `INSERT INTO trips (route_id, bus_id, departure_at)
-         VALUES ($1, $2, $3) RETURNING id, status`,
-        [route.rows[0].id, bus.rows[0].id, departure]
-      );
-      for (const stop of stops.rows) {
-        await client.query(
-          `INSERT INTO trip_stops
-           (trip_id, route_id, route_stop_id, position, label, latitude, longitude)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [trip.rows[0].id, route.rows[0].id, stop.id,
-           stop.position, stop.label, stop.latitude, stop.longitude]
-        );
-      }
-      await snapshotTripRiders(client, trip.rows[0].id);
       await client.query("COMMIT");
-      response.status(201).json(toTrip({
-        id: trip.rows[0].id,
-        routeId: route.rows[0].id,
-        routeName: route.rows[0].name,
-        servicePeriod: route.rows[0].servicePeriod,
-        busId: bus.rows[0].id,
-        busLabel: bus.rows[0].label,
-        departureAt: departure,
-        status: trip.rows[0].status,
-        stopCount: stops.rows.length,
-        assignedStaffId: null,
-        assignedStaffName: null
-      }));
+      response.status(201).json(toTrip({ ...created.trip, assignedStaffId: null, assignedStaffName: null }));
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

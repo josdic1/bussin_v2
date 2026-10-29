@@ -16,6 +16,8 @@ import { reportRoutes } from "./reports/routes.js";
 import { previewRoutes } from "./preview/routes.js";
 import { driverRoutes } from "./drivers/routes.js";
 import { alertRoutes } from "./alerts/routes.js";
+import { scheduleRoutes } from "./schedules/routes.js";
+import { startScheduleBuilder } from "./schedules/build.js";
 import { dataImportRoutes } from "./data/import.js";
 import { tableCsvRoutes } from "./data/tableCsv.js";
 import { deviceRoutes, trackerRoutes } from "./device/routes.js";
@@ -75,6 +77,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/preview", previewRoutes);
 app.use("/api/drivers", driverRoutes);
 app.use("/api/alerts", alertRoutes);
+app.use("/api/schedules", scheduleRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });
@@ -128,6 +131,8 @@ const server = app.listen(port, isProduction ? "0.0.0.0" : "127.0.0.1", () => {
 
 // Finishes trips the driver forgot to finish (10 min after the final stop).
 const stopAutoFinish = startAutoFinish();
+// Keeps two weeks of repeating trips planned (hourly, and shortly after startup).
+const stopScheduleBuilder = startScheduleBuilder();
 
 /** Redeploys send SIGTERM: stop accepting, end live streams, drain the pool. */
 let shuttingDown = false;
@@ -135,6 +140,7 @@ function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   stopAutoFinish();
+  stopScheduleBuilder();
   console.log(`${signal} received, shutting down`);
   closeAllStreams();
   const force = setTimeout(() => process.exit(0), 8_000);
