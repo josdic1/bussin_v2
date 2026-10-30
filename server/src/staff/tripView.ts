@@ -1,6 +1,7 @@
 import { staffTripResponseSchema, type StaffTrip } from "@bussin/shared";
 import { pool } from "../db/pool.js";
 import { arrivalMethodOf } from "../trips/actions.js";
+import { robotDrives } from "../demo/simulate.js";
 
 // The trip as a phone or bus tracker sees it: route, bus, status and every stop with
 // its arrival and departure. chosenSql is a subquery returning one trip_id column:
@@ -118,7 +119,7 @@ ${chosenSql}       ) chosen
       status: first.status,
       stops,
       crewRole: first.crewRole,
-      busPhoneLive: first.busPhoneLive
+      busPhoneLive: first.busPhoneLive || robotDrives(first.id)
     }
   }).trip;
 }

@@ -5,6 +5,7 @@
 .ops .nb-clock{margin:0;font-size:13px;font-weight:800;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .ops .nb-head h1{margin:4px 0 0;font-size:40px;line-height:1.05;letter-spacing:-.02em;color:var(--ink)}
 .ops .nb-head.bad h1{color:var(--bad)}
+.ops .nb-head.warn h1{color:var(--warn)}
 .ops .nb-sub{margin:8px 0 0;font-size:16px;color:var(--muted)}
 .ops .nb-head-acts{display:flex;align-items:center;gap:10px}
 
@@ -68,3 +69,17 @@
 .ops .em-banner .em-kids{margin-top:8px;font-size:13.5px;line-height:1.45;color:#fff}
 .ops .em-banner .em-kids b{display:inline;font-size:13.5px}
 .ops .rc{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+/* One quiet line for everything that isn't an emergency. */
+.ops .nb-inbox{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
+.ops .nb-inbox-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;border:0;background:none;font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer}
+.ops .nb-inbox-head i{flex:none;width:9px;height:9px;border-radius:50%;background:#8a959e}
+.ops .nb-inbox.warn .nb-inbox-head i{background:var(--warn)}
+.ops .nb-inbox-head b{flex:none}
+.ops .nb-inbox-head span{flex:1;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ops .nb-inbox-head em{flex:none;font-style:normal;font-size:13px;font-weight:850;color:var(--green)}
+.ops .nb-inbox ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--line2)}
+.ops .nb-inbox li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;font-size:14px}
+.ops .nb-inbox li + li{border-top:1px solid var(--line2)}
+.ops .nb-inbox li.warn{background:#fffaf0}
+.ops .nb-inbox li small{color:var(--soft)}
+.ops .nb-inbox li button{flex:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px;background:#fff;font:inherit;font-size:13px;font-weight:800;color:var(--ink);cursor:pointer}

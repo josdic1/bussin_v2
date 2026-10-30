@@ -102,7 +102,8 @@ export async function buildCamp(client: PoolClient, size: CampSize) {
     const last = pick(LAST, family * 3 + Math.floor(family / LAST.length));
     const size = Math.min(kids - made, 1 + (family % 5 === 0 ? 2 : family % 3 === 0 ? 1 : 0));
     const line = lines[(family - 1) % lines.length]!;
-    const stopIndex = family % 2;
+    // Alternate stops per line (not per family number), so every line has kids at both stops.
+    const stopIndex = Math.floor((family - 1) / lines.length) % 2;
     const parents: string[] = [];
     for (let p = 0; p < (family % 4 === 0 ? 1 : 2); p++) {
       guardianCount++;

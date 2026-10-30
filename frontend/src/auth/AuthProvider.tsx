@@ -36,6 +36,12 @@ async function responseError(response: Response): Promise<Error> {
   return new Error(`Request failed (${response.status})`);
 }
 
+/** Written whenever this tab signs in or out, so other tabs of the same browser follow. */
+export const SIGNIN_KEY = "bussin.signin";
+export function announceSignIn() {
+  try { localStorage.setItem(SIGNIN_KEY, String(Date.now())); } catch { /* private mode: tabs catch up on focus */ }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   // undefined means we have not checked the existing session yet.
   const [member, setMember] = useState<SignedInMember | null | undefined>();
@@ -88,6 +94,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Sign-in is shared by every tab in this browser. If another tab signs in as someone else
+  // (or signs out), this tab would keep showing the old person's screen while the server
+  // answers as the new one ("Access denied"). Re-check when the tab comes back into view,
+  // and right away when another tab says it switched; reload into the right screen.
+  const memberId = member === undefined ? undefined : member?.id ?? null;
+  useEffect(() => {
+    if (memberId === undefined) return;
+    let checking = false;
+    const check = async () => {
+      if (checking || document.hidden) return;
+      checking = true;
+      try {
+        const response = await fetch("/api/auth/me", { credentials: "same-origin" });
+        const now = response.status === 401 ? null
+          : response.ok ? authResponseSchema.parse(await response.json()).member.id : memberId;
+        if (now !== memberId) location.reload();
+      } catch { /* offline: check again next time */ } finally { checking = false; }
+    };
+    const onStorage = (event: StorageEvent) => { if (event.key === SIGNIN_KEY) location.reload(); };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [memberId]);
+
   async function login(identity: string, password: string) {
     const body = loginSchema.parse({ identity, password });
     const response = await fetch("/api/auth/login", {
@@ -102,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMember(data.member);
     setTenant(data.tenant);
     setLoadError(null);
+    announceSignIn();
   }
 
   async function changePassword(
@@ -134,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!response.ok) throw await responseError(response);
     setMember(null);
     setTenant(null);
+    announceSignIn();
   }
 
   return (

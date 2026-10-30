@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { announceSignIn } from "../auth/AuthProvider";
 
 // Is this the demo copy? Asked once per page load. The real site always answers no.
 
@@ -41,6 +42,7 @@ export type Who = "office" | "counselor" | "parent";
 export async function signInAs(who: Who) {
   await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
   await post("/api/demo/signin", { as: who });
+  announceSignIn();
   location.assign("/");
 }
 export async function resetDemo(period: "AM" | "PM") {
@@ -61,7 +63,7 @@ export type Keep = { setup: boolean; team: boolean; kids: boolean; history: bool
 /** Wipe what isn't kept. Without the camp setup there is nothing to run, so sign out to the welcome page. */
 export async function clearDemo(keep: Keep) {
   await post("/api/demo/clear", keep);
-  if (!keep.setup) await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+  if (!keep.setup) { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined); announceSignIn(); }
   location.assign("/");
 }
 

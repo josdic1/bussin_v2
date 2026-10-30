@@ -36,6 +36,9 @@ const plans = new Map<string, Plan>();
 let timer: NodeJS.Timeout | null = null;
 let ticking = false;
 
+/** True while the demo robot is driving this trip. Always false on the real app. */
+export function robotDrives(tripId: string) { return speed > 0 && !!plans.get(tripId) && !plans.get(tripId)!.finished; }
+
 export function simulatorState() { return { speed, buses: [...plans.values()].filter((plan) => !plan.finished).length }; }
 
 export function setSimulator(next: number) {

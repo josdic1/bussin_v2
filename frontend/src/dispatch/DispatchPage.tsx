@@ -184,6 +184,11 @@ function describe(row: BusRow, now: number, open: (id: string) => void, start: (
     const late = timing(trip, now);
     const until = Date.parse(trip.departureAt) - now;
     const from = first ? `From ${first.label}${end ? ` to ${end.label}` : ""}` : "";
+    // Two hours past its time and never started: it didn't run. That's history, not an emergency.
+    if (late?.kind === "overdue" && late.minutes > 120) {
+      return { ...base, tone: "idle", rank: 4, tag: "Didn't run",
+        big: "Didn't run", small: `Was due at ${time(trip.departureAt)}. ${from}` };
+    }
     if (late?.kind === "overdue") {
       return {
         ...base, tone: "bad", rank: 0, tag: `${late.minutes} min late`,
@@ -318,6 +323,15 @@ export function DispatchPage() {
   const resolveAlert = (id: string) => { void tripAlerts.resolve(id).catch((cause) => toast(message(cause, "Could not mark it handled."))); };
   const kidChecks = check.trips.flatMap((trip) => checkAlerts(trip, now).filter((alert) => alert.sev === "high").map((alert) => ({ ...alert, tripId: trip.id, bus: trip.busLabel })));
   const noRoute = coverage?.noRoute ?? [];
+  const [notesOpen, setNotesOpen] = useState(false);
+  type Note = { key: string; text: string; sub?: string; tone: "info" | "warn"; action: string; run: () => void };
+  const notes: Note[] = [
+    ...kidChecks.map((check, index) => ({ key: `kid-${index}`, tone: "warn" as const, text: `${check.bus}: ${check.text}`, action: "Open bus", run: () => openTrip(check.tripId) })),
+    ...updates.map((alert) => ({ key: alert.id, tone: "info" as const, text: `${alert.busLabel}: ${alert.label}${alert.note ? ` "${alert.note}"` : ""}`,
+      sub: `${alert.sentBy}, ${time(alert.createdAt)}`, action: "Got it", run: () => resolveAlert(alert.id) })),
+    ...(noRoute.length ? [{ key: "no-route", tone: "info" as const, text: `${noRoute.length} ${plural(noRoute.length, "kid has", "kids have")} no bus assigned`,
+      sub: noRoute.slice(0, 3).map((rider) => rider.name).join(", ") + (noRoute.length > 3 ? "…" : ""), action: "Fix", run: () => navigate("/families?attention=1") }] : [])
+  ];
   useAttentionSignal(needYou + emergencies.length + kidChecks.length);
 
   // One sentence a person can read from across the room.
@@ -355,7 +369,7 @@ export function DispatchPage() {
   </Overlay>;
 
   return <div className="nb">
-    <header className={`nb-head ${needYou || kidChecks.length ? "bad" : ""}`}>
+    <header className={`nb-head ${emergencies.length || cards.some((card) => card.tone === "bad") ? "bad" : needYou || kidChecks.length ? "warn" : ""}`}>
       <div>
         <p className="nb-clock">{time(now)}</p>
         <h1>{headline}</h1>
@@ -390,20 +404,19 @@ export function DispatchPage() {
       </div>
     </section>)}
 
-    {(updates.length > 0 || kidChecks.length > 0 || noRoute.length > 0) && <ul className="nb-notes">
-      {updates.map((alert) => <li key={alert.id}>
-        <span><b>{alert.busLabel}:</b> {alert.label}{alert.note ? ` "${alert.note}"` : ""} <span className="nb-dim">{alert.sentBy}, {time(alert.createdAt)}</span></span>
-        <button type="button" onClick={() => resolveAlert(alert.id)}>Got it</button>
-      </li>)}
-      {kidChecks.length > 0 && <li className="bad">
-        <span><b>{kidChecks[0].bus}:</b> {kidChecks[0].text}{kidChecks.length > 1 ? ` (and ${kidChecks.length - 1} more)` : ""}</span>
-        <button type="button" onClick={() => openTrip(kidChecks[0].tripId)}>Open bus</button>
-      </li>}
-      {noRoute.length > 0 && <li className="bad">
-        <span><b>{noRoute.length} {plural(noRoute.length, "kid has", "kids have")} no bus:</b> {noRoute.slice(0, 3).map((rider) => rider.name).join(", ")}{noRoute.length > 3 ? ` and ${noRoute.length - 3} more` : ""}</span>
-        <button type="button" onClick={() => navigate("/families?attention=1")}>Fix</button>
-      </li>}
-    </ul>}
+    {/* Everything that isn't an emergency waits in one quiet line. Open it when you have a second. */}
+    {notes.length > 0 && <section className={`nb-inbox${kidChecks.length ? " warn" : ""}`}>
+      <button type="button" className="nb-inbox-head" aria-expanded={notesOpen} onClick={() => setNotesOpen(!notesOpen)}>
+        <i aria-hidden="true" />
+        <b>{notes.length} {plural(notes.length, "note", "notes")}</b>
+        <span>{notes[0]!.text}{notes.length > 1 ? ` · and ${notes.length - 1} more` : ""}</span>
+        <em>{notesOpen ? "Hide" : "Show"}</em>
+      </button>
+      {notesOpen && <ul>{notes.map((note) => <li key={note.key} className={note.tone}>
+        <span>{note.text}{note.sub && <small> {note.sub}</small>}</span>
+        <button type="button" onClick={note.run}>{note.action}</button>
+      </li>)}</ul>}
+    </section>}
 
     {shown.length
       ? <div className="nb-grid">{shown.map((card) =>

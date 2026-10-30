@@ -13,6 +13,7 @@ import { openStream } from "../sse.js";
 import { subscribeToStaffTrips } from "./live.js";
 import { BUS_PHONE_LIVE_SQL, readStaffTrip, STAFF_CHOSEN_TRIP } from "./tripView.js";
 import { ingestLocation } from "./locationIngest.js";
+import { robotDrives } from "../demo/simulate.js";
 
 export const staffRoutes = Router();
 
@@ -180,7 +181,8 @@ staffRoutes.post(
     }
 
     // The bus's own phone is the GPS while it is live; staff phones are the backup.
-    if (check.rows[0].busPhone) {
+    // In the demo, a bus the robot is driving takes no GPS from phones (or it would jump to wherever you are).
+    if (check.rows[0].busPhone || robotDrives(input.data.tripId)) {
       response.status(200).json(staffLocationSampleResponseSchema.parse({ accepted: false, reason: "bus_phone" }));
       return;
     }

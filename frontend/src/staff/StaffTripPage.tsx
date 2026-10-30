@@ -8,6 +8,7 @@ import { AlertSheet, CrewHelp, useCrewAlerts } from "./CrewAlerts";
 import type { TripAlertKind } from "@bussin/shared";
 import "./crew.css";
 import { InstallBanner } from "../install/InstallGuide";
+import { useDemo } from "../demo/useDemo";
 
 /*
  * The counselor phone. Everyone on the crew does Ride Check for their trip.
@@ -202,6 +203,7 @@ function RiderRow({ rider, tripStatus, busy, saved, tap }: {
 
 /** preview: the admin's View as, showing this counselor's phone. Nothing tapped here saves. */
 export function StaffTripPage({ preview }: { preview?: { memberId: string; name: string } } = {}) {
+  const demo = useDemo();
   const t = useTerminalTrip(preview
     ? { kind: "preview", as: "staff", tripUrl: `/api/preview/counselor/${preview.memberId}/trip` } : { kind: "staff" });
   const check = useRideCheck(preview?.memberId);
@@ -246,7 +248,7 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
 
   // ---------- GPS line: who is tracking this bus ----------
   const gpsLine = !trip ? null
-    : trip.busPhoneLive ? { tone: "good", text: "The bus phone is tracking this bus." }
+    : trip.busPhoneLive ? { tone: "good", text: demo?.demo && demo.driving.speed ? "Demo: the robot is driving this bus, so your phone's location isn't used." : "The bus phone is tracking this bus." }
       : !lead ? { tone: "", text: "The lead's phone tracks the bus. Yours just does Ride Check." }
         : { tone: t.status.tone === "good" || t.status.tone === "ready" ? "good" : "warn", text: `${t.status.title}${t.status.detail ? `. ${t.status.detail}` : ""}` };
 
