@@ -1,0 +1,42 @@
+/* Buses: a short list, and a sheet with a drawing of the bus and its checklist. */
+.ops .fl-table tbody tr{cursor:pointer}
+.ops .fl-table tbody tr:hover td{background:#fafbf9}
+.ops .fl-table tr.off td{color:var(--muted)}
+.ops .fl-bus{display:inline-flex;align-items:center;gap:10px}
+.ops .fl-tag{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:850;white-space:nowrap}
+.ops .fl-tag.ok{background:var(--okbg);color:var(--ok)}
+.ops .fl-tag.warn{background:var(--warnbg);color:var(--warn)}
+.ops .fl-tag.bad{background:var(--badbg);color:var(--bad)}
+.ops .fl-tag.off{background:var(--line2);color:var(--muted)}
+.ops .fl-cards{display:flex;flex-direction:column;gap:8px}
+.ops .fl-card{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"av t" "av tag";align-items:center;gap:4px 12px;width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;text-align:left;color:var(--ink)}
+.ops .fl-card .av{grid-area:av}
+.ops .fl-card .fl-tag{grid-area:tag;justify-self:start}
+.ops .fl-card.off{opacity:.65}
+.ops .fl-card-text{grid-area:t;display:flex;flex-direction:column;min-width:0}
+.ops .fl-card-text small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.ops .fl-sub{margin:-4px 0 12px}
+.ops .fl-bp{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:12px;background:#fbfbf8;color:#17211b;padding:6px}
+.ops .fl-bp .fillable{fill:#fff}
+.ops .fl-bp .bp-zone.ok{stroke:#28704c}.ops .fl-bp .bp-zone.ok .fillable{fill:#e6f2ea}
+.ops .fl-bp .bp-zone.warn{stroke:#a87711}.ops .fl-bp .bp-zone.warn .fillable{fill:#faf0d6}
+.ops .fl-bp .bp-zone.bad{stroke:#ad4138;stroke-width:2.25}.ops .fl-bp .bp-zone.bad .fillable{fill:#f9e2df}
+.ops .fl-bp .bp-zone.info{stroke:#8a959e;stroke-dasharray:3 3}
+.ops .fl-bp .bp-pin circle{stroke:#fff;stroke-width:2;stroke-dasharray:none}
+.ops .fl-bp .bp-pin.ok circle{fill:#28704c}.ops .fl-bp .bp-pin.warn circle{fill:#a87711}
+.ops .fl-bp .bp-pin.bad circle{fill:#ad4138}.ops .fl-bp .bp-pin.info circle{fill:#8a959e}
+.ops .fl-bp .bp-pin text{fill:#fff;stroke:none;font-size:12px;font-weight:900;font-family:inherit}
+.ops .fl-checks{list-style:none;margin:12px 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:6px}
+.ops .m .fl-checks{grid-template-columns:1fr}
+.ops .fl-checks li{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--line2);font-size:13px}
+.ops .fl-checks .n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;color:#fff;font-size:11px;font-weight:900;background:#7a8794}
+.ops .fl-checks li.ok .n{background:var(--ok)}.ops .fl-checks li.warn .n{background:#a87711}.ops .fl-checks li.bad .n{background:var(--bad)}
+.ops .fl-checks li.bad{background:var(--badbg);border-color:var(--badline)}
+.ops .fl-checks li.warn{background:var(--warnbg);border-color:var(--warnline)}
+.ops .fl-checks li span:last-child{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ops .fl-checks li.bad span:last-child{color:var(--bad);font-weight:750}
+.ops .fl-form{margin-top:18px;padding-top:14px;border-top:1px solid var(--line2)}
+.ops .fl-form .rf2 input{min-width:0}
+.ops .fl-retire{margin-top:18px;padding-top:14px;border-top:1px solid var(--line2)}
+.ops .fl-form textarea{font:inherit;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;resize:vertical}

@@ -1,68 +1,219 @@
-import { useMemo, useState, type CSSProperties, type FormEvent, } from "react";
-import { Link } from "react-router";
-import { createBusSchema } from "@bussin/shared";
-import { message, send } from "../ops/api";
-import { age, ageShort, localDate, PALETTE, plural, routeWithPeriod, time } from "../ops/format";
-import { currentStopIndex, fleetRows, STATUS_SLUG, type BusRow, type FleetStatus } from "../ops/fleetModel";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import {
+  busChecks, busDetailsInputSchema, busSchema, createBusSchema, trackersResponseSchema,
+  type Bus, type BusCheck, type Tracker
+} from "@bussin/shared";
+import { getJson, message, send } from "../ops/api";
+import { localDate, time } from "../ops/format";
+import { busColors, busNumber } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Bar, CrewPills, ErrorNote, Head, NoMatch, Plus, Search, Swatch, Tile, type Tone } from "../ops/ui";
-import { useBoard, useNow } from "../ops/useBoard";
+import { ErrorNote, Head, NoMatch } from "../ops/ui";
+import { useBoard, useNow, usePolling } from "../ops/useBoard";
 import { TrackerPanel } from "./TrackerPanel";
+import "./fleet.css";
 
+/*
+ * Buses: a short list you open a few times a summer. Each bus has what the office keeps on
+ * file (plate, company, seats, inspection, insurance) and a GPS phone. Click a bus for its
+ * sheet: a drawing of the bus with each item checked off, red where something's missing.
+ */
 
-type Filter = "ALL" | FleetStatus;
-type OverlayState = { type: "bus"; id: string } | { type: "addbus" } | { type: "routes" } | null;
-const ORDER: FleetStatus[] = ["IN SERVICE", "GPS STALE", "PLANNED", "AVAILABLE", "INACTIVE"];
+/** Checks that make a bus "not ready". The GPS phone is optional: the lead's phone tracks the bus without it. */
+const required = (check: BusCheck) => check.key !== "gps";
+const worst = (checks: BusCheck[]) =>
+  checks.filter(required).find((c) => c.state === "expired") ?? checks.filter(required).find((c) => c.state === "missing")
+  ?? checks.filter(required).find((c) => c.state === "soon") ?? null;
 
-function StatusPill({ status }: { status: FleetStatus }) {
-  return <span className={`st st-${STATUS_SLUG[status]}`}>{status}</span>;
+export function FleetPage() {
+  const { mode, isAdmin, toast } = useOps();
+  const today = localDate(new Date());
+  const board = useBoard(today);
+  const now = useNow();
+  const [trackers, setTrackers] = useState<Tracker[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  usePolling(async (signal) => {
+    try { setTrackers((await getJson("/api/fleet/trackers", trackersResponseSchema, signal)).trackers); }
+    catch { /* the list still works without tracker status */ }
+  }, 60_000, [board.buses.length]);
+
+  const colorOf = useMemo(() => busColors(board.buses), [board.buses]);
+  const paired = (busId: string) => trackers.some((tracker) => tracker.busId === busId);
+  const rows = board.buses.map((bus) => {
+    const checks = busChecks(bus, today, paired(bus.id));
+    const trips = board.trips.filter((trip) => trip.busId === bus.id);
+    const running = trips.find((trip) => trip.status === "active");
+    const next = trips.filter((trip) => trip.status === "planned" && Date.parse(trip.departureAt) > now)
+      .sort((a, b) => Date.parse(a.departureAt) - Date.parse(b.departureAt))[0];
+    const todayText = !bus.active ? "Out of service" : running ? "On the road" : next ? `Leaves ${time(next.departureAt)}` : trips.length ? "Done for today" : "No trips today";
+    return { bus, checks, problem: worst(checks), todayText };
+  }).sort((a, b) => Number(b.bus.active) - Number(a.bus.active) || a.bus.label.localeCompare(b.bus.label, undefined, { numeric: true }));
+  const open = rows.find((row) => row.bus.id === openId) ?? null;
+  const problems = rows.filter((row) => row.bus.active && row.problem && row.problem.state !== "soon").length;
+
+  return <div className="fl">
+    <Head eyebrow="Setup" title="Buses" sub={rows.length ? `${rows.filter((r) => r.bus.active).length} in service${problems ? ` · ${problems} missing paperwork` : ""}` : undefined}
+      actions={isAdmin ? <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>+ Add bus</button> : undefined} />
+    <ErrorNote text={board.error} />
+    {board.loading && <p className="hint">Loading buses…</p>}
+    {!board.loading && !rows.length && <NoMatch>No buses yet. Add the first one.</NoMatch>}
+
+    {rows.length > 0 && (mode === "desktop"
+      ? <table className="tbl fl-table">
+        <thead><tr><th>Bus</th><th>Plate</th><th>Company</th><th>Seats</th><th>Today</th><th>On file</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.bus.id} data-ov="" tabIndex={0} className={row.bus.active ? "" : "off"}
+          onClick={() => setOpenId(row.bus.id)} onKeyDown={(event) => { if (event.key === "Enter") setOpenId(row.bus.id); }}>
+          <td><span className="fl-bus"><span className="av" style={{ "--c": colorOf(row.bus.id), "--s": "26px" } as CSSProperties}>{busNumber(row.bus.label)}</span><b>{row.bus.label}</b></span></td>
+          <td className="mono">{row.bus.plate ?? <span className="dim">—</span>}</td>
+          <td>{row.bus.company ?? <span className="dim">—</span>}</td>
+          <td>{row.bus.seats ?? <span className="dim">—</span>}</td>
+          <td>{row.todayText}</td>
+          <td><OnFile row={row} /></td>
+        </tr>)}</tbody>
+      </table>
+      : <div className="fl-cards">{rows.map((row) => <button key={row.bus.id} type="button" className={`fl-card${row.bus.active ? "" : " off"}`} onClick={() => setOpenId(row.bus.id)}>
+        <span className="av" style={{ "--c": colorOf(row.bus.id), "--s": "34px" } as CSSProperties}>{busNumber(row.bus.label)}</span>
+        <span className="fl-card-text"><b>{row.bus.label}</b><small>{[row.bus.plate, row.bus.company, row.todayText].filter(Boolean).join(" · ")}</small></span>
+        <OnFile row={row} />
+      </button>)}</div>)}
+
+    {open && <Overlay onClose={() => setOpenId(null)}>
+      <BusSheet bus={open.bus} checks={open.checks} color={colorOf(open.bus.id)} todayText={open.todayText} isAdmin={isAdmin} now={now}
+        onSaved={(note) => { toast(note); board.reload(); }} />
+    </Overlay>}
+    {adding && <Overlay onClose={() => setAdding(false)}>
+      <AddBusForm suggested={`Bus ${board.buses.length + 1}`} onAdded={(bus) => { setAdding(false); toast(`${bus.label} added.`); board.reload(); setOpenId(bus.id); }} />
+    </Overlay>}
+  </div>;
 }
 
-function GpsCell({ row, now }: { row: BusRow; now: number }) {
-  const cls = row.status === "GPS STALE" ? "stale" : row.latestGps && row.status === "IN SERVICE" ? "live" : "none";
-  return <span className={`gps ${cls}`}><i />{age(row.latestGps, now)}</span>;
+function OnFile({ row }: { row: { bus: Bus; problem: BusCheck | null } }) {
+  if (!row.bus.active) return <span className="fl-tag off">Out of service</span>;
+  if (!row.problem) return <span className="fl-tag ok">Ready</span>;
+  return <span className={`fl-tag ${row.problem.state === "soon" ? "warn" : "bad"}`}>{row.problem.text}</span>;
 }
 
-function AlertChips({ row }: { row: BusRow }) {
-  return <>{row.alerts.map((alert) => <span key={alert.short} className={`od${alert.sev === "med" ? " med" : ""}`}>{alert.short.toUpperCase()}</span>)}</>;
+/** Side view of a bus (line drawing). Each item on file is a numbered pin on the part it belongs to. */
+function Blueprint({ checks, color }: { checks: BusCheck[]; color: string }) {
+  const tone = (key: BusCheck["key"]) => {
+    const state = checks.find((c) => c.key === key)?.state ?? "missing";
+    return state === "ok" ? "ok" : state === "soon" ? "warn" : key === "gps" ? "info" : "bad";
+  };
+  const pins: { key: BusCheck["key"]; x: number; y: number; n: number }[] = [
+    { key: "gps", x: 526, y: 50, n: 1 }, { key: "seats", x: 312, y: 54, n: 2 }, { key: "company", x: 260, y: 130, n: 3 },
+    { key: "insurance", x: 335, y: 172, n: 4 }, { key: "inspection", x: 586, y: 206, n: 5 }, { key: "plate", x: 50, y: 204, n: 6 }
+  ];
+  return <svg className="fl-bp" viewBox="0 0 640 240" role="img" aria-label="Bus checklist drawing" style={{ "--c": color } as CSSProperties}
+    fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+    <g className="bp-body">
+      <path d="M40 178V58Q40 42 56 42H487Q502 42 508 57L538 119L584 126Q596 128 596 141V178H577M525 178H158M106 178H40" />
+      <path d="M48 51H486" /><path d="M40 108H451" /><path d="M40 151H451" />
+      <path d="M538 119V145H596" /><path d="M550 128L580 133" /><path d="M588 147V166" />
+      <rect x="588" y="136" width="8" height="7" rx="1" />
+      <rect x="453" y="64" width="43" height="108" rx="3" /><path d="M474.5 64V172" />
+      <rect x="459" y="71" width="10" height="68" rx="2" /><rect x="480" y="71" width="10" height="68" rx="2" />
+      <path d="M459 153H490M459 162H490" />
+      <rect x="47" y="68" width="22" height="77" rx="2" /><rect x="52" y="75" width="12" height="28" rx="1" /><path d="M61 117H64" />
+      <path d="M102 178A30 30 0 0 1 162 178" /><path d="M521 178A30 30 0 0 1 581 178" />
+      <rect x="32" y="179" width="39" height="8" rx="2" /><rect x="581" y="173" width="27" height="10" rx="2" />
+      <path d="M526 91H550V75" /><rect x="545" y="61" width="10" height="18" rx="3" />
+      <path d="M40 60H46M40 153H46" /><path d="M562 139H576" />
+    </g>
+    <g className={`bp-zone ${tone("gps")}`}><path className="fillable" d="M504 65H509L531 112H504Z" /><path d="M503 119H533" /></g>
+    <g className={`bp-zone ${tone("seats")}`}>{[79, 132, 185, 238, 291, 344, 397].map((x) =>
+      <rect key={x} className="fillable" x={x} y="65" width="43" height="35" rx="3" />)}</g>
+    <g className={`bp-zone ${tone("company")}`}><rect className="fillable" x="79" y="116" width="361" height="27" rx="2" /></g>
+    <g className={`bp-zone ${tone("insurance")}`}><path d="M40 157H451M496 157H529M573 157H588" /><path d="M40 164H105M159 164H451M496 164H524M578 164H588" /></g>
+    <g className={`bp-zone ${tone("inspection")}`}>{[132, 551].map((cx) => <g key={cx}>
+      <circle className="fillable" cx={cx} cy="181" r="25" /><circle cx={cx} cy="181" r="14" /><circle cx={cx} cy="181" r="5" /></g>)}</g>
+    <g className={`bp-zone ${tone("plate")}`}><rect className="fillable" x="39" y="180" width="23" height="6" rx="1" /></g>
+    {pins.map((pin) => <g key={pin.key} className={`bp-pin ${tone(pin.key)}`} transform={`translate(${pin.x},${pin.y})`}>
+      <circle r="11" /><text y="4" textAnchor="middle">{pin.n}</text></g>)}
+  </svg>;
 }
 
-function BusDetail({ row, now }: { row: BusRow; now: number }) {
-  const trip = row.trip;
-  return <>
-    <p className="eyebrow">BUS</p>
-    <h2 className="d-title"><Swatch color={row.color} />{row.bus.label}</h2>
-    <div className="d-status"><StatusPill status={row.status} /><span>{row.bus.active ? "Bus record active" : "Bus record inactive"}</span></div>
-    {row.alerts.length > 0 && <div className="d-alerts">{row.alerts.map((alert) =>
-      <div key={alert.text} className={`alert alert-${alert.sev}`}><b>{alert.sev === "high" ? "ATTENTION" : "HEADS UP"}</b><span>{alert.text}</span></div>)}</div>}
-    <dl className="d-grid">
-      <div><dt>Current route</dt><dd>{trip?.routeName ?? "—"}</dd></div>
-      <div><dt>Period</dt><dd>{trip?.servicePeriod ?? "—"}</dd></div>
-      {trip && <div className="wide"><dt>Crew</dt><dd><CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} /></dd></div>}
-      <div><dt>Last GPS</dt><dd>{age(row.latestGps, now)}</dd></div>
-      {row.next && <><div><dt>Next stop</dt><dd>{row.next.label}</dd></div>
-        <div><dt>ETA</dt><dd>{row.next.etaAt ? time(row.next.etaAt) : "—"}</dd></div></>}
-    </dl>
-    {trip?.status === "active" && (() => {
-      const current = currentStopIndex(trip);
-      return <><div className="d-sec"><h3>Stops</h3><span>{row.progress?.done} of {trip.stops.length} done</span></div>
-        <ol className="d-stops">{trip.stops.map((stop, index) => {
-          const done = !!stop.departedAt || (index === trip.stops.length - 1 && !!stop.arrivedAt);
-          const cls = done ? "done" : index === current ? "cur" : "";
-          return <li key={stop.id} className={cls}><i style={{ "--c": row.color } as CSSProperties} /><span>{stop.label}</span>
-            <em>{done || stop.arrivedAt ? "Arrived" : index === current ? "Next" : ""}</em></li>;
-        })}</ol></>;
-    })()}
-    <TrackerPanel key={row.bus.id} busId={row.bus.id} busLabel={row.bus.label} busActive={row.bus.active} now={now} />
-    <div className="d-sec"><h3>Today&rsquo;s trips</h3><span>{row.trips.length}</span></div>
-    {!row.trips.length && <p className="muted">No trips for this bus today.</p>}
-    {row.trips.map((item) => <Link key={item.id} className="d-trip" to={`/?trip=${item.id}`}>
-      <div><strong>{item.routeName}</strong><span>{item.servicePeriod} · {time(item.departureAt)}</span></div>
-      <span className={`ts ts-${item.status}`}>{item.status}</span></Link>)}
-  </>;
+function BusSheet({ bus, checks, color, todayText, isAdmin, now, onSaved }: {
+  bus: Bus; checks: BusCheck[]; color: string; todayText: string; isAdmin: boolean; now: number; onSaved: (note: string) => void;
+}) {
+  const from = () => ({ label: bus.label, plate: bus.plate ?? "", company: bus.company ?? "", seats: bus.seats ? String(bus.seats) : "",
+    inspectionDue: bus.inspectionDue ?? "", insuranceExpires: bus.insuranceExpires ?? "", notes: bus.notes ?? "" });
+  const [form, setForm] = useState(from);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const saved = JSON.stringify(from());
+  useEffect(() => setForm(from()), [saved]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changed = JSON.stringify(form) !== saved;
+  const set = (next: Partial<typeof form>) => setForm((current) => ({ ...current, ...next }));
+  const order: BusCheck["key"][] = ["gps", "seats", "company", "insurance", "inspection", "plate"];
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    const parsed = busDetailsInputSchema.safeParse({ ...form, seats: form.seats.trim() ? Number(form.seats) : null });
+    if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the form."); return; }
+    setSaving(true); setError("");
+    try {
+      busSchema.parse(await send("PUT", `/api/fleet/buses/${bus.id}`, parsed.data, "Could not save the bus."));
+      onSaved(`${parsed.data.label} saved.`);
+    } catch (cause) { setError(message(cause, "Could not save the bus.")); }
+    finally { setSaving(false); }
+  }
+  async function setActive(active: boolean) {
+    setSaving(true); setError("");
+    try {
+      await send("POST", `/api/fleet/buses/${bus.id}/active`, { active }, "Could not change it.");
+      onSaved(active ? `${bus.label} is back in service.` : `${bus.label} is out of service.`);
+    } catch (cause) { setError(message(cause, "Could not change it.")); }
+    finally { setSaving(false); }
+  }
+
+  return <div className="fl-sheet">
+    <p className="eyebrow">Bus</p>
+    <h2 className="dt">{bus.label}</h2>
+    <p className="muted fl-sub">{todayText}{bus.usualDriver ? ` · Usually driven by ${bus.usualDriver}` : ""}</p>
+    <Blueprint checks={checks} color={color} />
+    <ol className="fl-checks">{order.map((key, index) => {
+      const check = checks.find((c) => c.key === key)!;
+      const tone = check.state === "ok" ? "ok" : check.state === "soon" ? "warn" : key === "gps" ? "info" : "bad";
+      return <li key={key} className={tone}><span className="n">{index + 1}</span><b>{check.label}</b><span>{check.text}</span></li>;
+    })}</ol>
+
+    {isAdmin && <form className="planf fl-form" onSubmit={(event) => void save(event)} noValidate>
+      <div className="rf2">
+        <div className="ctl-row"><label htmlFor="fl-name">Name</label>
+          <input id="fl-name" value={form.label} maxLength={80} onChange={(event) => set({ label: event.target.value })} /></div>
+        <div className="ctl-row"><label htmlFor="fl-plate">Plate</label>
+          <input id="fl-plate" value={form.plate} maxLength={20} autoComplete="off" onChange={(event) => set({ plate: event.target.value.toUpperCase() })} /></div>
+      </div>
+      <div className="rf2">
+        <div className="ctl-row"><label htmlFor="fl-company">Company</label>
+          <input id="fl-company" value={form.company} maxLength={120} placeholder="Who runs the bus" onChange={(event) => set({ company: event.target.value })} /></div>
+        <div className="ctl-row"><label htmlFor="fl-seats">Seats</label>
+          <input id="fl-seats" inputMode="numeric" value={form.seats} onChange={(event) => set({ seats: event.target.value.replace(/\D/g, "").slice(0, 3) })} /></div>
+      </div>
+      <div className="rf2">
+        <div className="ctl-row"><label htmlFor="fl-insp">Inspection due</label>
+          <input id="fl-insp" type="date" value={form.inspectionDue} onChange={(event) => set({ inspectionDue: event.target.value })} /></div>
+        <div className="ctl-row"><label htmlFor="fl-ins">Insurance expires</label>
+          <input id="fl-ins" type="date" value={form.insuranceExpires} onChange={(event) => set({ insuranceExpires: event.target.value })} /></div>
+      </div>
+      <div className="ctl-row"><label htmlFor="fl-notes">Notes</label>
+        <textarea id="fl-notes" rows={2} maxLength={500} value={form.notes} placeholder="Wheelchair lift, AC broken, company phone…" onChange={(event) => set({ notes: event.target.value })} /></div>
+      <ErrorNote text={error} />
+      <div className="acts">
+        <button type="submit" className="btn btn-primary" disabled={saving || !changed}>{saving ? "Saving…" : "Save"}</button>
+        {changed && <button type="button" className="btn" onClick={() => setForm(from())}>Undo changes</button>}
+      </div>
+    </form>}
+
+    <TrackerPanel key={bus.id} busId={bus.id} busLabel={bus.label} busActive={bus.active} now={now} />
+
+    {isAdmin && <div className="fl-retire">{bus.active
+      ? <button type="button" className="btn" disabled={saving} onClick={() => void setActive(false)}>Take out of service</button>
+      : <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void setActive(true)}>Back in service</button>}</div>}
+  </div>;
 }
 
-function AddBusForm({ suggested, onAdded }: { suggested: string; onAdded: (label: string) => void }) {
+function AddBusForm({ suggested, onAdded }: { suggested: string; onAdded: (bus: Bus) => void }) {
   const [label, setLabel] = useState(suggested);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -71,132 +222,15 @@ function AddBusForm({ suggested, onAdded }: { suggested: string; onAdded: (label
     const parsed = createBusSchema.safeParse({ label: label.trim() });
     if (!parsed.success) { setError("Enter a bus name."); return; }
     setSaving(true);
-    try {
-      await send("POST", "/api/fleet/buses", parsed.data, "Could not add bus.");
-      onAdded(parsed.data.label);
-    } catch (cause) {
-      setError(message(cause, "Could not add bus."));
-    } finally { setSaving(false); }
+    try { onAdded(busSchema.parse(await send("POST", "/api/fleet/buses", parsed.data, "Could not add the bus."))); }
+    catch (cause) { setError(message(cause, "Could not add the bus.")); }
+    finally { setSaving(false); }
   }
-  return <><p className="eyebrow">FLEET</p><h2 className="dt">Add bus</h2>
+  return <><p className="eyebrow">Buses</p><h2 className="dt">Add a bus</h2>
     <form className="planf" onSubmit={(event) => void submit(event)} noValidate>
-      <div className="ctl-row"><label htmlFor="bus-label">Bus name</label>
+      <div className="ctl-row"><label htmlFor="bus-label">Name</label>
         <input id="bus-label" value={label} maxLength={80} autoComplete="off" onChange={(event) => setLabel(event.target.value)} /></div>
       <ErrorNote text={error} />
       <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Adding…" : "Add bus"}</button>
     </form></>;
-}
-
-function RoutesList({ routes, isAdmin }: { routes: ReturnType<typeof useBoard>["routes"]; isAdmin: boolean }) {
-  const families = [...new Set(routes.map((route) => route.routeFamilyName))];
-  return <><p className="eyebrow">FLEET</p><h2 className="dt">Routes</h2>
-    <p className="muted">Routes stay reachable from Fleet. Buses are assigned to trips, not permanently to routes.</p>
-    {isAdmin && <div className="acts"><Link className="btn btn-primary" to="/routes">Open route editor</Link></div>}
-    {!routes.length && <p className="hint">No routes yet.</p>}
-    {routes.map((route) => <div key={route.id} className="dblock">
-      <h3><Swatch color={PALETTE[families.indexOf(route.routeFamilyName) % PALETTE.length]} /> {route.name}
-        <span className="per">{route.servicePeriod}</span>{!route.active && <span className="per">INACTIVE</span>}</h3>
-      <p className="tk">{route.stops.map((stop) => stop.label).join(" → ") || "No stops"}</p>
-    </div>)}
-  </>;
-}
-
-export function FleetPage() {
-  const { mode, isAdmin, toast } = useOps();
-  const board = useBoard(localDate(new Date()), { routes: true });
-  const now = useNow();
-  const [filter, setFilter] = useState<Filter>("ALL");
-  const [query, setQuery] = useState("");
-  const [overlay, setOverlay] = useState<OverlayState>(null);
-
-  const all = useMemo(() => fleetRows(board.buses, board.trips, now), [board.buses, board.trips, now]);
-  const count = (status: FleetStatus) => all.filter((row) => row.status === status).length;
-  const attention = all.filter((row) => row.alerts.length);
-  const needle = query.trim().toLowerCase();
-  const rows = all.filter((row) => (filter === "ALL" || row.status === filter) &&
-    (!needle || `${row.bus.label} ${row.trip?.routeName ?? ""} ${row.trip?.assignedStaff?.displayName ?? ""} ${row.trip?.driver?.name ?? ""} ${row.trip?.counselors.map((c) => c.displayName).join(" ") ?? ""}`.toLowerCase().includes(needle)))
-    .sort((a, b) => (a.alerts.length ? 0 : 1) - (b.alerts.length ? 0 : 1) ||
-      ORDER.indexOf(a.status) - ORDER.indexOf(b.status) ||
-      a.bus.label.localeCompare(b.bus.label, undefined, { numeric: true }));
-  const tiles: [Filter, string, number, string][] = [
-    ["ALL", "All buses", all.length, "fleet"], ["IN SERVICE", "In service", count("IN SERVICE"), "live now"],
-    ["PLANNED", "Planned", count("PLANNED"), "today"], ["AVAILABLE", "Available", count("AVAILABLE"), "no trips"],
-    ["GPS STALE", "GPS stale", count("GPS STALE"), "over 60s"]];
-
-  const selectedRow = overlay?.type === "bus" ? all.find((row) => row.bus.id === overlay.id) : null;
-  const overlayView = overlay && <Overlay onClose={() => setOverlay(null)}>
-    {overlay.type === "bus" ? (selectedRow ? <BusDetail row={selectedRow} now={now} /> : <NoMatch>Bus not found.</NoMatch>)
-      : overlay.type === "routes" ? <RoutesList routes={board.routes} isAdmin={isAdmin} />
-        : <AddBusForm suggested={`Bus ${board.buses.length + 1}`} onAdded={(label) => {
-          setOverlay(null); toast(`${label} added to the fleet.`); board.reload();
-        }} />}
-  </Overlay>;
-  const status = <><ErrorNote text={board.error} />{board.loading && <p className="hint">Loading fleet…</p>}</>;
-  const openBus = (id: string) => setOverlay({ type: "bus", id });
-
-  if (mode === "desktop") {
-    return <>
-      <Head eyebrow="Setup" title="Buses" actions={<>
-        <button type="button" className="btn" onClick={() => setOverlay({ type: "routes" })}>Routes</button>
-        {isAdmin && <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "addbus" })}>Add bus</button>}
-      </>} />
-      {status}
-      <div className="tiles">{tiles.map(([key, label, value, sub]) =>
-        <Tile key={key} label={label} value={value} sub={sub} pressed={filter === key}
-          className={`${key === "GPS STALE" && value ? "bad " : ""}${filter === key ? "on" : ""}`} onClick={() => setFilter(key)} />)}</div>
-      {attention.length > 0 && <div className="attnstrip"><b>{attention.length} NEED ATTENTION</b>
-        {attention.map((row) => <button key={row.bus.id} type="button" className="pillbtn" onClick={() => openBus(row.bus.id)}>
-          {row.bus.label}: {row.alerts.map((alert) => alert.short).join(", ")}</button>)}</div>}
-      <div className="filters"><Search label="Search" value={query} onChange={setQuery} placeholder="Bus, route, driver or counselor" />
-        <span className="cnt">Sorted by attention, then status</span></div>
-      <table className="tbl">
-        <thead><tr><th>Bus</th><th>Status</th><th>Route</th><th>Driver</th><th>Progress</th><th>Next stop</th><th>Departure</th><th>Last GPS</th></tr></thead>
-        <tbody>{rows.length ? rows.map((row) => {
-          const trip = row.trip;
-          return <tr key={row.bus.id} data-ov="" className={row.alerts.length ? "attn" : ""} tabIndex={0}
-            onClick={() => openBus(row.bus.id)}
-            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openBus(row.bus.id); } }}>
-            <td className="busc" style={{ "--c": row.color } as CSSProperties}><b>{row.bus.label}</b><AlertChips row={row} /></td>
-            <td><StatusPill status={row.status} /></td>
-            <td>{trip ? <>{routeWithPeriod(trip.routeName, trip.servicePeriod)}</> : <span className="dim">No trip</span>}</td>
-            <td>{trip?.driver?.name ?? <span className="dim">Unassigned</span>}</td>
-            <td>{row.progress ? <Bar done={row.progress.done} total={row.progress.total} color={row.color} /> : <span className="dim">&mdash;</span>}</td>
-            <td>{row.next ? <>{row.next.label}{row.next.etaAt && <small>ETA {time(row.next.etaAt)}</small>}</> : <span className="dim">&mdash;</span>}</td>
-            <td>{trip ? time(trip.departureAt) : <span className="dim">&mdash;</span>}</td>
-            <td><GpsCell row={row} now={now} /></td>
-          </tr>;
-        }) : <tr><td colSpan={8} className="nomatch">{board.loading ? "Loading…" : "No buses match this view."}</td></tr>}</tbody>
-      </table>
-      {overlayView}
-    </>;
-  }
-
-  return <>
-    <Head eyebrow="Setup" title="Buses" sub={<>{all.length} buses &middot; {count("IN SERVICE")} in service</>}
-      actions={isAdmin ? <Plus label="Add bus" onClick={() => setOverlay({ type: "addbus" })} /> : undefined} />
-    {status}
-    {attention.length > 0 && <div className="alertbar"><div><b>{attention.length} NEED ATTENTION</b>
-      <span>{attention.map((row) => row.bus.label).join(", ")}</span></div>
-      <button type="button" onClick={() => setFilter("ALL")}>View</button></div>}
-    <div className="chips">{tiles.map(([key, label, value]) => <button key={key} type="button"
-      className={`chip${filter === key ? " on" : ""}`} aria-pressed={filter === key} onClick={() => setFilter(key)}>
-      {label.toUpperCase()} <b>{value}</b></button>)}</div>
-    <Search value={query} onChange={setQuery} placeholder="Bus, route, driver or counselor" />
-    <div className="cards" style={{ marginTop: 12 }}>{rows.length ? rows.map((row) => {
-      const trip = row.trip;
-      return <button key={row.bus.id} type="button" className={`bc${row.alerts.length ? " attn" : ""}`}
-        style={{ "--c": row.color } as CSSProperties} onClick={() => openBus(row.bus.id)}>
-        <div className="h"><strong>{row.bus.label}</strong><StatusPill status={row.status} /></div>
-        {row.alerts.length > 0 && <div className="ch"><AlertChips row={row} /></div>}
-        {trip ? <>
-          <div className="rt2">{routeWithPeriod(trip.routeName, trip.servicePeriod)}</div>
-          <div className="tm"><span>{trip.driver?.name ?? "No driver"}</span><span>Departs {time(trip.departureAt)}</span></div>
-          {row.progress && <Bar done={row.progress.done} total={row.progress.total} color={row.color} />}
-        </> : <div className="rt2 muted">No trip today</div>}
-        <div><GpsCell row={row} now={now} /></div>
-      </button>;
-    }) : <NoMatch>No buses match.</NoMatch>}</div>
-    <div className="acts"><button type="button" className="btn" onClick={() => setOverlay({ type: "routes" })}>Routes</button></div>
-    {overlayView}
-  </>;
 }

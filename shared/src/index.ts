@@ -157,8 +157,60 @@ export const busSchema = z.strictObject({
   id: z.string().uuid(),
   label: z.string(),
   active: z.boolean(),
-  createdAt: z.string()
+  createdAt: z.string(),
+  plate: z.string().nullable(),
+  company: z.string().nullable(),
+  seats: z.number().int().nullable(),
+  inspectionDue: z.string().nullable(),
+  insuranceExpires: z.string().nullable(),
+  notes: z.string().nullable(),
+  /** The driver on most of this bus's trips in the last 30 days. */
+  usualDriver: z.string().nullable()
 });
+
+const blankToNull = (max: number, message: string) =>
+  z.string().trim().max(max, message).transform((value) => value || null).nullable();
+const dayOrNull = z.string().regex(/^(\d{4}-\d{2}-\d{2})?$/, "Pick a date.").transform((value) => value || null).nullable();
+
+/** Everything on file for a bus. */
+export const busDetailsInputSchema = z.strictObject({
+  label: z.string().trim().min(1, "Give the bus a name.").max(80),
+  plate: blankToNull(20, "Keep the plate under 20 characters."),
+  company: blankToNull(120, "Keep the company under 120 characters."),
+  seats: z.number().int().min(1, "Seats must be 1 or more.").max(120, "Seats must be 120 or fewer.").nullable(),
+  inspectionDue: dayOrNull,
+  insuranceExpires: dayOrNull,
+  notes: blankToNull(500, "Keep notes under 500 characters.")
+});
+export type BusDetailsInput = z.infer<typeof busDetailsInputSchema>;
+export const busActiveInputSchema = z.strictObject({ active: z.boolean() });
+
+export type BusCheck = { key: "plate" | "company" | "seats" | "inspection" | "insurance" | "gps"; label: string; state: "ok" | "missing" | "expired" | "soon"; text: string };
+
+/**
+ * The bus checklist: what's on file, what's missing, what's expired or expiring in 30 days.
+ * today is "YYYY-MM-DD" in the camp's calendar; gpsPaired says whether a phone is set up on it.
+ */
+export function busChecks(bus: Pick<z.infer<typeof busSchema>, "plate" | "company" | "seats" | "inspectionDue" | "insuranceExpires">, today: string, gpsPaired: boolean): BusCheck[] {
+  const soon = (day: string) => {
+    const days = Math.round((Date.parse(`${day}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
+    return days < 0 ? "expired" : days <= 30 ? "soon" : "ok";
+  };
+  const dated = (key: "inspection" | "insurance", label: string, day: string | null): BusCheck => {
+    if (!day) return { key, label, state: "missing", text: `No ${label.toLowerCase()} date` };
+    const state = soon(day);
+    const nice = new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    return { key, label, state, text: state === "expired" ? `${label} expired ${nice}` : state === "soon" ? `${label} due ${nice}` : `${label} good until ${nice}` };
+  };
+  return [
+    bus.plate ? { key: "plate", label: "Plate", state: "ok", text: bus.plate } : { key: "plate", label: "Plate", state: "missing", text: "No plate" },
+    bus.company ? { key: "company", label: "Company", state: "ok", text: bus.company } : { key: "company", label: "Company", state: "missing", text: "No company" },
+    bus.seats ? { key: "seats", label: "Seats", state: "ok", text: `${bus.seats} seats` } : { key: "seats", label: "Seats", state: "missing", text: "Seats not set" },
+    dated("inspection", "Inspection", bus.inspectionDue),
+    dated("insurance", "Insurance", bus.insuranceExpires),
+    gpsPaired ? { key: "gps", label: "GPS phone", state: "ok", text: "Phone paired" } : { key: "gps", label: "GPS phone", state: "missing", text: "No GPS phone (the lead's phone tracks it)" }
+  ];
+}
 
 export const busesResponseSchema = z.strictObject({
   buses: z.array(busSchema)
