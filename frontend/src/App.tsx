@@ -11,7 +11,6 @@ const TeamPage = lazy(async () => ({ default: (await import("./team/TeamPage")).
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
 const DataPage = lazy(async () => ({ default: (await import("./data/DataPage")).DataPage }));
 const MessagesPage = lazy(async () => ({ default: (await import("./messages/MessagesPage")).MessagesPage }));
-const CheckPage = lazy(async () => ({ default: (await import("./check/CheckPage")).CheckPage }));
 const ReportsPage = lazy(async () => ({ default: (await import("./reports/ReportsPage")).ReportsPage }));
 const LinesPage = lazy(async () => ({ default: (await import("./lines/LinesPage")).LinesPage }));
 const TimetablePage = lazy(async () => ({ default: (await import("./timetable/TimetablePage")).TimetablePage }));
@@ -250,8 +249,8 @@ export function App() {
       <Route element={<AuthGate />}>
         <Route element={<OpsShell />}>
           <Route index element={<DispatchPage />} />
-          <Route path="check" element={<CheckPage />} />
-          <Route path="mybus" element={<Navigate to="/check" replace />} />
+          <Route path="check" element={<Navigate to="/" replace />} />
+          <Route path="mybus" element={<Navigate to="/" replace />} />
           <Route path="fleet" element={<FleetPage />} />
           <Route path="routes" element={<Suspense fallback={<p className="hint">Loading routes…</p>}><RoutesPage /></Suspense>} />
           <Route path="team" element={<AdminOnly><TeamPage /></AdminOnly>} />

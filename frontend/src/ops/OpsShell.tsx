@@ -32,7 +32,6 @@ type Page = { path: string; mark: string; label: string; group: "live" | "record
 
 const PAGES: Page[] = [
   { path: "/", mark: "D", label: "Dispatch", group: "live" },
-  { path: "/check", mark: "RC", label: "Ride Check", group: "live" },
   { path: "/fleet", mark: "F", label: "Fleet", group: "live" },
   { path: "/lines", mark: "L", label: "Lines", group: "live" },
   { path: "/team", mark: "TM", label: "Team", group: "records", adminOnly: true },

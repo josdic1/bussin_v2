@@ -1,21 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { CheckRider, CheckTrip, RiderCheckAction } from "@bussin/shared";
 import { message, send } from "../ops/api";
-import { plural, time, routeWithPeriod } from "../ops/format";
-import { Overlay, useOps } from "../ops/OpsShell";
-import { Dot, ErrorNote, Head, LivePill, NoMatch, Swatch, Tile } from "../ops/ui";
-import { useNow } from "../ops/useBoard";
+import { time, routeWithPeriod } from "../ops/format";
+import { Swatch } from "../ops/ui";
 import {
   alerts, counts, headcount, missed, pillWord, stopPassed, unconfirmed,
   type CheckAlert
 } from "./checkModel";
-import { useCheckBoard } from "./useCheckBoard";
+
+/*
+ * Ride Check for one bus, shown in the bus drawer on Dispatch. Who's on, who's missing,
+ * who isn't riding, with one tap to fix each. There is no separate Ride Check page:
+ * with a handful of buses on the same run, each bus's kids belong with that bus.
+ */
 
 type Act = (tripId: string, riderId: string, type: RiderCheckAction["type"]) => void;
 type Ctx = {
   act: Act; bulk: (tripId: string, type: "board_waiting" | "drop_aboard", stopId: string) => void; sweep: (tripId: string) => void;
-  openManifest: (tripId: string) => void; openDispatch: (tripId: string) => void; busy: boolean;
+  busy: boolean;
   colorOf: (busId: string) => string;
 };
 
@@ -119,11 +121,10 @@ function Manifest({ trip, now, ctx }: { trip: CheckTrip; now: number; ctx: Ctx }
   })).filter((group) => group.riders.length || (am ? group.index === lastIndex : group.index === 0));
 
   return <>
-    <p className="eyebrow">Manifest</p>
-    <div style={{ display: "flex", gap: 14, alignItems: "center", margin: "6px 0 12px" }}>
-      <HeadRing trip={trip} color={color} size={72} />
-      <div><h2 className="dt" style={{ margin: 0 }}>{trip.busLabel}<span className="per">{trip.servicePeriod}</span></h2>
-        <p className="muted" style={{ margin: "4px 0 0" }}>{head.n} {head.label} · {trip.routeName} · {time(trip.departureAt)} · {trip.assignedStaff ? `Monitor ${trip.assignedStaff.displayName}` : "No monitor assigned"}</p></div>
+    <div className="dblock rc-head" style={{ display: "flex", gap: 14, alignItems: "center" }}>
+      <HeadRing trip={trip} color={color} size={64} />
+      <div><h3 style={{ margin: 0 }}>Kids on this bus</h3>
+        <p className="muted" style={{ margin: "4px 0 0" }}>{head.n} of {head.of} {head.label}{counts(trip).not_riding ? ` · ${counts(trip).not_riding} not riding` : ""}</p></div>
     </div>
     {tripAlerts.length > 0 && <div className="surface" style={{ marginBottom: 12 }}><AlertRows list={tripAlerts.map((alert) => ({ trip, alert }))} ctx={ctx} /></div>}
     <Sweep trip={trip} ctx={ctx} />
@@ -152,7 +153,6 @@ function Manifest({ trip, now, ctx }: { trip: CheckTrip; now: number; ctx: Ctx }
           onClick={() => ctx.bulk(trip.id, "drop_aboard", group.stop.id)}>Everyone for {group.stop.label} got off ({onboard})</button>}
       </div>;
     })}
-    {running && <p className="hint">Bulk buttons only cover the stop the bus is at.</p>}
     <div className="sec-h"><h2>Check log</h2><span>Newest first</span></div>
     {trip.events.length ? <ul className="nl">{trip.events.slice(0, 40).map((event) => <li key={`${event.id}-${event.kind}`}>
       <time>{time(event.occurredAt)}</time>
@@ -161,7 +161,6 @@ function Manifest({ trip, now, ctx }: { trip: CheckTrip; now: number; ctx: Ctx }
         undone: "check undone", handled: "follow-up handled" }[event.kind]}`}</b></div>
       <span className="n">By {event.recordedBy}</span>
     </li>)}</ul> : <p className="muted">No checks recorded yet.</p>}
-    <p className="hint" style={{ marginTop: 12 }}>Guardian notifications are not connected yet. Use the guardian&rsquo;s phone number to reach them.</p>
   </>;
 }
 
@@ -184,17 +183,10 @@ function AlertButtons({ trip, alert, ctx }: { trip: CheckTrip; alert: CheckAlert
         {phone?.phone && <a className={cls(false)} href={`tel:${phone.phone}`}>Call {phone.name.split(" ")[0]}</a>}
         <button type="button" className={cls(true)} disabled={ctx.busy} onClick={() => ctx.act(trip.id, rider!.riderId, "handled")}>Mark handled</button></>;
     case "sweep":
-      return counts(trip).aboard > 0
-        ? <button type="button" className={cls(false)} onClick={() => ctx.openManifest(trip.id)}>Open manifest</button>
+      return counts(trip).aboard > 0 ? null
         : <button type="button" className={cls(true)} disabled={ctx.busy} onClick={() => ctx.sweep(trip.id)}>Confirm bus is empty</button>;
-    case "nomon":
-      return <button type="button" className={cls(true)} onClick={() => ctx.openDispatch(trip.id)}>Assign staff</button>;
-    case "stale":
-      return <>
-        <button type="button" className={cls(true)} onClick={() => ctx.openDispatch(trip.id)}>Open in Dispatch</button>
-        <button type="button" className={cls(false)} onClick={() => ctx.openManifest(trip.id)}>Open manifest</button></>;
     default:
-      return <button type="button" className={cls(true)} onClick={() => ctx.openManifest(trip.id)}>Open manifest</button>;
+      return null;
   }
 }
 
@@ -206,93 +198,37 @@ function AlertRows({ list, ctx }: { list: { trip: CheckTrip; alert: CheckAlert }
   </div>)}</>;
 }
 
-function TripCard({ trip, now, ctx }: { trip: CheckTrip; now: number; ctx: Ctx }) {
-  const tripAlerts = alerts(trip, now);
-  const head = headcount(trip);
-  const state = trip.status === "active" ? "Running" : trip.status === "planned" ? `Planned · ${time(trip.departureAt)}` : "Finished";
-  return <button type="button" className="tripcard" onClick={() => ctx.openManifest(trip.id)}>
-    <HeadRing trip={trip} color={ctx.colorOf(trip.busId)} size={64} />
-    <div className="m2"><strong>{trip.busLabel} · {routeWithPeriod(trip.routeName, trip.servicePeriod)}</strong>
-      <small>{trip.status === "planned" ? `${head.of} riders expected` : `${head.n} of ${head.of} ${head.label}`} · {state}</small>
-      <div className="ch">{tripAlerts.length
-        ? tripAlerts.slice(0, 3).map((alert, index) => <span key={`${alert.key}-${index}`} className={`od${alert.sev === "med" ? " med" : ""}`}>{alert.short.toUpperCase()}</span>)
-        : <span className="pill ok">Clear</span>}</div>
-    </div>
-  </button>;
-}
-
-export function CheckPage() {
-  const { mode, toast } = useOps();
-  const navigate = useNavigate();
-  const board = useCheckBoard();
-  const now = useNow();
-  const [manifestId, setManifestId] = useState<string | null>(null);
+/** Ride Check for one trip. Taps show at once and save in the background; the board refreshes after. */
+export function RideCheck({ trip, now, color, onChanged, toast }: {
+  trip: CheckTrip; now: number; color: string; onChanged: () => void; toast: (text: string) => void;
+}) {
   const [busy, setBusy] = useState(false);
+  const [shown, setShown] = useState(trip);
+  useEffect(() => setShown(trip), [trip]);
 
-  const run = useCallback(async (url: string, body: unknown, done?: string) => {
+  async function run(url: string, body: unknown, done?: string) {
     setBusy(true);
     try {
       await send("POST", url, body, "Could not record the check.");
       if (done) toast(done);
     } catch (cause) {
       toast(message(cause, "Could not record the check."));
+      setShown(trip);
     } finally {
       setBusy(false);
-      board.reload();
+      onChanged();
     }
-  }, [board, toast]);
+  }
 
   const ctx: Ctx = {
-    busy, colorOf: board.colorOf,
+    busy, colorOf: () => color,
     act: (tripId, riderId, type) => {
-      board.setTrips((current) => current.map((trip) => trip.id !== tripId ? trip : {
-        ...trip, riders: trip.riders.map((rider) => rider.riderId === riderId ? optimistic(rider, type) : rider)
-      }));
+      setShown((current) => ({ ...current, riders: current.riders.map((rider) => rider.riderId === riderId ? optimistic(rider, type) : rider) }));
       void run(`/api/check/trips/${tripId}/riders/${riderId}`, { type });
     },
     bulk: (tripId, type, stopId) => void run(`/api/check/trips/${tripId}/bulk`, { type, stopId },
       type === "board_waiting" ? "Everyone waiting here is checked on." : "Everyone for this stop is checked off."),
-    sweep: (tripId) => void run(`/api/check/trips/${tripId}/sweep`, undefined, "Bus checked empty."),
-    openManifest: setManifestId,
-    openDispatch: (tripId) => navigate(`/?trip=${tripId}`)
+    sweep: (tripId) => void run(`/api/check/trips/${tripId}/sweep`, undefined, "Bus checked empty.")
   };
-
-  const trips = useMemo(() => {
-    const order = { active: 0, planned: 1, completed: 2, cancelled: 3 };
-    return [...board.trips].filter((trip) => trip.status !== "cancelled")
-      .sort((a, b) => order[a.status] - order[b.status] || Date.parse(a.departureAt) - Date.parse(b.departureAt));
-  }, [board.trips]);
-  const all = trips.flatMap((trip) => alerts(trip, now).map((alert) => ({ trip, alert })))
-    .sort((a, b) => (a.alert.sev === "high" ? 0 : 1) - (b.alert.sev === "high" ? 0 : 1));
-  const urgent = all.filter((item) => item.alert.sev === "high").length;
-  const running = trips.filter((trip) => trip.status === "active");
-  const aboard = running.reduce((sum, trip) => sum + counts(trip).aboard, 0);
-  const waiting = trips.filter((trip) => trip.status !== "completed").reduce((sum, trip) => sum + counts(trip).expected, 0);
-  const checks = trips.reduce((sum, trip) => sum + trip.events.length, 0);
-
-  const manifestTrip = manifestId ? board.trips.find((trip) => trip.id === manifestId) : null;
-  const none = !board.loading && !trips.length;
-
-  return <>
-    <Head eyebrow="Ride safety" title="Ride Check" sub="Every child accounted for, on every trip." actions={<LivePill state={board.live} />} />
-    <ErrorNote text={board.error} />
-    {board.loading && <p className="hint">Loading trips…</p>}
-    <div className="tiles">
-      <Tile label="Aboard now" value={aboard} sub={`Across ${running.length} ${plural(running.length, "bus", "buses")}`} />
-      <Tile label="Waiting" value={waiting} sub="Not checked on yet" />
-      <Tile label="Needs a decision" value={all.length} className={all.length ? "bad" : "good"} sub={all.length ? `${urgent} urgent` : "All clear"} />
-      <Tile label="Checks today" value={checks} sub="Boarding and drop-off events" />
-    </div>
-    <div className="sec-h"><h2>Needs a decision</h2><span>Resolve these before scanning trip lists</span></div>
-    {all.length
-      ? <section className="surface"><AlertRows list={all} ctx={ctx} /></section>
-      : !board.loading && <article className="acard clear"><div className="acard-top"><div className="acard-title"><Dot tone="ok" />Everyone is accounted for</div><span className="pill ok">Clear</span></div>
-        <p>No unresolved rider checks across today&rsquo;s trips.</p></article>}
-    <div className="sec-h"><h2>Trips today</h2><span>Open a trip for its manifest</span></div>
-    {none ? <NoMatch>No trips today.</NoMatch> : <div className={mode === "desktop" ? "grid3" : "cards"}>{trips.map((trip) => <TripCard key={trip.id} trip={trip} now={now} ctx={ctx} />)}</div>}
-    {manifestId && <Overlay onClose={() => setManifestId(null)}>
-      {manifestTrip ? <Manifest trip={manifestTrip} now={now} ctx={ctx} /> : <NoMatch>Trip not found.</NoMatch>}
-    </Overlay>}
-  </>;
+  return <section className="rc"><Manifest trip={shown} now={now} ctx={ctx} /></section>;
 }
-
