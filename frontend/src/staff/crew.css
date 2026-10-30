@@ -144,3 +144,6 @@ body:has(.crew.pm){background:#0d1410}
 .crew.pm .cr-note textarea{background:var(--soft2);color:var(--ink)}
 .crew.pm .cr-warnbox{border-color:#5c4a1b}
 .crew.pm .cr-locked{border-color:#4a5a50}
+.crew .cr-fallback{display:flex;flex-direction:column;gap:8px;margin:4px 0 10px}
+.crew .cr-call{display:block;padding:14px;border-radius:12px;background:#17382c;color:#fff;font-size:17px;font-weight:850;text-align:center;text-decoration:none}
+.crew .cr-reload{padding:12px;border:1px solid #dfe3dc;border-radius:12px;background:#fff;font:inherit;font-size:15px;font-weight:800;cursor:pointer}

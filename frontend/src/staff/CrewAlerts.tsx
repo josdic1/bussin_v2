@@ -41,8 +41,8 @@ function currentPlace(fix: Fix): Promise<{ latitude: number; longitude: number }
   });
 }
 
-export function AlertSheet({ kind, fix, preview, onClose, onSent }: {
-  kind: TripAlertKind; fix: Fix; preview: boolean; onClose: () => void; onSent: (alert: TripAlert) => void;
+export function AlertSheet({ kind, fix, preview, officePhone, onClose, onSent }: {
+  kind: TripAlertKind; fix: Fix; preview: boolean; officePhone: string | null; onClose: () => void; onSent: (alert: TripAlert) => void;
 }) {
   const choices = Object.entries(TRIP_ALERT_CHOICES[kind]) as [string, string][];
   const [code, setCode] = useState<string | null>(null);
@@ -65,7 +65,10 @@ export function AlertSheet({ kind, fix, preview, onClose, onSent }: {
       });
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "That didn't send. Try again, or call Dispatch.");
+        // Signed in as someone else on this phone (another tab switched): say so plainly.
+        setError(response.status === 401 || response.status === 403
+          ? "This phone isn't signed in as you anymore, so that didn't send. Call the office now, then reload Bussin."
+          : body && typeof body === "object" && "error" in body && typeof body.error === "string" ? `${body.error} Call the office.` : "That didn't send. Call the office.");
         return;
       }
       const alert = tripAlertSchema.parse(body);
@@ -96,6 +99,12 @@ export function AlertSheet({ kind, fix, preview, onClose, onSent }: {
           <textarea rows={2} maxLength={300} value={note} onChange={(event) => setNote(event.target.value)}
             placeholder={emergency ? "What happened, where you are" : "e.g. stuck on Route 10 near the mall"} /></label>
         {error && <p className="cr-sheet-err" role="alert">{error}</p>}
+        {/* Whatever goes wrong, there's always a way to reach a person. */}
+        {error && !preview && <div className="cr-fallback">
+          {officePhone && <a className="cr-call" href={`tel:${officePhone.replace(/[^\d+]/g, "")}`}>Call the office · {officePhone}</a>}
+          {emergency && <a className="cr-911" href="tel:911">Call 911</a>}
+          {/This phone isn't signed in/.test(error) && <button type="button" className="cr-reload" onClick={() => location.reload()}>Reload Bussin</button>}
+        </div>}
         <button type="button" className={`cr-main${emergency ? " em" : ""}`} disabled={!code || sending} onClick={() => void send()}>
           {sending ? "Sending…" : !code ? "Pick one above" : emergency ? `Send emergency: ${TRIP_ALERT_CHOICES.emergency[code as keyof typeof TRIP_ALERT_CHOICES.emergency]}` : "Send to Dispatch"}</button>
       </>}

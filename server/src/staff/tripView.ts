@@ -25,6 +25,7 @@ type StaffTripRow = {
   departureNote: string | null;
   crewRole: "lead" | "counselor" | null;
   busPhoneLive: boolean;
+  officePhone: string | null;
 };
 
 /** A bus phone counts as live if it checked in within this long (it checks in every 20s). */
@@ -54,7 +55,10 @@ export async function readStaffTrip(chosenSql: string, values: unknown[], member
             departed.note AS "departureNote",
             (SELECT a.crew_role FROM staff_assignments a
               WHERE a.trip_id = t.id AND a.member_id = ${memberParam} AND a.ended_at IS NULL LIMIT 1) AS "crewRole",
-            ${BUS_PHONE_LIVE_SQL("t.bus_id")} AS "busPhoneLive"
+            ${BUS_PHONE_LIVE_SQL("t.bus_id")} AS "busPhoneLive",
+            (SELECT m.phone FROM members m JOIN member_roles mr ON mr.member_id = m.id AND mr.revoked_at IS NULL
+              WHERE mr.role IN ('admin', 'dispatch') AND m.phone IS NOT NULL AND m.suspended_at IS NULL
+              ORDER BY (mr.role = 'dispatch') DESC, m.created_at LIMIT 1) AS "officePhone"
        FROM (
 ${chosenSql}       ) chosen
        JOIN trips t ON t.id = chosen.trip_id
@@ -119,7 +123,8 @@ ${chosenSql}       ) chosen
       status: first.status,
       stops,
       crewRole: first.crewRole,
-      busPhoneLive: first.busPhoneLive || robotDrives(first.id)
+      busPhoneLive: first.busPhoneLive || robotDrives(first.id),
+      officePhone: first.officePhone
     }
   }).trip;
 }

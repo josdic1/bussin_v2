@@ -38,6 +38,8 @@ export async function buildCamp(client: PoolClient, size: CampSize) {
     `SELECT member_id AS id FROM member_roles WHERE role = 'admin' AND revoked_at IS NULL LIMIT 1`)).rows[0];
   if (!admin) throw new Error("The demo has no admin login.");
   const password = await hashPassword(process.env.DEMO_PASSWORD ?? "bussin-demo");
+  // The office has a phone, so the counselor screen's "Call the office" works in the demo too.
+  await client.query(`UPDATE members SET phone = '973-555-0199' WHERE id = $1 AND phone IS NULL`, [admin.id]);
 
   // The camp's name shows in every header. Locked normally; the demo may rename itself.
   await client.query(`ALTER TABLE tenant_identity DISABLE TRIGGER tenant_identity_immutable`);

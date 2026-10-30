@@ -460,7 +460,9 @@ export const staffTripSchema = z.strictObject({
   // The phone's seat on this trip (null on the bus phone itself).
   crewRole: z.enum(["lead", "counselor"]).nullable(),
   // The bus's own phone is reporting, so staff phones send no GPS.
-  busPhoneLive: z.boolean()
+  busPhoneLive: z.boolean(),
+  // Who to call when the app can't reach the office: the first office login with a phone on file.
+  officePhone: z.string().nullable()
 });
 
 export const staffTripResponseSchema = z.strictObject({

@@ -379,7 +379,7 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         <button type="button" className="cr-main ghost" disabled={!!check.busy} onClick={() => check.sweep()}>Walked the bus: it's empty</button>}
       {ride?.sweep && <p className="cr-done">Bus checked empty by {ride.sweep.confirmedBy} at {clock(ride.sweep.confirmedAt)}</p>}
     </section>}
-    {sheet && <AlertSheet kind={sheet} fix={t.fix} preview={!!preview} onClose={() => setSheet(null)}
+    {sheet && <AlertSheet kind={sheet} fix={t.fix} preview={!!preview} officePhone={trip?.officePhone ?? null} onClose={() => setSheet(null)}
       onSent={(alert) => { crewAlerts.add(alert); void crewAlerts.reload(); }} />}
   </main>;
 }
