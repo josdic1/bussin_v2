@@ -8,6 +8,9 @@ import { FamilyPortalPage } from "./families/FamilyPortalPage";
 import { OpsShell, useOps } from "./ops/OpsShell";
 import { BusPage } from "./bus/BusPage";
 import { InstallFirst } from "./install/InstallGuide";
+import { DemoBar } from "./demo/DemoBar";
+import { DemoLogin } from "./demo/DemoLogin";
+import { useDemo } from "./demo/useDemo";
 const TeamPage = lazy(async () => ({ default: (await import("./team/TeamPage")).TeamPage }));
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
 const DataPage = lazy(async () => ({ default: (await import("./data/DataPage")).DataPage }));
@@ -46,6 +49,7 @@ function AuthScreen({
 
 function Login() {
   const { login } = useAuth();
+  const demo = useDemo();
   const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -70,6 +74,7 @@ function Login() {
       title="Sign in"
       description="Enter your Bussin username or email."
     >
+      {demo?.demo && <DemoLogin info={demo} />}
       <form className="auth-form" onSubmit={submit}>
         <label htmlFor="login-identity">Username or email</label>
         <input
@@ -175,6 +180,13 @@ function ChangePassword() {
   );
 }
 
+/** Phones put Bussin on the home screen before signing in. The demo skips straight to sign-in. */
+function SignInFirst() {
+  const demo = useDemo();
+  if (demo === null) return <AuthScreen title="Opening Bussin" description="One moment…" />;
+  return demo.demo ? <Login /> : <InstallFirst who="anyone"><Login /></InstallFirst>;
+}
+
 function AuthGate() {
   const { member, loadError } = useAuth();
 
@@ -192,7 +204,7 @@ function AuthGate() {
     return <AuthScreen title="Opening Bussin" description="Checking your session…" />;
   }
 
-  if (member === null) return <InstallFirst who="anyone"><Login /></InstallFirst>;
+  if (member === null) return <SignInFirst />;
   if (member.passwordChangeRequired) return <ChangePassword />;
 
   if (member.roles.some((role) => role === "admin" || role === "dispatch")) {
@@ -247,6 +259,8 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 
 export function App() {
   return (
+    <>
+    <DemoBar />
     <Routes>
       <Route element={<AuthGate />}>
         <Route element={<OpsShell />}>
@@ -274,5 +288,6 @@ export function App() {
       <Route path="bus" element={<BusPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }

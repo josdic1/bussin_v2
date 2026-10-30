@@ -20,6 +20,8 @@ import { scheduleRoutes } from "./schedules/routes.js";
 import { startScheduleBuilder } from "./schedules/build.js";
 import { pushRoutes } from "./push/routes.js";
 import { lineRoutes } from "./lines/routes.js";
+import { demoRoutes } from "./demo/routes.js";
+import { settleDemoMode } from "./demo/mode.js";
 import { startPushAlerts } from "./push/watch.js";
 import { dataImportRoutes } from "./data/import.js";
 import { tableCsvRoutes } from "./data/tableCsv.js";
@@ -44,6 +46,7 @@ async function readFrontendBuild(): Promise<string | null> {
 }
 
 const tenant = await readTenant();
+if (settleDemoMode(tenant.key)) console.log("Demo copy: one-tap sign-in and Reset are on.");
 
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -83,6 +86,7 @@ app.use("/api/alerts", alertRoutes);
 app.use("/api/schedules", scheduleRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/lines", lineRoutes);
+app.use("/api/demo", demoRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });
