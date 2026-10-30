@@ -977,12 +977,12 @@ export const MESSAGE_MAX_LENGTH = 1000;
 export const messageAudienceSchema = z.enum(["all", "route", "trip", "rider"]);
 export type MessageAudience = z.infer<typeof messageAudienceSchema>;
 
-/** Who a message goes to: everyone, one route (AM and PM), one trip, or one child's guardians. */
+/** Who a message goes to: everyone, one line (AM and PM), one trip, or a custom list of kids' guardians. */
 export const messageTargetSchema = z.discriminatedUnion("audience", [
   z.strictObject({ audience: z.literal("all") }),
   z.strictObject({ audience: z.literal("route"), routeFamilyId: z.string().uuid() }),
   z.strictObject({ audience: z.literal("trip"), tripId: z.string().uuid() }),
-  z.strictObject({ audience: z.literal("rider"), riderId: z.string().uuid() })
+  z.strictObject({ audience: z.literal("rider"), riderIds: z.array(z.string().uuid()).min(1).max(500) })
 ]);
 export type MessageTarget = z.infer<typeof messageTargetSchema>;
 

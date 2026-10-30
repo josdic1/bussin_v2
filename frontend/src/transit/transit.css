@@ -86,3 +86,55 @@
 .ops .m .tr-filters{width:100%;gap:10px}
 .ops .m .tr-filters .search{min-width:0;flex:1}
 .ops .m .tr-filters .ck{white-space:nowrap}
+
+/* Day view: one row per bus, morning and afternoon side by side. */
+.ops .hb-sum{margin:6px 0 14px}
+.ops .hb-sum h2{margin:0;font-size:24px;font-weight:850;letter-spacing:-.01em}
+.ops .hb-sum p{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 0;font-size:14px;color:var(--muted)}
+.ops .hb-sum p .warn{color:var(--warn);font-weight:800}
+.ops .hb-pf{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:800;color:var(--muted);cursor:pointer}
+.ops .hb-pf.bad{border-color:var(--badline);background:var(--badbg);color:var(--bad)}
+.ops .hb-pf.on{box-shadow:inset 0 0 0 1px var(--bad)}
+.ops .hb-pf:disabled{cursor:default}
+.ops .hb{border:1px solid var(--line);border-radius:var(--r);background:#fff;overflow:hidden}
+.ops .hb-head,.ops .hb-row{display:grid;grid-template-columns:220px minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px 16px}
+.ops .hb-head{padding-top:10px;padding-bottom:10px;background:#fafbf9;border-bottom:1px solid var(--line2);font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ops .hb-row+.hb-row{border-top:1px solid var(--line2)}
+.ops .hb-bus{display:flex;align-items:center;gap:10px;min-width:0}
+.ops .hb-bus div{display:flex;flex-direction:column;min-width:0}
+.ops .hb-bus b{font-size:16px}
+.ops .hb-bus small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ops .hb-col{display:grid;gap:8px;align-content:start}
+.ops .hb-none{align-self:center;font-size:13px;color:var(--soft)}
+.ops .hb-run{display:grid;gap:6px;width:100%;padding:10px 12px 10px 14px;border:1px solid var(--line);border-left:4px solid var(--c,#a9b3ab);border-radius:10px;background:#fff;text-align:left;font:inherit;color:var(--ink);cursor:pointer}
+.ops .hb-run:hover{background:#fafbf9}
+.ops .hb-run.h-bad{border-color:var(--badline);border-left-color:var(--bad);background:var(--badbg)}
+.ops .hb-run.h-open{border-style:dashed;border-left-style:solid}
+.ops .hb-route{font-size:12px;font-weight:850;color:var(--muted)}
+.ops .hb-times{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.ops .hb-times>span{display:flex;flex-direction:column;min-width:0}
+.ops .hb-times small{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
+.ops .hb-times b{font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ops .hb-times em{font-style:normal;font-size:12px;font-weight:800;color:var(--muted)}
+.ops .hb-times em.bad{color:var(--bad)}
+.ops .hb-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.ops .hb-state{font-weight:800}
+.ops .hb-state.bad{color:var(--bad)}
+.ops .hb-flag{padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:800}
+.ops .hb-flag.high{background:var(--badbg);color:var(--bad)}
+.ops .hb-flag.med{background:var(--warnbg);color:var(--warn)}
+.ops .m .hb-head{display:none}
+.ops .m .hb-row{grid-template-columns:1fr;padding:12px}
+.ops .m .hb-col::before{content:attr(data-label);font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+
+/* Replay: the drive on a map, with a slider. */
+.ops .rp{margin-top:12px}
+.ops .rp-map{height:320px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ops .rp-bus{width:18px;height:18px;border-radius:50%;background:var(--c,#17211b);border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.35)}
+.ops .rp-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;margin-top:10px}
+.ops .rp-track{position:relative;padding-bottom:18px}
+.ops .rp-track input{width:100%;accent-color:var(--green)}
+.ops .rp-tick{position:absolute;bottom:0;transform:translateX(-50%);width:18px;height:18px;border:0;border-radius:50%;background:var(--ink);color:#fff;font-size:10px;font-weight:900;padding:0;cursor:pointer}
+.ops .rp-time{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums}
+.ops .rp-time b{font-size:14px}
+.ops .rp-time small{font-size:12px;color:var(--muted)}

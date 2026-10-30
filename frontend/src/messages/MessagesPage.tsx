@@ -10,7 +10,7 @@ import { useOps } from "../ops/OpsShell";
 import { Confirm, ErrorNote, Head, NoMatch, Seg } from "../ops/ui";
 import { usePolling } from "../ops/useBoard";
 
-const AUDIENCES: [MessageAudience, string][] = [["all", "Everyone"], ["route", "A line"], ["trip", "A trip"], ["rider", "One child"]];
+const AUDIENCES: [MessageAudience, string][] = [["all", "Everyone"], ["route", "A line"], ["trip", "A trip"], ["rider", "Custom"]];
 
 const QUICK = [
   "The bus is running about 10 minutes late.",
@@ -31,13 +31,13 @@ function tripLabel(trip: BoardTrip) {
   return `${dayName(localDate(new Date(trip.departureAt)))} ${time(trip.departureAt)} · ${trip.busLabel} · ${trip.routeName}`;
 }
 
-type Choice = { audience: MessageAudience; routeFamilyId: string; tripId: string; riderId: string };
+type Choice = { audience: MessageAudience; routeFamilyId: string; tripId: string; riderIds: string[] };
 
 function targetOf(choice: Choice): MessageTarget | null {
   if (choice.audience === "all") return { audience: "all" };
   if (choice.audience === "route") return choice.routeFamilyId ? { audience: "route", routeFamilyId: choice.routeFamilyId } : null;
   if (choice.audience === "trip") return choice.tripId ? { audience: "trip", tripId: choice.tripId } : null;
-  return choice.riderId ? { audience: "rider", riderId: choice.riderId } : null;
+  return choice.riderIds.length ? { audience: "rider", riderIds: choice.riderIds } : null;
 }
 
 function ReachLine({ reach, loading }: { reach: MessageReach | null; loading: boolean }) {
@@ -52,7 +52,7 @@ function ReachLine({ reach, loading }: { reach: MessageReach | null; loading: bo
 /** The message form. On the Messages page it is a panel; from the floating button it fills a sheet. */
 export function Compose({ onSent, sheet = false }: { onSent: () => void; sheet?: boolean }) {
   const { toast } = useOps();
-  const [choice, setChoice] = useState<Choice>({ audience: "all", routeFamilyId: "", tripId: "", riderId: "" });
+  const [choice, setChoice] = useState<Choice>({ audience: "all", routeFamilyId: "", tripId: "", riderIds: [] });
   const [body, setBody] = useState("");
   const [routes, setRoutes] = useState<{ id: string; name: string }[]>([]);
   const [trips, setTrips] = useState<BoardTrip[]>([]);
@@ -105,9 +105,10 @@ export function Compose({ onSent, sheet = false }: { onSent: () => void; sheet?:
 
   const needle = riderQuery.trim().toLowerCase();
   const riderMatches = useMemo(() => needle
-    ? riders.filter((rider) => `${rider.givenName} ${rider.familyName}`.toLowerCase().includes(needle)).slice(0, 6)
-    : [], [riders, needle]);
-  const chosenRider = riders.find((rider) => rider.id === choice.riderId);
+    ? riders.filter((rider) => !choice.riderIds.includes(rider.id) && `${rider.givenName} ${rider.familyName}`.toLowerCase().includes(needle)).slice(0, 6)
+    : [], [riders, needle, choice.riderIds]);
+  const chosen = choice.riderIds.map((id) => riders.find((rider) => rider.id === id)).filter((rider): rider is Rider => !!rider);
+  const add = (id: string) => { pick({ riderIds: [...choice.riderIds, id] }); setRiderQuery(""); };
 
   async function submit() {
     if (!target || !body.trim()) return;
@@ -147,21 +148,18 @@ export function Compose({ onSent, sheet = false }: { onSent: () => void; sheet?:
           {trips.map((trip) => <option key={trip.id} value={trip.id}>{tripLabel(trip)}{trip.status === "active" ? " (running)" : trip.status === "completed" ? " (done)" : ""}</option>)}
         </select></label>}
 
-      {choice.audience === "rider" && <div className="msg-field"><b className="lt">Child</b>
-        {chosenRider
-          ? <div className="gchips"><span className="gchip">{chosenRider.givenName} {chosenRider.familyName}
-            <button type="button" aria-label="Choose a different child" onClick={() => pick({ riderId: "" })}>&times;</button></span></div>
-          : <>
-            <input type="search" value={riderQuery} placeholder="Search by child's name" autoComplete="off"
-              onChange={(event) => setRiderQuery(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter" && riderMatches[0]) { event.preventDefault(); pick({ riderId: riderMatches[0].id }); setRiderQuery(""); } }} />
-            {needle && <div className="gres">
-              {riderMatches.map((rider) => <button key={rider.id} type="button" onClick={() => { pick({ riderId: rider.id }); setRiderQuery(""); }}>
-                <strong>{rider.givenName} {rider.familyName}</strong>
-                <small>{rider.guardians.map((guardian) => guardian.name).join(", ") || "No guardians linked"}</small></button>)}
-              {!riderMatches.length && <span className="gres-h">No child matches &ldquo;{riderQuery.trim()}&rdquo;</span>}
-            </div>}
-          </>}
+      {choice.audience === "rider" && <div className="msg-field"><b className="lt">Kids{chosen.length ? ` (${chosen.length})` : ""}</b>
+        {chosen.length > 0 && <div className="gchips">{chosen.map((rider) => <span key={rider.id} className="gchip">{rider.givenName} {rider.familyName}
+          <button type="button" aria-label={`Remove ${rider.givenName}`} onClick={() => pick({ riderIds: choice.riderIds.filter((id) => id !== rider.id) })}>&times;</button></span>)}</div>}
+        <input type="search" value={riderQuery} placeholder={chosen.length ? "Add another kid" : "Type a kid's name"} autoComplete="off"
+          onChange={(event) => setRiderQuery(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Enter" && riderMatches[0]) { event.preventDefault(); add(riderMatches[0].id); } }} />
+        {needle && <div className="gres">
+          {riderMatches.map((rider) => <button key={rider.id} type="button" onClick={() => add(rider.id)}>
+            <strong>{rider.givenName} {rider.familyName}</strong>
+            <small>{rider.guardians.map((guardian) => guardian.name).join(", ") || "No guardians linked"}</small></button>)}
+          {!riderMatches.length && <span className="gres-h">No kid matches &ldquo;{riderQuery.trim()}&rdquo;</span>}
+        </div>}
       </div>}
 
       <div className="msg-field"><b className="lt">Tap to start with</b>

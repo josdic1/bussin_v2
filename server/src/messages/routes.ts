@@ -52,12 +52,17 @@ async function resolveAudience(client: PoolClient, target: MessageTarget): Promi
                       UNION
                       SELECT a.rider_id FROM rider_stop_assignments a JOIN trips t ON t.route_id = a.route_id WHERE t.id = $1)`;
   } else {
-    const rider = await client.query<{ name: string }>(
-      `SELECT given_name || ' ' || family_name AS name FROM riders WHERE id = $1`, [target.riderId]);
-    if (!rider.rowCount) throw new NotFound("That rider no longer exists.");
-    label = `${rider.rows[0].name}'s family`;
-    params = [target.riderId];
-    guardianSql = `SELECT DISTINCT l.guardian_id AS id FROM rider_guardian_links l WHERE l.rider_id = $1`;
+    // Custom: any kids you pick. Their guardians, once each.
+    const ids = [...new Set(target.riderIds)];
+    const riders = await client.query<{ name: string }>(
+      `SELECT given_name || ' ' || family_name AS name FROM riders WHERE id = ANY($1::uuid[]) ORDER BY family_name, given_name`, [ids]);
+    if (riders.rowCount !== ids.length) throw new NotFound("One of those kids is no longer in the roster.");
+    const names = riders.rows.map((row) => row.name);
+    label = names.length === 1 ? `${names[0]}'s family`
+      : names.length <= 3 ? `Families of ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
+        : `Families of ${names[0]}, ${names[1]} and ${names.length - 2} more kids`;
+    params = [`{${ids.join(",")}}`];
+    guardianSql = `SELECT DISTINCT l.guardian_id AS id FROM rider_guardian_links l WHERE l.rider_id = ANY($1::uuid[])`;
   }
 
   const result = await client.query<{ id: string; hasLogin: boolean }>(
@@ -131,7 +136,7 @@ messageRoutes.post("/", requireSameOrigin, requireRole("admin"), async (request,
       [body, target.audience,
         target.audience === "route" ? target.routeFamilyId : null,
         target.audience === "trip" ? target.tripId : null,
-        target.audience === "rider" ? target.riderId : null,
+        target.audience === "rider" ? target.riderIds[0] : null,
         audience.label, member.id, member.display_name]
     );
     await client.query(

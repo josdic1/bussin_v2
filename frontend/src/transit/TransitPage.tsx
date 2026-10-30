@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link } from "react-router";
 import {
   busesResponseSchema, dispatchGpsAuditResponseSchema, historyResponseSchema,
@@ -9,14 +9,18 @@ import {
   dateLabel, dayBounds, dayName, duration, localDate, MIN, plural, shiftDay, time, timeWithSeconds, routeWithPeriod } from "../ops/format";
 import { busColors, busNumber } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { CrewPills, ErrorNote, Head, NoMatch, Search, Seg, Tile } from "../ops/ui";
+import { CrewPills, ErrorNote, Head, NoMatch, Seg } from "../ops/ui";
 import { useNow, usePolling } from "../ops/useBoard";
 import "./transit.css";
 
+// The map only loads when someone opens Replay.
+const Replay = lazy(() => import("./Replay").then((module) => ({ default: module.Replay })));
+
 /*
- * Transit: the record of what ran. Dispatch is for right now; this is for "did every bus run,
- * when, and what went wrong". Day view: a timeline board (one row per bus) and a departures
- * table. Week view: a grid of AM/PM dots per bus per day. Click anything for the full trip.
+ * History: the record of what ran. Today is for right now; this is for "did every bus run,
+ * when, and what went wrong". Day view: one row per bus, its morning and afternoon runs side
+ * by side. Week view: a grid of AM/PM dots per bus per day. Click any run for the full trip
+ * and a replay of the drive.
  */
 
 type Flag = { sev: "high" | "med"; text: string };
@@ -25,7 +29,7 @@ type TripView = HistoryTrip & {
   done: number; durationMin: number | null; color: string; leftAt: string | null; finishedAt: string | null;
   health: "ok" | "warn" | "bad" | "open";
 };
-type Tab = "events" | "stops" | "gps";
+type Tab = "replay" | "events" | "stops" | "gps";
 /** "Yesterday, Wed, Oct 28" for nearby days, plain "Mon, Oct 26" otherwise. */
 function dayWords(day: string) {
   const name = dayName(day);
@@ -178,8 +182,9 @@ function TripDetailView({ trip, tab, setTab }: { trip: TripView; tab: Tab; setTa
       <div><dt>Still on bus</dt><dd className={trip.riders.stillAboard && trip.status === "completed" ? "bad" : ""}>{trip.riders.stillAboard}</dd></div>
       <div><dt>Bus walked</dt><dd>{trip.riders.sweptAt ? time(trip.riders.sweptAt) : "—"}</dd></div>
     </dl>
-    <div className="tabs2" role="tablist">{([["events", "Event log"], ["stops", "Stops"], ["gps", `GPS captures (${trip.gps.samples})`]] as const).map(([key, label]) =>
+    <div className="tabs2" role="tablist">{([["replay", "Replay"], ["events", "Event log"], ["stops", "Stops"], ["gps", `GPS captures (${trip.gps.samples})`]] as const).map(([key, label]) =>
       <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""} onClick={() => setTab(key)}>{label}</button>)}</div>
+    {tab === "replay" && <Suspense fallback={<p className="hint">Loading the map…</p>}><Replay trip={trip} color={trip.color} /></Suspense>}
     {tab === "events" && <Log rows={eventRows(trip)} />}
     {tab === "stops" && <div className="tt"><table><thead><tr><th>Stop</th><th>Arrived</th><th>Departed</th><th>Dwell</th><th>Method</th></tr></thead>
       <tbody>{trip.stops.map((stop) => <tr key={stop.id}>
@@ -209,88 +214,54 @@ const HEALTH_TEXT: Record<TripView["health"], string> = {
   ok: "Ran, no problems", warn: "Ran, small issues", bad: "Problem or cancelled", open: "Not started yet"
 };
 
-// ---------- Day: timeline board ----------
+// ---------- Day: one row per bus ----------
 
-function Board({ buses, trips, day, now, colorOf, onOpen }: {
-  buses: Bus[]; trips: TripView[]; day: string; now: number; colorOf: (id: string) => string; onOpen: (id: string) => void;
-}) {
-  const at = (hour: number) => new Date(`${day}T${String(hour).padStart(2, "0")}:00:00`).getTime();
-  const spanOf = (trip: TripView) => {
-    const start = Date.parse(trip.startedAt ?? trip.departureAt);
-    const end = trip.endedAt ? Date.parse(trip.endedAt)
-      : trip.status === "active" ? Math.max(now, start + 5 * MIN)
-        : trip.cancelledAt ? start + 20 * MIN : start + 30 * MIN;
-    return { start, end };
-  };
-  // Hours shown: 6 AM to 7 PM, stretched to fit any trip outside that.
-  let first = at(6), last = at(19);
-  for (const trip of trips) {
-    const { start, end } = spanOf(trip);
-    first = Math.min(first, start - 30 * MIN); last = Math.max(last, end + 30 * MIN);
-  }
-  first = Math.floor(first / (60 * MIN)) * 60 * MIN; last = Math.ceil(last / (60 * MIN)) * 60 * MIN;
-  const pct = (t: number) => `${((t - first) / (last - first)) * 100}%`;
-  const hours: number[] = [];
-  for (let t = first; t <= last; t += 60 * MIN) hours.push(t);
-  const isToday = day === localDate(new Date(now));
-  const rows = buses.map((bus) => ({ bus, trips: trips.filter((trip) => trip.busId === bus.id) }))
-    .filter((row) => row.bus.active || row.trips.length);
-
-  return <div className="tr-board" role="table" aria-label="Trips by bus">
-    <div className="tr-axis" aria-hidden="true"><span />
-      <div className="tr-lane">{hours.map((t) => <i key={t} style={{ left: pct(t) }}>{new Date(t).toLocaleTimeString("en-US", { hour: "numeric" })}</i>)}
-        {isToday && now > first && now < last && <b className="tr-now-tag" style={{ left: pct(now) }}>NOW</b>}</div></div>
-    {rows.map(({ bus, trips: list }) => <div key={bus.id} className="tr-row" role="row">
-      <div className="tr-bus" role="rowheader">
-        <span className="av" style={{ "--c": colorOf(bus.id), "--s": "30px" } as CSSProperties}>{busNumber(bus.label)}</span>
-        <div><b>{bus.label}</b><small>{list.length ? `${list.length} ${plural(list.length, "trip", "trips")}` : "No trips"}</small></div>
-      </div>
-      <div className="tr-lane" role="cell">
-        {hours.map((t) => <i key={t} className="tr-grid" style={{ left: pct(t) }} />)}
-        {isToday && now > first && now < last && <i className="tr-now" style={{ left: pct(now) }} />}
-        {list.map((trip) => {
-          const { start, end } = spanOf(trip);
-          return <button key={trip.id} type="button" className={`tr-bar s-${trip.status} h-${trip.health}`}
-            style={{ left: pct(start), width: `max(64px, calc(${pct(end)} - ${pct(start)}))`, "--c": trip.color } as CSSProperties}
-            title={`${routeWithPeriod(trip.routeName, trip.servicePeriod)} · ${time(trip.departureAt)} · ${trip.status}${trip.flags.length ? ` · ${trip.flags.map((f) => f.text).join(", ")}` : ""}`}
-            onClick={() => onOpen(trip.id)}>
-            <span>{time(trip.departureAt).replace(/ [AP]M$/, "")} {trip.servicePeriod}</span>
-            {trip.stops.filter((stop) => stop.arrivedAt).map((stop) => <em key={stop.id}
-              className={`tk ${stop.arrivalMethod ?? ""}`} style={{ left: `${((Date.parse(stop.arrivedAt!) - start) / Math.max(1, end - start)) * 100}%` }} />)}
-          </button>;
-        })}
-      </div>
-    </div>)}
-    <div className="tr-legend">
-      <span><i className="lg-run" />Ran, start to finish</span><span><i className="lg-plan" />Planned, not started</span>
-      <span><i className="lg-bad" />Problem</span><span><i className="lg-can" />Cancelled</span>
-      <span><i className="lg-tick" />Stop reached by GPS</span><span><i className="lg-tick man" />Stop tapped</span>
-    </div>
-  </div>;
+/** "+3" late, "-2" early, nothing when within a minute. */
+function offset(actual: string | null, planned: string) {
+  if (!actual) return null;
+  const min = Math.round((Date.parse(actual) - Date.parse(planned)) / MIN);
+  return Math.abs(min) < 2 ? null : min > 0 ? `+${min}` : `${min}`;
 }
 
-// ---------- Day: departures table ----------
+function RunCell({ trip, onOpen }: { trip: TripView; onOpen: (id: string) => void }) {
+  const late = offset(trip.leftAt, trip.departureAt);
+  const state = trip.status === "cancelled" ? "Cancelled"
+    : trip.status === "planned" ? (trip.health === "bad" ? "Never started" : "Not started")
+      : trip.status === "active" ? "Running now" : null;
+  return <button type="button" className={`hb-run h-${trip.health}`} style={{ "--c": trip.color } as CSSProperties} onClick={() => onOpen(trip.id)}>
+    <span className="hb-route">{trip.routeName}</span>
+    <span className="hb-times">
+      <span><small>Scheduled</small><b>{time(trip.departureAt)}</b></span>
+      <span><small>Left</small><b>{trip.leftAt ? time(trip.leftAt) : "—"}</b>{late && <em className={late.startsWith("+") && trip.delayMin >= 5 ? "bad" : ""}>{late}</em>}</span>
+      <span><small>Arrived</small><b>{trip.status === "completed" && trip.finishedAt ? time(trip.finishedAt) : "—"}</b></span>
+    </span>
+    <span className="hb-foot">{state ? <span className={`hb-state ${trip.health}`}>{state}</span>
+      : <span>{trip.riders.total ? `${trip.riders.rode} of ${trip.riders.total} kids` : "No kids listed"}</span>}
+      {trip.flags.some((f) => f.text !== state) && trip.status !== "cancelled" && <span className={`hb-flag ${trip.flags.some((f) => f.sev === "high") ? "high" : "med"}`}>
+        {trip.flags.filter((f) => f.text !== state)[0]!.text}{trip.flags.filter((f) => f.text !== state).length > 1 ? ` +${trip.flags.filter((f) => f.text !== state).length - 1}` : ""}</span>}
+    </span>
+  </button>;
+}
 
-function Departures({ trips, onOpen }: { trips: TripView[]; onOpen: (id: string) => void }) {
-  if (!trips.length) return <NoMatch>No trips match.</NoMatch>;
-  return <div className="tr-table-wrap"><table className="tbl tr-table">
-    <thead><tr><th>Time</th><th>Bus</th><th>Route</th><th>Lead</th><th>Driver</th><th>Left</th><th>Finished</th>
-      <th>Start</th><th>Kids</th><th>Status</th><th>Problems</th></tr></thead>
-    <tbody>{trips.map((trip) => <tr key={trip.id} data-ov="" tabIndex={0} className={`h-${trip.health}`}
-      onClick={() => onOpen(trip.id)} onKeyDown={(event) => { if (event.key === "Enter") onOpen(trip.id); }}>
-      <td className="mono"><b>{time(trip.departureAt)}</b></td>
-      <td><span className="tr-busc"><span className="av" style={{ "--c": trip.color, "--s": "24px" } as CSSProperties}>{busNumber(trip.busLabel)}</span>{trip.busLabel}</span></td>
-      <td>{routeWithPeriod(trip.routeName, trip.servicePeriod)}</td>
-      <td>{trip.assignedStaff?.displayName ?? <span className="bad">None</span>}</td>
-      <td>{trip.driver?.name ?? <span className="dim">—</span>}</td>
-      <td className="mono">{trip.leftAt ? time(trip.leftAt) : <span className="dim">—</span>}</td>
-      <td className="mono">{trip.finishedAt ? time(trip.finishedAt) : <span className="dim">—</span>}</td>
-      <td className={trip.delayMin >= 5 ? "bad" : ""}>{lateLabel(trip)}</td>
-      <td className={trip.riders.unchecked && trip.status !== "planned" ? "bad" : ""}>{kidsLabel(trip)}</td>
-      <td><Pill status={trip.status} /></td>
-      <td>{trip.flags.length ? <FlagChips flags={trip.flags} limit={2} /> : <span className="dim">None</span>}
-        {trip.flags.length > 2 && <span className="dim"> +{trip.flags.length - 2}</span>}</td>
-    </tr>)}</tbody></table></div>;
+function ByBus({ buses, trips, colorOf, problemsOnly, onOpen }: {
+  buses: Bus[]; trips: TripView[]; colorOf: (id: string) => string; problemsOnly: boolean; onOpen: (id: string) => void;
+}) {
+  const rows = buses.map((bus) => {
+    const list = trips.filter((trip) => trip.busId === bus.id);
+    return { bus, am: list.filter((trip) => trip.servicePeriod === "AM"), pm: list.filter((trip) => trip.servicePeriod !== "AM"), list };
+  }).filter((row) => row.list.length && (!problemsOnly || row.list.some((trip) => trip.flags.length)));
+  if (!rows.length) return <NoMatch>{problemsOnly ? "No problems this day." : "No trips this day."}</NoMatch>;
+  return <div className="hb">
+    <div className="hb-head" aria-hidden="true"><span>Bus</span><span>Morning</span><span>Afternoon</span></div>
+    {rows.map(({ bus, am, pm, list }) => <div key={bus.id} className="hb-row">
+      <div className="hb-bus">
+        <span className="av" style={{ "--c": colorOf(bus.id), "--s": "34px" } as CSSProperties}>{busNumber(bus.label)}</span>
+        <div><b>{bus.label}</b><small>{list.find((trip) => trip.assignedStaff)?.assignedStaff?.displayName ?? "No lead"}{list.find((trip) => trip.driver)?.driver ? ` · ${list.find((trip) => trip.driver)!.driver!.name}` : ""}</small></div>
+      </div>
+      <div className="hb-col" data-label="Morning">{am.length ? am.map((trip) => <RunCell key={trip.id} trip={trip} onOpen={onOpen} />) : <span className="hb-none">No morning run</span>}</div>
+      <div className="hb-col" data-label="Afternoon">{pm.length ? pm.map((trip) => <RunCell key={trip.id} trip={trip} onOpen={onOpen} />) : <span className="hb-none">No afternoon run</span>}</div>
+    </div>)}
+  </div>;
 }
 
 // ---------- Week: did the buses run? ----------
@@ -334,10 +305,9 @@ export function TransitPage() {
   const [buses, setBuses] = useState<Bus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
   const [problemsOnly, setProblemsOnly] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("events");
+  const [tab, setTab] = useState<Tab>("replay");
 
   const days = view === "week" ? Array.from({ length: 7 }, (_, i) => shiftDay(day, i - 6)) : [day];
   usePolling(async (signal) => {
@@ -361,17 +331,15 @@ export function TransitPage() {
   const colorOf = useMemo(() => busColors(buses), [buses]);
   const views = useMemo(() => trips.map((trip) => buildView(trip, now, colorOf(trip.busId)))
     .sort((a, b) => Date.parse(a.departureAt) - Date.parse(b.departureAt)), [trips, now, colorOf]);
-  const needle = query.trim().toLowerCase();
   const dayTrips = views.filter((trip) => trip.day === day);
-  const shown = dayTrips.filter((trip) => (!problemsOnly || trip.flags.length > 0) &&
-    (!needle || `${trip.busLabel} ${trip.routeName} ${trip.assignedStaff?.displayName ?? ""} ${trip.counselors.map((c) => c.displayName).join(" ")} ${trip.driver?.name ?? ""}`.toLowerCase().includes(needle)));
 
   const ran = dayTrips.filter((trip) => trip.status === "completed" || trip.status === "active");
   const late = ran.filter((trip) => trip.delayMin >= 5).length;
   const problems = dayTrips.filter((trip) => trip.flags.length > 0).length;
-  const rode = ran.reduce((sum, trip) => sum + trip.riders.rode, 0);
-  const expected = ran.reduce((sum, trip) => sum + trip.riders.total, 0);
-  const planned = dayTrips.filter((trip) => trip.status === "planned").length;
+  const busCount = new Set(ran.map((trip) => trip.busId)).size;
+  const summary = !dayTrips.length ? `No trips ${dayName(day).toLowerCase()}`
+    : !ran.length ? `${dayTrips.length} ${plural(dayTrips.length, "trip", "trips")} planned, none ran`
+      : `${busCount} ${plural(busCount, "bus", "buses")} ran ${ran.length} ${plural(ran.length, "trip", "trips")}`;
 
   const step = view === "week" ? 7 : 1;
   const label = view === "week" ? `${dateLabel(days[0]!)} to ${dateLabel(days.at(-1)!)}` : dayWords(day);
@@ -389,10 +357,10 @@ export function TransitPage() {
   const overlay = openId && <Overlay onClose={() => setOpenId(null)}>
     {openTrip ? <TripDetailView trip={openTrip} tab={tab} setTab={setTab} /> : <NoMatch>Trip not found.</NoMatch>}
   </Overlay>;
-  const open = (id: string) => { setTab("events"); setOpenId(id); };
+  const open = (id: string) => { setTab(views.find((trip) => trip.id === id)?.status === "completed" ? "replay" : "events"); setOpenId(id); };
 
   return <div className="tr">
-    <Head eyebrow="Records" title="History" actions={<>{mode === "desktop" && nav}<Link className="btn" to="/reports">Reports</Link></>} />
+    <Head eyebrow="Daily" title="History" actions={<>{mode === "desktop" && nav}<Link className="btn" to="/reports">Reports</Link></>} />
     {mode !== "desktop" && nav}
     <ErrorNote text={error} />
     {loading && <p className="hint">Loading trips…</p>}
@@ -401,27 +369,16 @@ export function TransitPage() {
       ? <Week buses={buses} trips={views} days={days} today={today} colorOf={colorOf} onOpen={open}
           onDay={(next) => { setDay(next); setView("day"); }} />
       : <>
-        <div className="tiles">
-          <Tile label="Trips" value={dayTrips.length} sub={planned ? `${planned} not started` : "all started or done"} />
-          <Tile label="On time" value={ran.length - late} sub="started within 5 min" />
-          <Tile label="Late" value={late} sub="5+ min after scheduled" className={late ? "warn" : ""} />
-          <Tile label="Problems" value={problems} sub={problems ? "tap Problems only to list them" : "none"} className={problems ? "bad" : ""}
-            onClick={() => setProblemsOnly((value) => !value)} pressed={problemsOnly} />
-          <Tile label="Kids rode" value={expected ? `${rode}/${expected}` : "—"} sub="on trips that ran" />
+        <div className="hb-sum">
+          <h2>{summary}</h2>
+          {dayTrips.length > 0 && <p>
+            <span className={late ? "warn" : ""}>{late ? `${late} left late` : "All left on time"}</span>
+            <button type="button" className={`hb-pf${problems ? " bad" : ""}${problemsOnly ? " on" : ""}`} aria-pressed={problemsOnly}
+              disabled={!problems && !problemsOnly} onClick={() => setProblemsOnly(!problemsOnly)}>
+              {problems ? `${problems} ${plural(problems, "trip", "trips")} with problems${problemsOnly ? " · show all" : " · show only these"}` : "No problems"}</button>
+          </p>}
         </div>
-        {mode === "desktop" && dayTrips.length > 0 && <Board buses={buses} trips={dayTrips} day={day} now={now} colorOf={colorOf} onOpen={open} />}
-        <div className="sec-h tr-sec"><h2>Departures</h2>
-          <div className="tr-filters"><Search value={query} onChange={setQuery} placeholder="Bus, route, lead or driver" />
-            <label className="ck"><input type="checkbox" checked={problemsOnly} onChange={(event) => setProblemsOnly(event.target.checked)} /> Problems only</label></div></div>
-        {mode === "desktop"
-          ? <Departures trips={shown} onOpen={open} />
-          : shown.length ? <div className="surface">{shown.map((trip) => <button key={trip.id} type="button" className={`it tr-card h-${trip.health}`} onClick={() => open(trip.id)}>
-              <span className="av" style={{ "--c": trip.color, "--s": "34px" } as CSSProperties}>{busNumber(trip.busLabel)}</span>
-              <div><div className="a"><strong>{time(trip.departureAt)} · {routeWithPeriod(trip.routeName, trip.servicePeriod)}</strong></div>
-                <div className="b"><Pill status={trip.status} /> <span className="muted">{trip.busLabel} · {lateLabel(trip)} · kids {kidsLabel(trip)}</span></div>
-                {trip.flags.length > 0 && <div className="fcs"><FlagChips flags={trip.flags} limit={3} /></div>}</div>
-            </button>)}</div>
-            : <NoMatch>{loading ? "Loading…" : dayTrips.length ? "No trips match." : `No trips ${dayName(day).toLowerCase()}.`}</NoMatch>}
+        <ByBus buses={buses} trips={dayTrips} colorOf={colorOf} problemsOnly={problemsOnly} onOpen={open} />
       </>}
     {overlay}
   </div>;

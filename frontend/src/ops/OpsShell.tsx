@@ -33,19 +33,20 @@ const DESKTOP_MIN = 1024;
 type Page = { path: string; mark: string; label: string; group: "daily" | "setup"; adminOnly?: boolean; desktopOnly?: boolean };
 
 // Daily: what you open every day. Setup: what you open to change the plan.
-// Reports live inside History; Danger zone lives at the bottom of Data.
+// Danger zone lives at the bottom of Data.
 const PAGES: Page[] = [
   { path: "/", mark: "T", label: "Today", group: "daily" },
   { path: "/families", mark: "K", label: "Kids", group: "daily", adminOnly: true },
   { path: "/messages", mark: "M", label: "Messages", group: "daily", adminOnly: true },
   { path: "/transit", mark: "H", label: "History", group: "daily" },
+  { path: "/reports", mark: "R", label: "Reports", group: "daily", desktopOnly: true },
   { path: "/lines", mark: "L", label: "Lines", group: "setup" },
   { path: "/fleet", mark: "B", label: "Buses", group: "setup" },
   { path: "/team", mark: "S", label: "Team", group: "setup", adminOnly: true },
   { path: "/data", mark: "D", label: "Data", group: "setup", adminOnly: true, desktopOnly: true }
 ];
-// The pages that sit under another one in the menu (Reports under History, and so on).
-const ALIASES: Record<string, string> = { "/reports": "/transit", "/routes": "/lines", "/timetable": "/lines", "/members": "/team" };
+// Old addresses that now open another page (Routes and Timetable are Lines, and so on).
+const ALIASES: Record<string, string> = { "/routes": "/lines", "/timetable": "/lines", "/members": "/team" };
 
 export function OpsShell() {
   const { member, tenant, logout } = useAuth();
