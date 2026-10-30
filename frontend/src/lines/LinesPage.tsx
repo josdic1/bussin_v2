@@ -80,7 +80,8 @@ export function LinesPage() {
 
   return <div className="ln">
     <Head eyebrow="Setup" title="Lines"
-      actions={<button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>+ New line</button>} />
+      actions={<><Link className="btn" to="/lines/sheet">Print setup sheet</Link>
+        <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>+ New line</button></>} />
     <ErrorNote text={error} />
     {!lines && !error && <p className="hint">Loading the lines…</p>}
     {lines && !lines.length && <NoMatch>No lines yet. A line is one bus going between two places in the morning and back in the afternoon.</NoMatch>}

@@ -18,7 +18,7 @@ const idSchema = z.string().uuid();
 type Row = {
   id: string; routeId: string; routeName: string; servicePeriod: "AM" | "PM"; routeUsable: boolean;
   busId: string; busLabel: string; weekdays: number[]; departTime: string; startsOn: string; endsOn: string;
-  leadId: string | null; leadName: string | null; driverId: string | null; driverName: string | null; driverPhone: string | null;
+  leadId: string | null; leadName: string | null; leadPhone: string | null; driverId: string | null; driverName: string | null; driverPhone: string | null;
   counselors: { id: string; displayName: string }[] | null; stoppedAt: Date | null; upcoming: number; nextDepartureAt: Date | null;
 };
 
@@ -29,7 +29,7 @@ export async function readSchedules(db: Pick<PoolClient, "query">, id?: string) 
             s.bus_id AS "busId", b.label AS "busLabel", s.weekdays::int[] AS weekdays,
             to_char(s.depart_time, 'HH24:MI') AS "departTime",
             to_char(s.starts_on, 'YYYY-MM-DD') AS "startsOn", to_char(s.ends_on, 'YYYY-MM-DD') AS "endsOn",
-            s.lead_id AS "leadId", lead.display_name AS "leadName",
+            s.lead_id AS "leadId", lead.display_name AS "leadName", lead.phone AS "leadPhone",
             s.driver_id AS "driverId", d.name AS "driverName", d.phone AS "driverPhone",
             (SELECT json_agg(json_build_object('id', m.id, 'displayName', m.display_name) ORDER BY array_position(s.counselor_ids, m.id))
                FROM members m WHERE m.id = ANY (s.counselor_ids)) AS counselors,
@@ -56,7 +56,7 @@ export async function readSchedules(db: Pick<PoolClient, "query">, id?: string) 
     id: row.id, routeId: row.routeId, routeName: row.routeName, servicePeriod: row.servicePeriod, routeUsable: row.routeUsable,
     busId: row.busId, busLabel: row.busLabel, weekdays: row.weekdays, departTime: row.departTime,
     startsOn: row.startsOn, endsOn: row.endsOn,
-    lead: row.leadId ? { id: row.leadId, displayName: row.leadName ?? "Staff" } : null,
+    lead: row.leadId ? { id: row.leadId, displayName: row.leadName ?? "Staff", phone: row.leadPhone } : null,
     counselors: row.counselors ?? [],
     driver: row.driverId ? { id: row.driverId, name: row.driverName ?? "Driver", phone: row.driverPhone } : null,
     stoppedAt: row.stoppedAt?.toISOString() ?? null,

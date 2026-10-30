@@ -14,6 +14,7 @@ const DataPage = lazy(async () => ({ default: (await import("./data/DataPage")).
 const MessagesPage = lazy(async () => ({ default: (await import("./messages/MessagesPage")).MessagesPage }));
 const ReportsPage = lazy(async () => ({ default: (await import("./reports/ReportsPage")).ReportsPage }));
 const LinesPage = lazy(async () => ({ default: (await import("./lines/LinesPage")).LinesPage }));
+const SetupSheet = lazy(async () => ({ default: (await import("./lines/SetupSheet")).SetupSheet }));
 const TimetablePage = lazy(async () => ({ default: (await import("./timetable/TimetablePage")).TimetablePage }));
 const TransitPage = lazy(async () => ({ default: (await import("./transit/TransitPage")).TransitPage }));
 const RoutesPage = lazy(async () => {
@@ -263,6 +264,7 @@ export function App() {
           <Route path="transit" element={<TransitPage />} />
           <Route path="timetable" element={<TimetablePage />} />
           <Route path="lines" element={<LinesPage />} />
+          <Route path="lines/sheet" element={<SetupSheet />} />
           <Route path="reports" element={<Suspense fallback={<p className="hint">Loading reports…</p>}><ReportsPage /></Suspense>} />
         </Route>
         {/* The old cab terminal address. Bus phones use /bus now. */}

@@ -1,0 +1,36 @@
+/* Setup sheet: looks like a page on screen, prints one page per bus. */
+.ops .ss-bar{display:flex;align-items:center;gap:14px;margin:0 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.ops .ss-bar span{flex:1;font-size:14px;color:var(--muted)}
+.ops .ss-page{max-width:820px;margin:0 auto 22px;padding:30px 34px;background:#fff;border:1px solid var(--line);border-top:8px solid var(--c,#17382c);border-radius:6px;color:#111;box-shadow:0 2px 14px rgba(23,33,27,.06)}
+.ops .ss-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:14px;border-bottom:2px solid #111}
+.ops .ss-head small{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#555}
+.ops .ss-head h2{margin:2px 0 0;font-size:36px;line-height:1.05;font-weight:900;letter-spacing:-.02em}
+.ops .ss-bus{padding:8px 16px;border:2px solid #111;border-radius:10px;font-size:22px;font-weight:900;white-space:nowrap}
+.ops .ss-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:14px 0;border-bottom:1px solid #ccc}
+.ops .ss-run,.ops .ss-person{display:flex;flex-direction:column;min-width:0}
+.ops .ss-run small,.ops .ss-person small{font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#555}
+.ops .ss-run b{font-size:24px;font-weight:900}
+.ops .ss-person b{font-size:17px;font-weight:850}
+.ops .ss-run span,.ops .ss-person span{font-size:14px;color:#333}
+.ops .ss-box{padding:12px 0;border-bottom:1px solid #ccc}
+.ops .ss-box h3,.ops .ss-kids h3{margin:8px 0 6px;font-size:13px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.ops .ss-kids h3 span{margin-left:6px;font-weight:700;letter-spacing:0;text-transform:none;color:#555}
+.ops .ss-checks,.ops .ss-plain{margin:0;padding:0;list-style:none;display:grid;gap:5px;font-size:14.5px}
+.ops .ss-checks li{position:relative;padding-left:28px}
+.ops .ss-checks li::before{content:"";position:absolute;left:0;top:1px;width:16px;height:16px;border:2px solid #111;border-radius:3px}
+.ops .ss-kids table{width:100%;border-collapse:collapse;font-size:13.5px}
+.ops .ss-kids th{text-align:left;font-size:11px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:#555;border-bottom:2px solid #111;padding:6px 6px}
+.ops .ss-kids td{padding:7px 6px;border-bottom:1px solid #ddd}
+.ops .ss-kids .ss-ck{width:36px;text-align:center}
+.ops .ss-kids .ss-ck i{display:inline-block;width:16px;height:16px;border:2px solid #111;border-radius:3px}
+.ops .ss-none{color:#555}
+@media (max-width:700px){.ops .ss-page{padding:20px 16px}.ops .ss-grid{grid-template-columns:1fr}.ops .ss-head h2{font-size:28px}.ops .ss-bar span{display:none}}
+@media print{
+  @page{size:letter;margin:0.45in}
+  body{background:#fff}
+  .ops .sidebar,.ops .topbar,.ops .tabs,.ops .mtop,.ops .mfoot,.ops .mfoot-setup,.ops .qsend,.ops .ss-bar,.ops .va-banner,.ops .toast,.va-dock{display:none!important}
+  .ops .app,.ops .ws,.ops .content,.ops .mc{display:block!important;margin:0!important;padding:0!important;max-width:none!important;width:auto!important;background:#fff!important}
+  .ops .ss-page{max-width:none;margin:0;padding:0;border:0;border-top:10px solid var(--c,#111);border-radius:0;box-shadow:none;break-after:page;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .ops .ss-page:last-child{break-after:auto}
+  .ops .ss-kids tr{break-inside:avoid}
+}
