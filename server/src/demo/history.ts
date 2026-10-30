@@ -210,3 +210,28 @@ export async function fillHistory(client: PoolClient, span: HistorySpan) {
   await client.query("ALTER TABLE trip_location_samples ENABLE TRIGGER accept_trip_location_sample");
   return { trips: made, cancelled, days: new Set(rows.map((row) => row.day)).size };
 }
+
+/**
+ * Demo only: keep the past filled in by itself. Runs nobody drove on earlier days are
+ * replaced by finished trips, and any missing day in the last week gets its trips, so
+ * History never shows a gap or a pile of "never started". Runs once at start, then hourly.
+ */
+export async function keepHistoryCurrent(pool: import("pg").Pool) {
+  const client = await pool.connect();
+  try {
+    const camp = await client.query<{ n: number }>(`SELECT count(*)::int AS n FROM trip_schedules WHERE stopped_at IS NULL`);
+    if (!camp.rows[0]?.n) return;
+    await client.query("BEGIN");
+    const undriven = await client.query<{ id: string }>(
+      `SELECT id FROM trips WHERE status = 'planned'
+          AND departure_at < (date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)`, [CAMP_TIME_ZONE]);
+    const { deleteTrips } = await import("./trips.js");
+    await deleteTrips(client, undriven.rows.map((row) => row.id));
+    const filled = await fillHistory(client, "week");
+    await client.query("COMMIT");
+    if (filled.trips) console.log(`Demo history: added ${filled.trips} past trips.`);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Demo history upkeep failed", error);
+  } finally { client.release(); }
+}

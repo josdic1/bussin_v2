@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
-import { clearDemo, drive, fillHistory, resetDemo, signInAs, useDemo, type HistorySpan, type Keep, type Who } from "./useDemo";
+import { clearDemo, drive, resetDemo, signInAs, useDemo, type Keep, type Who } from "./useDemo";
 import "./demo.css";
 
 /*
@@ -85,13 +85,6 @@ export function DemoBar() {
           <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("AM"))}>Morning run<small>Leaves in 3 min</small></button>
           <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("PM"))}>Afternoon run<small>Leaves in 3 min</small></button>
         </div>
-        <h3>Fill in the past</h3>
-        <div className="demo-row">{([["day", "A day"], ["week", "A week"], ["month", "A month"], ["season", "Season"]] as [HistorySpan, string][]).map(([span, label]) =>
-          <button key={span} type="button" disabled={busy} onClick={() => void run(async () => {
-            const result = await fillHistory(span);
-            setNote(result.trips ? `Added ${result.trips} past trips.` : "Those days are already filled in.");
-            setBusy(false);
-          })}>{label}</button>)}</div>
         <h3>Wipe</h3>
         <div className="demo-row">
           <button type="button" disabled={busy} onClick={() => { setKeep({ setup: true, team: true, kids: true, history: true, messages: true }); setWiping(true); }}>Choose what to keep<small>The rest is wiped</small></button>
