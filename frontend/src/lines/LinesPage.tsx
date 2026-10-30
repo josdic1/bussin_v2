@@ -1,9 +1,9 @@
-import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { Link } from "react-router";
 import {
   busesResponseSchema, dispatchStaffResponseSchema, knownPlacesResponseSchema, LINE_COLORS, lineCreateInputSchema,
-  linesResponseSchema, routesResponseSchema, tripSchedulesResponseSchema, WEEKDAY_NAMES, weekdaysLabel,
-  type Line, type LineDirection, type TripSchedule
+  lineSetupInputSchema, linesResponseSchema, routesResponseSchema, timeLabel, WEEKDAY_NAMES,
+  type Bus, type Line, type LineDirection, type Route, type TripDriver, type TripSchedule, type TripStaff
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
 import { TimeField } from "../ops/TimeField";
@@ -12,46 +12,38 @@ import { Overlay, useOps } from "../ops/OpsShell";
 import { ErrorNote, Head, NoMatch } from "../ops/ui";
 import { usePolling } from "../ops/useBoard";
 import { parseCoordinates } from "../routes/coords";
-import { ScheduleForm, type Data } from "../timetable/TimetablePage";
 import "./lines.css";
 
 /*
- * Lines: every bus line on one map. A line is a morning run and an afternoon run between
- * the same places, on one bus, on the same days, with one crew. Most camp lines are
- * shuttles (JCC and Camp, nothing in between). Click a line for its times, crew and kids.
- * Replaces the separate Routes and Timetable pages; both stay one click away.
+ * Lines: the list on the left, the line you picked on the right. A line is one bus going
+ * between two places in the morning and back in the afternoon, on the same days, with the
+ * same crew. Everything about it is one form. Stops are edited on the map from here.
  */
 
+type Data = { buses: Bus[]; routes: Route[]; staff: TripStaff[]; drivers: TripDriver[] };
 type Places = { label: string; latitude: number; longitude: number }[];
-type Editing = { schedule: TripSchedule | null; preset?: Partial<TripSchedule> };
 
-function clockLabel(hhmm: string) {
-  return new Date(`2000-01-01T${hhmm}:00`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-}
 const letter = (name: string) => name.trim().charAt(0).toUpperCase() || "?";
-
-/** The two ends of a line, read in the morning direction. */
-function ends(line: Line) {
-  if (line.am?.stops.length) return { from: line.am.stops[0]!.label, to: line.am.stops.at(-1)!.label, middle: line.am.stops.length - 2 };
-  if (line.pm?.stops.length) return { from: line.pm.stops.at(-1)!.label, to: line.pm.stops[0]!.label, middle: line.pm.stops.length - 2 };
-  return { from: "", to: "", middle: 0 };
-}
 const firstRun = (direction: LineDirection | null) => direction?.schedules[0] ?? null;
 
-/** What's missing before this line can run tomorrow, in plain words. Empty: ready. */
-function problems(line: Line) {
-  const list: string[] = [];
+/** The two ends of a line, in the morning direction, and the stops between. */
+function ends(line: Line) {
+  if (line.am?.stops.length) return { from: line.am.stops[0]!.label, to: line.am.stops.at(-1)!.label, middle: line.am.stops.slice(1, -1).map((s) => s.label) };
+  if (line.pm?.stops.length) return { from: line.pm.stops.at(-1)!.label, to: line.pm.stops[0]!.label, middle: line.pm.stops.slice(1, -1).map((s) => s.label).reverse() };
+  return { from: "", to: "", middle: [] as string[] };
+}
+
+/** One short line for the list: what runs, or what's missing. */
+function summary(line: Line): { text: string; warn: string | null } {
   const am = firstRun(line.am);
   const pm = firstRun(line.pm);
-  if (!am && !pm) list.push("No times yet");
-  else {
-    if (line.am && !am) list.push("No morning time");
-    if (line.pm && !pm) list.push("No afternoon time");
-  }
-  if ([am, pm].some((run) => run && !run.lead)) list.push("No lead");
-  if ([am, pm].some((run) => run && !run.driver)) list.push("No driver");
-  if (!line.kids) list.push("No kids yet");
-  return list;
+  const run = am ?? pm;
+  if (!run) return { text: `${line.kids} ${line.kids === 1 ? "kid" : "kids"}`, warn: "Not set up" };
+  // "7:45a / 3:15p": short enough to fit beside the bus name.
+  const short = (hhmm: string) => timeLabel(hhmm).replace(" AM", "a").replace(" PM", "p");
+  const times = [am && short(am.departTime), pm && short(pm.departTime)].filter(Boolean).join(" / ");
+  const warn = !run.lead ? "No lead" : !run.driver ? "No driver" : !line.kids ? "No kids" : null;
+  return { text: `${run.busLabel} · ${times} · ${line.kids} ${line.kids === 1 ? "kid" : "kids"}`, warn };
 }
 
 export function LinesPage() {
@@ -62,14 +54,12 @@ export function LinesPage() {
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Editing | null>(null);
   const [creating, setCreating] = useState(false);
 
   usePolling(async (signal) => {
     try {
-      const [lineData, schedules, buses, routes, staff, placeData] = await Promise.all([
+      const [lineData, buses, routes, staff, placeData] = await Promise.all([
         getJson("/api/lines", linesResponseSchema, signal),
-        getJson("/api/schedules", tripSchedulesResponseSchema, signal),
         getJson("/api/fleet/buses", busesResponseSchema, signal),
         getJson("/api/routes", routesResponseSchema, signal),
         getJson("/api/dispatch/staff", dispatchStaffResponseSchema, signal),
@@ -77,7 +67,7 @@ export function LinesPage() {
       ]);
       if (signal.aborted) return;
       setLines(lineData.lines);
-      setData({ schedules: schedules.schedules, buses: buses.buses, routes: routes.routes, staff: staff.staff, drivers: staff.drivers });
+      setData({ buses: buses.buses, routes: routes.routes, staff: staff.staff, drivers: staff.drivers });
       setPlaces(placeData.places);
       setError("");
     } catch (cause) {
@@ -86,128 +76,147 @@ export function LinesPage() {
   }, 60_000, [revision]);
 
   const selected = lines?.find((line) => line.id === selectedId) ?? lines?.[0] ?? null;
-  const allEnds = useMemo(() => (lines ?? []).map(ends), [lines]);
-  const shared = allEnds.length > 0 && allEnds.every((end) => end.from === allEnds[0]!.from && end.to === allEnds[0]!.to) ? allEnds[0]! : null;
-  const days = useMemo(() => {
-    const runs = (lines ?? []).flatMap((line) => [firstRun(line.am), firstRun(line.pm)]).filter((run): run is TripSchedule => !!run);
-    if (!runs.length) return null;
-    const first = runs.map((run) => run.startsOn).sort()[0]!;
-    const last = runs.map((run) => run.endsOn).sort().at(-1)!;
-    const allSame = runs.every((run) => run.weekdays.join() === runs[0]!.weekdays.join());
-    return `${allSame ? weekdaysLabel(runs[0]!.weekdays) : "Different days"} · ${dateLabel(first)} to ${dateLabel(last)}`;
-  }, [lines]);
-  const done = (note: string) => { setEditing(null); setCreating(false); toast(note); setRevision((value) => value + 1); };
+  const reload = () => setRevision((value) => value + 1);
 
   return <div className="ln">
     <Head eyebrow="Setup" title="Lines"
       actions={<button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>+ New line</button>} />
     <ErrorNote text={error} />
     {!lines && !error && <p className="hint">Loading the lines…</p>}
-    {lines && !lines.length && <NoMatch>No lines yet. A line is one bus going between two places in the morning and back in the afternoon. Add the first one.</NoMatch>}
+    {lines && !lines.length && <NoMatch>No lines yet. A line is one bus going between two places in the morning and back in the afternoon.</NoMatch>}
 
-    {lines && lines.length > 0 && <div className="ln-wrap">
-      <section className="ln-map" aria-label="Line map">
-        <div className="ln-map-head"><h2>Line map</h2>{days && <span>{days}</span>}</div>
-        <div className={`ln-grid${shared ? "" : " own"}`}>
-          {shared && <div className="ln-end"><b>{shared.from}</b><small>Morning: get on</small></div>}
-          <div className="ln-rows">
-            {lines.map((line) => {
-              const end = ends(line);
-              const am = firstRun(line.am);
-              const pm = firstRun(line.pm);
-              const bus = am?.busLabel ?? pm?.busLabel ?? null;
-              const issues = problems(line);
-              const on = selected?.id === line.id;
-              return <button key={line.id} type="button" className={`ln-row${on ? " on" : ""}`} aria-pressed={on}
-                style={{ "--c": line.color } as CSSProperties} onClick={() => setSelectedId(line.id)}>
-                <span className="ln-top">
-                  <span className="ln-chip">{letter(line.name)}</span><b>{line.name}</b>
-                  <small>{bus ?? "No bus"} · {line.kids} {line.kids === 1 ? "kid" : "kids"}</small>
-                  {issues.length > 0 && <em>{issues[0]}</em>}
-                </span>
-                {!shared && <span className="ln-own"><span>{end.from}</span><span>{end.to}</span></span>}
-                <span className="ln-track" aria-hidden="true"><i className="dot l" /><i className="bar" />
-                  {Array.from({ length: Math.max(0, end.middle) }, (_, index) =>
-                    <i key={index} className="dot m" style={{ left: `${((index + 1) / (end.middle + 1)) * 100}%` }} />)}
-                  <i className="dot r" /></span>
-                <span className="ln-times">
-                  <span>{am ? `${clockLabel(am.departTime)} morning` : line.am ? "No morning time" : "No morning run"}</span>
-                  <span>{pm ? `${clockLabel(pm.departTime)} afternoon` : line.pm ? "No afternoon time" : "No afternoon run"}</span>
-                </span>
-              </button>;
-            })}
-          </div>
-          {shared && <div className="ln-end r"><b>{shared.to}</b><small>Morning: get off</small></div>}
-        </div>
-        <p className="ln-foot">{shared && allEnds.every((end) => end.middle === 0)
-          ? `Shuttle lines: everyone gets on at ${shared.from} and off at ${shared.to} in the morning, and the other way in the afternoon.`
-          : "Dots on a line are stops between the two ends."}</p>
-      </section>
-
-      {selected && data && <LinePanel line={selected} data={data} onEdit={setEditing} onColor={async (color) => {
-        try { await send("PATCH", `/api/lines/${selected.id}/color`, { color }, "Could not change the color."); setRevision((value) => value + 1); }
-        catch (cause) { toast(message(cause, "Could not change the color.")); }
-      }} />}
+    {lines && lines.length > 0 && <div className="ln-split">
+      <nav className="ln-list" aria-label="Lines">{lines.map((line) => {
+        const info = summary(line);
+        const end = ends(line);
+        const on = selected?.id === line.id;
+        return <button key={line.id} type="button" className={`ln-item${on ? " on" : ""}`} aria-pressed={on}
+          style={{ "--c": line.color } as CSSProperties} onClick={() => setSelectedId(line.id)}>
+          <span className="ln-chip">{letter(line.name)}</span>
+          <span className="ln-item-text"><b>{line.name}</b><small>{end.from} and {end.to}</small><small>{info.text}</small></span>
+          {info.warn && <em>{info.warn}</em>}
+        </button>;
+      })}</nav>
+      {selected && data && <LinePanel key={selected.id} line={selected} data={data} toast={toast} onSaved={reload} />}
     </div>}
 
-    {editing && data && <Overlay onClose={() => setEditing(null)}>
-      <ScheduleForm data={data} schedule={editing.schedule} preset={editing.preset} onDone={done} />
-    </Overlay>}
     {creating && data && <Overlay onClose={() => setCreating(false)}>
-      <NewLineForm data={data} places={places} used={(lines ?? []).map((line) => line.color)} onDone={done} />
+      <NewLineForm data={data} places={places} used={(lines ?? []).map((line) => line.color)}
+        onDone={(note) => { setCreating(false); toast(note); reload(); }} />
     </Overlay>}
   </div>;
 }
 
-function LinePanel({ line, data, onEdit, onColor }: {
-  line: Line; data: Data; onEdit: (editing: Editing) => void; onColor: (color: string) => void;
-}) {
+/** The picked line: its two runs drawn out, then one form for everything else. */
+function LinePanel({ line, data, toast, onSaved }: { line: Line; data: Data; toast: (text: string) => void; onSaved: () => void }) {
+  const today = localDate(new Date());
   const am = firstRun(line.am);
   const pm = firstRun(line.pm);
-  const crewFrom = am ?? pm;
+  const run: TripSchedule | null = am ?? pm;
   const end = ends(line);
-  const issues = problems(line);
-  const presetFrom = (other: TripSchedule | null, direction: LineDirection): Partial<TripSchedule> => ({
-    routeId: direction.routeId, busId: other?.busId, weekdays: other?.weekdays, startsOn: other?.startsOn, endsOn: other?.endsOn,
-    lead: other?.lead ?? null, counselors: other?.counselors ?? [], driver: other?.driver ?? null
+  const start = () => ({
+    busId: run?.busId ?? "", morning: am?.departTime ?? "", afternoon: pm?.departTime ?? "",
+    weekdays: run?.weekdays ?? [1, 2, 3, 4, 5], startsOn: run?.startsOn ?? today, endsOn: run?.endsOn ?? shiftDay(today, 55),
+    leadId: run?.lead?.id ?? "", driverId: run?.driver?.id ?? "", counselorIds: run?.counselors.map((c) => c.id) ?? []
   });
-  const run = (label: string, direction: LineDirection | null, schedule: TripSchedule | null, other: TripSchedule | null, from: string, to: string) =>
+  const [form, setForm] = useState(start);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [skipped, setSkipped] = useState<{ day: string; reason: string }[]>([]);
+  const saved = JSON.stringify(start());
+  useEffect(() => { setForm(start()); setError(""); }, [saved]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changed = JSON.stringify(form) !== saved;
+  const set = (next: Partial<typeof form>) => setForm((current) => ({ ...current, ...next }));
+  const buses = data.buses.filter((bus) => bus.active || bus.id === form.busId);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    const parsed = lineSetupInputSchema.safeParse({
+      busId: form.busId, morningTime: line.am ? form.morning || null : null, afternoonTime: line.pm ? form.afternoon || null : null,
+      weekdays: form.weekdays, startsOn: form.startsOn, endsOn: form.endsOn,
+      crew: { leadId: form.leadId || null, counselorIds: form.counselorIds.filter((id) => id !== form.leadId), driverId: form.driverId || null }
+    });
+    if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the form."); return; }
+    if (!parsed.data.morningTime && !parsed.data.afternoonTime) { setError("Give a morning time, an afternoon time, or both."); return; }
+    setSaving(true); setError(""); setSkipped([]);
+    try {
+      const body = await send("PUT", `/api/lines/${line.id}/setup`, parsed.data, "Could not save.") as { built: number; skipped: { day: string; reason: string }[] };
+      toast(`${line.name} saved. ${body.built} ${body.built === 1 ? "trip" : "trips"} planned for the next 2 weeks.`);
+      setSkipped(body.skipped);
+      onSaved();
+    } catch (cause) {
+      setError(message(cause, "Could not save."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const runRow = (label: string, from: string, to: string, has: boolean, value: string, onChange: (v: string) => void, id: string) =>
     <div className="ln-run">
-      <span className="lt">{label}</span>
-      {schedule ? <><b>{clockLabel(schedule.departTime)}</b><span>{from} to {to}{schedule.weekdays.join() !== other?.weekdays.join() && other ? ` · ${weekdaysLabel(schedule.weekdays)}` : ""}</span>
-        <button type="button" className="btn sm" onClick={() => onEdit({ schedule })}>Edit</button></>
-        : direction ? <><span className="dim">No time yet</span><span>{from} to {to}</span>
-          <button type="button" className="btn sm btn-primary" onClick={() => onEdit({ schedule: null, preset: presetFrom(other, direction) })}>Add time</button></>
-          : <><span className="dim">No {label.toLowerCase()} run</span><span /><span /></>}
+      <div className="ln-run-what"><span className="lt">{label}</span>
+        <span className="ln-run-path"><b>{from}</b><i aria-hidden="true" /><b>{to}</b></span></div>
+      {has ? <div className="ln-run-time"><label htmlFor={id}>Leaves</label>
+        <TimeField id={id} value={value} onChange={onChange} placeholder={label === "Morning" ? "e.g. 8am" : "e.g. 3:30p"} /></div>
+        : <span className="dim">No {label.toLowerCase()} route</span>}
     </div>;
 
-  return <aside className="ln-panel" style={{ "--c": line.color } as CSSProperties}>
+  return <section className="ln-panel" style={{ "--c": line.color } as CSSProperties} aria-label={line.name}>
     <div className="ln-panel-head">
       <span className="ln-chip big">{letter(line.name)}</span>
-      <div><b>{line.name}</b><small>{end.from} and {end.to}{end.middle > 0 ? ` · ${end.middle} stops between` : " · shuttle"}</small></div>
+      <div><b>{line.name}</b><small>{end.middle.length ? `${end.middle.length} stops between` : "Shuttle"} · {line.kids} {line.kids === 1 ? "kid" : "kids"}{line.partWeek ? `, ${line.partWeek} part of the week` : ""}</small></div>
     </div>
-    {issues.length > 0 && <p className="ln-issues">{issues.join(" · ")}</p>}
-    {run("Morning", line.am, am, pm, end.from, end.to)}
-    {run("Afternoon", line.pm, pm, am, end.to, end.from)}
-    <dl className="ln-facts">
-      <div><dt>Days</dt><dd>{crewFrom ? weekdaysLabel(crewFrom.weekdays) : "—"}</dd></div>
-      <div><dt>Season</dt><dd>{crewFrom ? `${dateLabel(crewFrom.startsOn)} to ${dateLabel(crewFrom.endsOn)}` : "—"}</dd></div>
-      <div><dt>Bus</dt><dd>{crewFrom?.busLabel ?? "—"}</dd></div>
-      <div><dt>Driver</dt><dd>{crewFrom?.driver?.name ?? <span className="bad">None</span>}</dd></div>
-      <div><dt>Lead</dt><dd>{crewFrom?.lead?.displayName ?? <span className="bad">None</span>}</dd></div>
-      <div><dt>Counselors</dt><dd>{crewFrom?.counselors.length ? crewFrom.counselors.map((c) => c.displayName).join(", ") : "None"}</dd></div>
-      <div><dt>Kids</dt><dd>{line.kids}{line.partWeek ? ` · ${line.partWeek} part of the week` : ""}</dd></div>
-    </dl>
-    <div className="ln-colors" role="group" aria-label="Line color">{LINE_COLORS.map((color) =>
-      <button key={color} type="button" aria-label={`Color ${color}`} aria-pressed={color === line.color}
-        className={color === line.color ? "on" : ""} style={{ background: color }} onClick={() => onColor(color)} />)}</div>
-    <div className="ln-links">
-      <Link to="/families">Kids</Link>
-      <Link to="/routes">Edit stops on the map</Link>
-      <Link to="/timetable">All repeating trips</Link>
+    <form className="ln-setup" onSubmit={(event) => void save(event)} noValidate>
+      {runRow("Morning", end.from, end.to, !!line.am, form.morning, (v) => set({ morning: v }), `ln-am-${line.id}`)}
+      {runRow("Afternoon", end.to, end.from, !!line.pm, form.afternoon, (v) => set({ afternoon: v }), `ln-pm-${line.id}`)}
+      {end.middle.length > 0 && <p className="ln-stops">Stops between: {end.middle.join(", ")}</p>}
+      <div className="ln-fields">
+        <div className="ctl-row"><label htmlFor={`ln-bus-${line.id}`}>Bus</label>
+          <select id={`ln-bus-${line.id}`} value={form.busId} onChange={(event) => set({ busId: event.target.value })}>
+            <option value="">Choose a bus</option>
+            {buses.map((bus) => <option key={bus.id} value={bus.id}>{bus.label}</option>)}
+          </select></div>
+        <div className="ctl-row"><span className="lt">Runs on</span>
+          <div className="daypick" role="group" aria-label="Days it runs">{WEEKDAY_NAMES.map((name, index) => {
+            const on = form.weekdays.includes(index + 1);
+            return <button key={name} type="button" aria-pressed={on} className={on ? "on" : ""}
+              onClick={() => set({ weekdays: on ? form.weekdays.filter((d) => d !== index + 1) : [...form.weekdays, index + 1].sort((a, b) => a - b) })}>{name}</button>;
+          })}</div></div>
+        <div className="rf2">
+          <div className="ctl-row"><label htmlFor={`ln-from-${line.id}`}>First day</label>
+            <input id={`ln-from-${line.id}`} type="date" value={form.startsOn} onChange={(event) => set({ startsOn: event.target.value })} /></div>
+          <div className="ctl-row"><label htmlFor={`ln-to-${line.id}`}>Last day</label>
+            <input id={`ln-to-${line.id}`} type="date" value={form.endsOn} min={form.startsOn} onChange={(event) => set({ endsOn: event.target.value })} /></div>
+        </div>
+        <div className="rf2">
+          <div className="ctl-row"><label htmlFor={`ln-lead-${line.id}`}>Lead counselor</label>
+            <select id={`ln-lead-${line.id}`} value={form.leadId} onChange={(event) => set({ leadId: event.target.value })}>
+              <option value="">Pick later</option>
+              {data.staff.map((p) => <option key={p.id} value={p.id}>{p.displayName}</option>)}
+            </select></div>
+          <div className="ctl-row"><label htmlFor={`ln-drv-${line.id}`}>Driver</label>
+            <select id={`ln-drv-${line.id}`} value={form.driverId} onChange={(event) => set({ driverId: event.target.value })}>
+              <option value="">Pick later</option>
+              {data.drivers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select></div>
+        </div>
+      </div>
+      <ErrorNote text={error} />
+      {skipped.length > 0 && <ul className="ln-skipped">{skipped.slice(0, 5).map((skip) =>
+        <li key={`${skip.day}-${skip.reason}`}><b>{dateLabel(skip.day)}</b> not planned: {skip.reason}</li>)}</ul>}
+      <div className="ln-acts">
+        <button className="btn btn-primary" type="submit" disabled={saving || (!!run && !changed)}>
+          {saving ? "Saving…" : run ? "Save changes" : `Set up ${line.name}`}</button>
+        {changed && run && <button type="button" className="btn" onClick={() => setForm(start())}>Undo changes</button>}
+      </div>
+    </form>
+    <div className="ln-foot">
+      <div className="ln-colors" role="group" aria-label="Line color">{LINE_COLORS.map((color) =>
+        <button key={color} type="button" aria-label={`Color ${color}`} aria-pressed={color === line.color} className={color === line.color ? "on" : ""}
+          style={{ background: color }} onClick={() => void send("PATCH", `/api/lines/${line.id}/color`, { color }, "Could not change the color.")
+            .then(onSaved).catch((cause) => toast(message(cause, "Could not change the color.")))} />)}</div>
+      <span className="ln-links"><Link to="/families">Kids</Link><Link to="/routes">Edit stops on the map</Link></span>
     </div>
-    {data.schedules.length === 0 && <p className="hint">Times build the real trips two weeks ahead. Change one day in Dispatch.</p>}
-  </aside>;
+  </section>;
 }
 
 function PlacePicker({ id, label, places, value, onChange }: {

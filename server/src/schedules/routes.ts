@@ -65,7 +65,7 @@ export async function readSchedules(db: Pick<PoolClient, "query">, id?: string) 
 }
 
 /** Refuse a schedule whose route, bus or crew can't work, in words the office understands. */
-async function problemWith(client: PoolClient, input: TripScheduleInput): Promise<string | null> {
+export async function problemWith(client: PoolClient, input: TripScheduleInput): Promise<string | null> {
   const route = await client.query<{ id: string; active: boolean }>(CURRENT_ROUTE, [input.routeId]);
   if (!route.rows[0]?.active) return "That route is turned off. Pick another one.";
   const bus = await client.query("SELECT 1 FROM buses WHERE id = $1 AND active", [input.busId]);

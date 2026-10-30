@@ -1,14 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
-  knownPlacesResponseSchema, LINE_COLORS, lineColorInputSchema, lineCreateInputSchema, linesResponseSchema,
+  knownPlacesResponseSchema, LINE_COLORS, lineColorInputSchema, lineCreateInputSchema, lineSetupInputSchema, linesResponseSchema,
   type Line, type LineDirection
 } from "@bussin/shared";
 import { currentMember, requireRole, requireSameOrigin } from "../auth/guard.js";
 import { pool } from "../db/pool.js";
 import { createRoute, refreshRouteGeometry, RouteSaveError } from "../routes/save.js";
-import { buildScheduledTrips } from "../schedules/build.js";
-import { readSchedules } from "../schedules/routes.js";
+import { buildScheduledTrips, removeUntouchedTrips } from "../schedules/build.js";
+import { problemWith, readSchedules } from "../schedules/routes.js";
 
 // Lines: one route family = one line. Its current morning and afternoon routes, the
 // repeating trips on each, and the kids assigned to it. Creating a line makes both
@@ -127,4 +127,85 @@ lineRoutes.patch("/:id/color", requireSameOrigin, requireRole("admin"), async (r
   const updated = await pool.query("UPDATE route_families SET color = $2 WHERE id = $1", [id.data, input.data.color]);
   if (!updated.rowCount) { response.status(404).json({ error: "Line not found." }); return; }
   response.status(204).end();
+});
+
+/**
+ * One form for a whole line: bus, morning time, afternoon time, days, season, crew.
+ * Each run keeps one repeating trip: changed in place (untouched future trips are rebuilt),
+ * added if missing, stopped if its time is cleared.
+ */
+lineRoutes.put("/:id/setup", requireSameOrigin, requireRole("admin"), async (request, response) => {
+  const id = idSchema.safeParse(request.params.id);
+  const input = lineSetupInputSchema.safeParse(request.body);
+  if (!id.success) { response.status(400).json({ error: "Choose a line." }); return; }
+  if (!input.success) { response.status(400).json({ error: input.error.issues[0]?.message ?? "Check the form." }); return; }
+  const setup = input.data;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const routes = await client.query<{ id: string; period: "AM" | "PM" }>(
+      `SELECT id, service_period AS period FROM routes WHERE route_family_id = $1 AND superseded_at IS NULL FOR SHARE`, [id.data]);
+    if (!routes.rowCount) { await client.query("ROLLBACK"); response.status(404).json({ error: "Line not found." }); return; }
+    let built = 0;
+    let removed = 0;
+    const skipped: { day: string; reason: string }[] = [];
+    for (const [period, time] of [["AM", setup.morningTime], ["PM", setup.afternoonTime]] as const) {
+      const route = routes.rows.find((row) => row.period === period);
+      if (!route) {
+        if (time) { await client.query("ROLLBACK"); response.status(409).json({ error: `This line has no ${period === "AM" ? "morning" : "afternoon"} route. Add its stops first.` }); return; }
+        continue;
+      }
+      const problem = time ? await problemWith(client, { routeId: route.id, busId: setup.busId, weekdays: setup.weekdays, departTime: time,
+        startsOn: setup.startsOn, endsOn: setup.endsOn, crew: setup.crew }) : null;
+      if (problem) { await client.query("ROLLBACK"); response.status(409).json({ error: problem }); return; }
+      const existing = await client.query<{ id: string }>(
+        `SELECT s.id FROM trip_schedules s
+          WHERE s.stopped_at IS NULL AND s.route_id IN (
+            WITH RECURSIVE back AS (
+              SELECT r.id, r.supersedes_route_id FROM routes r WHERE r.id = $1
+              UNION ALL SELECT p.id, p.supersedes_route_id FROM routes p JOIN back b ON p.id = b.supersedes_route_id)
+            SELECT id FROM back)
+          ORDER BY s.created_at FOR UPDATE`, [route.id]);
+      const [keep, ...extra] = existing.rows;
+      // One repeating trip per run: any extras from the old Timetable page are stopped.
+      for (const row of extra) {
+        await client.query("UPDATE trip_schedules SET stopped_at = now(), updated_at = now() WHERE id = $1", [row.id]);
+        removed += await removeUntouchedTrips(client, row.id);
+      }
+      if (!time) {
+        if (keep) {
+          await client.query("UPDATE trip_schedules SET stopped_at = now(), updated_at = now() WHERE id = $1", [keep.id]);
+          removed += await removeUntouchedTrips(client, keep.id);
+        }
+        continue;
+      }
+      let scheduleId: string;
+      if (keep) {
+        removed += await removeUntouchedTrips(client, keep.id);
+        await client.query(
+          `UPDATE trip_schedules SET route_id = $2, bus_id = $3, weekdays = $4, depart_time = $5, starts_on = $6, ends_on = $7,
+                  lead_id = $8, counselor_ids = $9, driver_id = $10, updated_at = now() WHERE id = $1`,
+          [keep.id, route.id, setup.busId, setup.weekdays, time, setup.startsOn, setup.endsOn,
+            setup.crew.leadId, setup.crew.counselorIds, setup.crew.driverId]);
+        scheduleId = keep.id;
+      } else {
+        const created = await client.query<{ id: string }>(
+          `INSERT INTO trip_schedules (route_id, bus_id, weekdays, depart_time, starts_on, ends_on, lead_id, counselor_ids, driver_id, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+          [route.id, setup.busId, setup.weekdays, time, setup.startsOn, setup.endsOn,
+            setup.crew.leadId, setup.crew.counselorIds, setup.crew.driverId, currentMember(response).id]);
+        scheduleId = created.rows[0]!.id;
+      }
+      const result = await buildScheduledTrips(client, scheduleId);
+      built += result.built;
+      skipped.push(...result.skipped.map(({ day, reason }) => ({ day, reason })));
+    }
+    await client.query("COMMIT");
+    response.json({ built, removed, skipped });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 });

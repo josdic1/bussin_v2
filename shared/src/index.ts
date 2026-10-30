@@ -1391,3 +1391,15 @@ export function timeLabel(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number) as [number, number];
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
+
+/** Set up (or change) a line in one form: bus, both times, days, season, crew. Blank time = that run doesn't repeat. */
+export const lineSetupInputSchema = z.strictObject({
+  busId: z.string().uuid("Pick a bus."),
+  morningTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+  afternoonTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+  weekdays: z.array(z.number().int().min(1).max(7)).min(1, "Pick at least one day.").max(7),
+  startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the first day."),
+  endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the last day."),
+  crew: assignTripCrewSchema
+}).refine((input) => input.endsOn >= input.startsOn, { message: "The last day must be on or after the first day." });
+export type LineSetupInput = z.infer<typeof lineSetupInputSchema>;
