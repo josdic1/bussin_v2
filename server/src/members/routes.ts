@@ -25,6 +25,7 @@ type StaffRow = {
   username: string | null;
   roles: ("admin" | "dispatch" | "staff")[];
   email: string | null;
+  phone: string | null;
   passwordChangeRequired: boolean;
   suspended: boolean;
 };
@@ -33,6 +34,7 @@ const STAFF_COLUMNS = `m.id,
             m.display_name AS "displayName",
             m.username,
             m.email,
+            m.phone,
             ARRAY(SELECT r.role FROM member_roles r
                    WHERE r.member_id = m.id AND r.revoked_at IS NULL AND r.role <> 'family'
                    ORDER BY array_position(ARRAY['admin', 'dispatch', 'staff'], r.role::text)) AS roles,
@@ -146,12 +148,13 @@ memberRoutes.post(
       await client.query("BEGIN");
       const result = await client.query<StaffRow>(
         `INSERT INTO members
-           (display_name, username, email, password_hash, activated_at, password_change_required)
-         VALUES ($1, $2, $3, $4, now(), true)
+           (display_name, username, email, password_hash, activated_at, password_change_required, phone)
+         VALUES ($1, $2, $3, $4, now(), true, $5)
          RETURNING id,
                    display_name AS "displayName",
                    username,
                    email,
+                   phone,
                    ARRAY['staff']::text[] AS roles,
                    password_change_required AS "passwordChangeRequired",
                    suspended_at IS NOT NULL AS suspended`,
@@ -159,7 +162,8 @@ memberRoutes.post(
           parsed.data.displayName,
           parsed.data.username,
           parsed.data.email,
-          passwordHash
+          passwordHash,
+          parsed.data.phone ?? null
         ]
       );
 
@@ -213,8 +217,10 @@ memberRoutes.put("/:id", requireSameOrigin, requireRole("admin"), async (request
     return;
   }
   const updated = await pool.query(
-    `UPDATE members m SET display_name = $2, username = $3, email = $4 WHERE m.id = $1 AND ${IS_TEAM}`,
-    [id.data, input.data.displayName, input.data.username, input.data.email]
+    `UPDATE members m SET display_name = $2, username = $3, email = $4,
+            phone = CASE WHEN $5 THEN $6 ELSE phone END
+      WHERE m.id = $1 AND ${IS_TEAM}`,
+    [id.data, input.data.displayName, input.data.username, input.data.email, input.data.phone !== undefined, input.data.phone ?? null]
   );
   if (!updated.rowCount) { response.status(404).json({ error: "Login not found." }); return; }
   response.json(await readStaff(pool, id.data));

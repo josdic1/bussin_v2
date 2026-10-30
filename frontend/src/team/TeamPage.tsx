@@ -74,11 +74,12 @@ function EditStaff({ person, onSaved, onCancel }: { person: StaffMember; onSaved
   const [displayName, setDisplayName] = useState(person.displayName);
   const [username, setUsername] = useState(person.username ?? "");
   const [email, setEmail] = useState(person.email ?? "");
+  const [phone, setPhone] = useState(person.phone ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const parsed = updateStaffMemberSchema.safeParse({ displayName, username, email: email.trim() ? email : null });
+    const parsed = updateStaffMemberSchema.safeParse({ displayName, username, email: email.trim() ? email : null, phone });
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? "Check the details."); return; }
     setSaving(true); setError("");
     try {
@@ -92,6 +93,9 @@ function EditStaff({ person, onSaved, onCancel }: { person: StaffMember; onSaved
       <small>First name + last initial is easiest to remember, like emilyg.</small></label>
     <label><b className="lt">Email <span>(optional)</span></b><input type="email" value={email} autoCapitalize="none" autoComplete="off"
       onChange={(event) => setEmail(event.target.value)} onBlur={() => setEmail(tidyEmail(email))} /></label>
+    <label><b className="lt">Cell phone</b><input type="tel" value={phone} maxLength={40} autoComplete="off"
+      onChange={(event) => setPhone(event.target.value)} onBlur={() => setPhone(tidyPhone(phone))} />
+      <small>Dispatch calls this number when they're the lead on a bus.</small></label>
     <p className="mf-err" role="alert">{error}</p>
     <div className="acts"><button type="button" className="btn" onClick={onCancel}>Cancel</button>
       <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</button></div>
@@ -142,6 +146,7 @@ function StaffDetail({ person, schedule, onChanged }: {
       : <><dl className="d-grid">
       <div><dt>Username</dt><dd>{handle(person)}</dd></div>
       <div><dt>Email</dt><dd>{person.email ?? "—"}</dd></div>
+      <div><dt>Cell phone</dt><dd>{person.phone ? <a href={`tel:${person.phone.replace(/[^\d+]/g, "")}`}>{person.phone}</a> : <span className="bad">None, add one</span>}</dd></div>
       <div><dt>Status</dt><dd>{status.charAt(0) + status.slice(1).toLowerCase()}</dd></div>
       <div><dt>Password</dt><dd>{person.passwordChangeRequired ? "Temporary" : "Personal"}</dd></div>
     </dl>
@@ -169,6 +174,7 @@ function AddStaffForm({ taken, onCreated }: {
   const [username, setUsername] = useState("");
   const [touched, setTouched] = useState(false);
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -182,9 +188,10 @@ function AddStaffForm({ taken, onCreated }: {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const parsed = createStaffMemberSchema.safeParse({ displayName, username, email: email.trim() ? email : null, temporaryPassword: password });
+    const parsed = createStaffMemberSchema.safeParse({ displayName, username, email: email.trim() ? email : null, phone, temporaryPassword: password });
     if (!parsed.success) {
-      setError("Enter a name, 3–32 character username, optional valid email, and a 12+ character temporary password.");
+      const phoneIssue = parsed.error.issues.find((issue) => issue.path[0] === "phone");
+      setError(phoneIssue ? phoneIssue.message : "Enter a name, 3–32 character username, optional valid email, and a 12+ character temporary password.");
       return;
     }
     if (taken(parsed.data.username)) { setError("That username is already taken."); return; }
@@ -193,7 +200,7 @@ function AddStaffForm({ taken, onCreated }: {
     try {
       const created = staffMemberSchema.parse(await send("POST", "/api/members", parsed.data, "Could not create counselor login."));
       onCreated(created, password);
-      setDisplayName(""); setUsername(""); setTouched(false); setEmail(""); setPassword("");
+      setDisplayName(""); setUsername(""); setTouched(false); setEmail(""); setPhone(""); setPassword("");
     } catch (cause) {
       setError(message(cause, "Could not create counselor login."));
     } finally { setSaving(false); }
@@ -206,6 +213,8 @@ function AddStaffForm({ taken, onCreated }: {
       <small>Made from the name: first name + last initial, like emilyg. Never a duplicate.</small></label>
     <label><b className="lt">Email <span>(optional)</span></b><input type="email" value={email} autoCapitalize="none" autoCorrect="off" autoComplete="off"
       onChange={(event) => setEmail(event.target.value)} /></label>
+    <label><b className="lt">Cell phone</b><input type="tel" value={phone} maxLength={40} autoComplete="off"
+      onChange={(event) => setPhone(event.target.value)} onBlur={() => setPhone(tidyPhone(phone))} /></label>
     <label><b className="lt">Temporary password</b><span className="pw">
       <input type="text" value={password} autoComplete="off" onChange={(event) => setPassword(event.target.value)} />
       <button type="button" onClick={() => setPassword(generatePassword())}>Generate</button></span>
@@ -422,12 +431,12 @@ export function TeamPage() {
         : <NoMatch>{loading ? "Loading…" : "No drivers yet."}</NoMatch>}</div>;
   } else {
     body = desktop
-      ? <table className="tbl"><thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Status</th></tr></thead>
+      ? <table className="tbl"><thead><tr><th>Name</th><th>Username</th><th>Cell phone</th><th>Status</th></tr></thead>
         <tbody>{logins.length ? logins.map((person) => <tr key={person.id} data-ov="" tabIndex={0} onClick={() => open(person.id)}
           onKeyDown={(event) => { if (event.key === "Enter") open(person.id); }}>
           <td><div className="who"><Avatar name={person.displayName} color={hashColor(person.id)} size={36} /><strong>{person.displayName}</strong><RolePills person={person} /></div></td>
           <td className="mono">{handle(person)}</td>
-          <td>{person.email ?? <span className="dim">&mdash;</span>}</td>
+          <td>{person.phone ?? <span className="dim">&mdash;</span>}</td>
           <td><StatusPill status={statusOf(person)} /></td></tr>)
           : <tr><td colSpan={4} className="nomatch">{loading ? "Loading…" : needle ? "No one matches." : "No one here yet."}</td></tr>}</tbody></table>
       : <div className="surface sl">{logins.length ? logins.map((person) => <button key={person.id} type="button" className="srow"

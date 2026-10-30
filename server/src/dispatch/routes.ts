@@ -404,6 +404,7 @@ type BoardRow = TripRow & {
   accuracyM: number | null;
   assignedStaffId: string | null;
   assignedStaffName: string | null;
+  assignedStaffPhone: string | null;
   staffLastSeenAt: Date | null;
 };
 
@@ -479,6 +480,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
             sample.accuracy_m::double precision AS "accuracyM",
             assigned_staff.id AS "assignedStaffId",
             assigned_staff.display_name AS "assignedStaffName",
+            assigned_staff.phone AS "assignedStaffPhone",
             staff_presence.last_seen_at AS "staffLastSeenAt"
        FROM chosen t
        JOIN routes r ON r.id = t.route_id
@@ -508,7 +510,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
        LEFT JOIN trip_location_samples sample
          ON sample.id = current_location.sample_id
        LEFT JOIN LATERAL (
-         SELECT m.id, m.display_name
+         SELECT m.id, m.display_name, m.phone
            FROM staff_assignments a
            JOIN members m ON m.id = a.member_id
           WHERE a.trip_id = t.id
@@ -522,7 +524,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
   const trips = new Map<string, {
     id: string; routeId: string; routeName: string; servicePeriod: "AM" | "PM"; busId: string;
     busLabel: string; departureAt: string; status: TripRow["status"];
-    stopCount: number; assignedStaff: { id: string; displayName: string } | null; stops: {
+    stopCount: number; assignedStaff: { id: string; displayName: string; phone?: string | null } | null; stops: {
       id: string; position: number; label: string;
       latitude: number; longitude: number;
       arrivedAt: string | null; departedAt: string | null;
@@ -543,7 +545,7 @@ dispatchRoutes.get("/board", requireRole("admin", "dispatch"), async (request, r
         departureAt: row.departureAt.toISOString(),
         status: row.status, stopCount: row.stopCount,
         assignedStaff: row.assignedStaffId && row.assignedStaffName
-          ? { id: row.assignedStaffId, displayName: row.assignedStaffName }
+          ? { id: row.assignedStaffId, displayName: row.assignedStaffName, phone: row.assignedStaffPhone }
           : null,
         stops: [],
         location: row.locationLatitude !== null &&

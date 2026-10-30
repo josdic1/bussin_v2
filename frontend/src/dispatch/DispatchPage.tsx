@@ -240,7 +240,8 @@ function BusCard({ card, kids, onOpen }: {
       <span>{kids && trip!.status === "active" ? <><b>{kids.aboard}</b> of {kids.total} on{kids.missing ? <em className="nb-miss"> · {kids.missing} not checked</em> : null}</>
         : kids ? <><b>{kids.total}</b> {plural(kids.total, "kid", "kids")}</> : null}</span>
       <span className="nb-crew">
-        {trip!.assignedStaff ? trip!.assignedStaff.displayName : <em>No lead</em>}
+        {trip!.assignedStaff ? <>{trip!.assignedStaff.displayName}{trip!.assignedStaff.phone &&
+          <a href={`tel:${trip!.assignedStaff.phone.replace(/[^\d+]/g, "")}`} onClick={(event) => event.stopPropagation()}>Call lead</a>}</> : <em>No lead</em>}
         {trip!.driver && (driverPhone
           ? <a href={`tel:${driverPhone}`} onClick={(event) => event.stopPropagation()}>Call driver</a>
           : <span className="nb-dim"> · {trip!.driver.name}</span>)}
@@ -371,6 +372,10 @@ export function DispatchPage() {
           return onBoard.length ? <p className="em-kids"><b>{onBoard.length} {plural(onBoard.length, "kid", "kids")} on board:</b> {onBoard.map((rider) => `${rider.givenName} ${rider.familyName}`).join(", ")}</p> : null;
         })()}</div>
       <div className="em-acts">
+        {(() => {
+          const lead = board.trips.find((trip) => trip.id === alert.tripId)?.assignedStaff;
+          return lead?.phone ? <a className="btn sm" href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`}>Call {lead.displayName.split(" ")[0]}</a> : null;
+        })()}
         <button type="button" className="btn sm" onClick={() => openTrip(alert.tripId)}>Show bus</button>
         {alert.latitude !== null && alert.longitude !== null &&
           <a className="btn sm" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${alert.latitude},${alert.longitude}`}>Where they are</a>}

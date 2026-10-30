@@ -64,15 +64,19 @@ export function TrackerPanel({ busId, busLabel, busActive, now }: { busId: strin
         : seen < 90_000 ? `Online · seen ${age(tracker.lastSeenAt, now)}` : `Offline · last seen ${age(tracker.lastSeenAt, now)}`;
 
   return <>
-    <div className="d-sec"><h3>Bus phone (GPS)</h3><span className={tracker && seen !== null && seen < 90_000 ? "trk-on" : ""}>{status}</span></div>
+    <div className="d-sec"><h3>GPS phone on the bus</h3><span className={tracker && seen !== null && seen < 90_000 ? "trk-on" : ""}>{status}</span></div>
     {live && <div className="trk-code">
       <b aria-label={`Pairing code ${code.code.split("").join(" ")}`}>{code.code.slice(0, 3)} {code.code.slice(3)}</b>
-      <p>On the bus phone, open <strong>{location.host}/bus</strong> and enter this code. Works once, until {time(code.expiresAt)}.</p>
+      <ol className="trk-steps">
+        <li>On the phone that stays on this bus, go to <strong>{location.host}/bus</strong></li>
+        <li>Type the code above</li>
+      </ol>
+      <small>The code works once and runs out at {time(code.expiresAt)}.</small>
     </div>}
     <ErrorNote text={error} />
     <div className="acts">
       {busActive && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void makeCode()}>
-        {live ? "New code" : tracker ? "Replace phone" : "Make pairing code"}</button>}
+        {live ? "New code" : tracker ? "Pair a different phone" : "Pair a phone"}</button>}
       {tracker && <button type="button" className="btn" disabled={busy} onClick={() => void unpair()}>Unpair</button>}
     </div>
   </>;

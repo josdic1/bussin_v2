@@ -42,6 +42,7 @@ export const staffMemberSchema = z.strictObject({
   displayName: z.string(),
   username: z.string().nullable(),
   email: z.string().email().nullable(),
+  phone: z.string().nullable(),
   roles: z.array(z.enum(["admin", "dispatch", "staff"])),
   passwordChangeRequired: z.boolean(),
   suspended: z.boolean()
@@ -78,7 +79,9 @@ export const usernameSuggestionSchema = z.strictObject({ username: z.string() })
 export const updateStaffMemberSchema = z.strictObject({
   displayName: z.string().trim().min(1, "Enter a name.").max(120),
   username: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,32}$/, "Username: 3 to 32 letters, numbers or underscores."),
-  email: z.string().trim().toLowerCase().pipe(z.email("That email doesn't look right.")).nullable()
+  email: z.string().trim().toLowerCase().pipe(z.email("That email doesn't look right.")).nullable(),
+  // Leaving it out keeps the number on file.
+  phone: z.lazy(() => phoneSchema).optional()
 });
 export const staffStatusInputSchema = z.strictObject({ suspended: z.boolean() });
 export const staffPasswordResetSchema = z.strictObject({ temporaryPassword: z.string() });
@@ -87,6 +90,7 @@ export const createStaffMemberSchema = z.strictObject({
   displayName: z.string().trim().min(1).max(120),
   username: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,32}$/),
   email: z.string().trim().toLowerCase().email().nullable(),
+  phone: z.lazy(() => phoneSchema).optional(),
   temporaryPassword: z.string().min(12).max(1024)
 });
 
@@ -111,7 +115,9 @@ export type StaffScheduleEntry = z.infer<typeof staffScheduleEntrySchema>;
 
 export const tripStaffSchema = z.strictObject({
   id: z.string().uuid(),
-  displayName: z.string()
+  displayName: z.string(),
+  // Sent where Dispatch needs to call them (the lead on the board).
+  phone: z.string().nullable().optional()
 });
 
 // A driver is a person on the trip, not a login.

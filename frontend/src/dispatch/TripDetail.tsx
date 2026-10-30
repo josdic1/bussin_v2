@@ -237,7 +237,11 @@ export function TripDetail({ row, trip, staff, drivers, buses, routes, now, acti
     <ConfirmFor trip={trip} actions={actions} />
     {!editable && (trip.status === "planned" || trip.status === "active") && <p className="hint">Start and stop controls are available on today&rsquo;s board.</p>}
     <dl className="d-grid">
-      <div className="wide"><dt>Crew</dt><dd><CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} /></dd></div>
+      <div className="wide"><dt>Crew</dt><dd><CrewPills lead={trip.assignedStaff} counselors={trip.counselors} driver={trip.driver} />
+        {(trip.assignedStaff?.phone || trip.driver?.phone) && <span className="d-calls">
+          {trip.assignedStaff?.phone && <a className="btn sm" href={`tel:${trip.assignedStaff.phone.replace(/[^\d+]/g, "")}`}>Call lead · {trip.assignedStaff.phone}</a>}
+          {trip.driver?.phone && <a className="btn sm" href={`tel:${trip.driver.phone.replace(/[^\d+]/g, "")}`}>Call driver · {trip.driver.phone}</a>}
+        </span>}</dd></div>
       <div><dt>Phone</dt><dd className={phone ? phone.ok ? "ok" : "bad" : ""}>{phone ? phone.text.replace(/^Phone: /, "").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "None"}</dd></div>
       <div><dt>GPS</dt><dd className={trip.status === "active" && !trip.location ? "bad" : ""}>{gpsText}</dd></div>
       {riders
