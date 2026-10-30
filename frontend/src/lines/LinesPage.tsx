@@ -99,7 +99,7 @@ export function LinesPage() {
   const done = (note: string) => { setEditing(null); setCreating(false); toast(note); setRevision((value) => value + 1); };
 
   return <div className="ln">
-    <Head eyebrow="Planning" title="Lines" sub="Every bus line, both ways, all week."
+    <Head eyebrow="Setup" title="Lines"
       actions={<button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>+ New line</button>} />
     <ErrorNote text={error} />
     {!lines && !error && <p className="hint">Loading the lines…</p>}

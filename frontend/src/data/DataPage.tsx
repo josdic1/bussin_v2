@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { DangerZone } from "../ops/DangerZone";
 import {
   dataEditResponseSchema, dataStopOptionsResponseSchema, dataTableResponseSchema, dataTablesResponseSchema,
   type DataCell, type DataColumn, type DataRow, type DataTable, type DataTableKey
@@ -220,7 +221,7 @@ export function DataPage() {
   const lockedNote = table && editableCount === 0 ? table.rows[0]?.locked : null;
 
   return <>
-    <Head eyebrow="Records" title="Data" sub="Every table in one place. Click a table to open it, click a cell to edit it." />
+    <Head eyebrow="Setup" title="Data" />
 
     <div className="dm-cards" role="tablist" aria-label="Tables">
       {cards.map((card) => <button key={card.key} type="button" role="tab"
@@ -362,6 +363,7 @@ export function DataPage() {
       </div>}
     </section>
 
+    <div className="dm-danger"><DangerZone /></div>
     {importing && <ImportCsv setup={CSV_SETUP[active]} onClose={() => setImporting(false)}
       onApplied={(summary) => { setImporting(false); setDone(summary); setReload((n) => n + 1); }} />}
   </>;

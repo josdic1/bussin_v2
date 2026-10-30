@@ -479,7 +479,7 @@ export function FamiliesPage() {
 
   if (mode === "desktop") {
     return <>
-      <Head eyebrow="Families" title="Riders & guardians" sub="Assignments and family access in one place." actions={<>
+      <Head eyebrow="Daily" title="Kids" actions={<>
         <a className="btn" href="/api/families/roster.csv" download>Download CSV</a>
         <button type="button" className="btn" onClick={() => setOverlay({ type: "guardianForm", id: null })}>Add guardian</button>
         <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "riderForm", id: null })}>Add rider</button></>} />
@@ -533,7 +533,7 @@ export function FamiliesPage() {
   }
 
   return <>
-    <Head eyebrow="Families" title="Riders" sub={<>{riders.length} riders &middot; {guardians.length} guardians</>}
+    <Head eyebrow="Daily" title="Kids" sub={<>{riders.length} riders &middot; {guardians.length} guardians</>}
       actions={<Plus label="Add" onClick={() => setOverlay(view === "riders" ? { type: "riderForm", id: null } : { type: "guardianForm", id: null })} />} />
     <Seg label="View" value={view} onChange={setView} items={[["riders", "Riders"], ["guardians", "Guardians"]]} />
     {status}

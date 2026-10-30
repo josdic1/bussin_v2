@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Link } from "react-router";
 import {
   busesResponseSchema, dispatchGpsAuditResponseSchema, historyResponseSchema,
   type Bus, type DispatchGpsAuditEntry, type HistoryTrip
@@ -391,7 +392,7 @@ export function TransitPage() {
   const open = (id: string) => { setTab("events"); setOpenId(id); };
 
   return <div className="tr">
-    <Head eyebrow="History" title="Transit" sub="Every trip, as it ran. Dispatch is for right now; this is the record." actions={mode === "desktop" ? nav : undefined} />
+    <Head eyebrow="Records" title="History" actions={<>{mode === "desktop" && nav}<Link className="btn" to="/reports">Reports</Link></>} />
     {mode !== "desktop" && nav}
     <ErrorNote text={error} />
     {loading && <p className="hint">Loading trips…</p>}

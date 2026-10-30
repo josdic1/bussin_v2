@@ -378,7 +378,7 @@ export function TeamPage() {
     schedule: "Who is on which trip in the next 7 days."
   };
   const desktop = mode === "desktop";
-  const head = <Head eyebrow="People" title="Team" sub="Everyone who works the buses."
+  const head = <Head eyebrow="Setup" title="Team"
     actions={desktop ? <button type="button" className="btn btn-primary" onClick={() => openAdd()}>Add someone</button>
       : <Plus label="Add someone" onClick={() => openAdd()} />} />;
   const status = <><ErrorNote text={error} />{loading && <p className="hint">Loading the team…</p>}</>;

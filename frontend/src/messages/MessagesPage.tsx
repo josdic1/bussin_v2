@@ -249,7 +249,7 @@ export function MessagesPage() {
   </section>;
 
   return <>
-    <Head eyebrow="Families" title="Messages" />
+    <Head eyebrow="Daily" title="Messages" />
     <div className={mode === "desktop" ? "msg-grid" : "msg-stack"}>
       <Compose onSent={reload} />
       {stream}

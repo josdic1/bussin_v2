@@ -5,7 +5,6 @@ import { NavLink, Outlet, useLocation } from "react-router";
 import { ChangeMyPassword } from "../auth/ChangeMyPassword";
 import { useAuth } from "../auth/AuthProvider";
 import { initials } from "./format";
-import { DangerZone } from "./DangerZone";
 import { loadWatch, saveWatch, ViewAsDock, ViewAsPicker, type Watch } from "./ViewAs";
 
 /** Desktop gets the sidebar and three-pane layouts; phones get stacked cards and bottom tabs. */
@@ -28,19 +27,22 @@ export function useOps(): OpsValue {
 
 const DESKTOP_MIN = 1024;
 
-type Page = { path: string; mark: string; label: string; group: "live" | "records"; adminOnly?: boolean; desktopOnly?: boolean };
+type Page = { path: string; mark: string; label: string; group: "daily" | "setup"; adminOnly?: boolean; desktopOnly?: boolean };
 
+// Daily: what you open every day. Setup: what you open to change the plan.
+// Reports live inside History; Danger zone lives at the bottom of Data.
 const PAGES: Page[] = [
-  { path: "/", mark: "D", label: "Dispatch", group: "live" },
-  { path: "/fleet", mark: "F", label: "Fleet", group: "live" },
-  { path: "/lines", mark: "L", label: "Lines", group: "live" },
-  { path: "/team", mark: "TM", label: "Team", group: "records", adminOnly: true },
-  { path: "/families", mark: "R", label: "Riders", group: "records", adminOnly: true },
-  { path: "/messages", mark: "MS", label: "Messages", group: "records", adminOnly: true },
-  { path: "/data", mark: "DA", label: "Data", group: "records", adminOnly: true, desktopOnly: true },
-  { path: "/transit", mark: "T", label: "Transit", group: "records" },
-  { path: "/reports", mark: "RP", label: "Reports", group: "records" }
+  { path: "/", mark: "T", label: "Today", group: "daily" },
+  { path: "/families", mark: "K", label: "Kids", group: "daily", adminOnly: true },
+  { path: "/messages", mark: "M", label: "Messages", group: "daily", adminOnly: true },
+  { path: "/transit", mark: "H", label: "History", group: "daily" },
+  { path: "/lines", mark: "L", label: "Lines", group: "setup" },
+  { path: "/fleet", mark: "B", label: "Buses", group: "setup" },
+  { path: "/team", mark: "S", label: "Team", group: "setup", adminOnly: true },
+  { path: "/data", mark: "D", label: "Data", group: "setup", adminOnly: true, desktopOnly: true }
 ];
+// The pages that sit under another one in the menu (Reports under History, and so on).
+const ALIASES: Record<string, string> = { "/reports": "/transit", "/routes": "/lines", "/timetable": "/lines", "/members": "/team" };
 
 export function OpsShell() {
   const { member, tenant, logout } = useAuth();
@@ -80,7 +82,11 @@ export function OpsShell() {
   const docked = !!watch && !watchHidden && mode === "desktop";
 
   const pages = PAGES.filter((page) => !page.adminOnly || isAdmin);
-  const current = pages.find((page) => page.path === "/" ? location.pathname === "/" : location.pathname.startsWith(page.path));
+  const here = Object.entries(ALIASES).find(([path]) => location.pathname.startsWith(path))?.[1] ?? location.pathname;
+  const current = pages.find((page) => page.path === "/" ? here === "/" : here.startsWith(page.path));
+
+  // Phones: the daily pages plus Lines along the bottom; the rest of Setup is linked at the foot of every page.
+  const phoneTabs = pages.filter((page) => !page.desktopOnly && (page.group === "daily" || page.path === "/lines"));
 
   const signOut = () => { void logout().catch(() => toast("Could not sign out. Try again.")); };
   const [changingPassword, setChangingPassword] = useState(false);
@@ -98,7 +104,7 @@ export function OpsShell() {
   const tenantName = tenant?.name ?? "Bussin";
   const name = member?.display_name ?? "";
   const link = (page: Page) => <NavLink key={page.path} to={page.path} end={page.path === "/"}
-    className={({ isActive }) => isActive ? "on" : ""}>
+    className={({ isActive }) => isActive || current?.path === page.path ? "on" : ""}>
     <span className="ico">{page.mark}</span>{page.label}
   </NavLink>;
 
@@ -107,12 +113,10 @@ export function OpsShell() {
       <aside className="sidebar">
         <div className="brand"><div className="brandmark" aria-hidden="true">B</div>
           <div><b>BUSSIN</b><small>{tenantName}</small></div></div>
-        <div className="nav-label">Live operations</div>
-        <nav className="nav" aria-label="Live operations">{pages.filter((page) => page.group === "live").map(link)}</nav>
-        <div className="nav-label">People and records</div>
-        <nav className="nav" aria-label="People and records">{pages.filter((page) => page.group === "records").map(link)}</nav>
+        <nav className="nav" aria-label="Daily">{pages.filter((page) => page.group === "daily").map(link)}</nav>
+        <div className="nav-label">Setup</div>
+        <nav className="nav" aria-label="Setup">{pages.filter((page) => page.group === "setup").map(link)}</nav>
         <div className="side-foot">
-          {isAdmin && <DangerZone />}
           {viewAsButton}
           <div className="who-row"><div><b>{name}</b>{realAdmin ? "Admin" : "Dispatch"}</div>
             <div className="who-acts"><button type="button" onClick={() => setChangingPassword(true)}>Password</button>
@@ -141,13 +145,14 @@ export function OpsShell() {
         <button type="button" onClick={() => { setDispatchView(false); toast("Admin view."); }}>Back to Admin</button></div>}
       <main className="mc">
         <Suspense fallback={<p className="hint">Loading…</p>}><Outlet /></Suspense>
+        <nav className="mfoot-setup" aria-label="Setup">{pages.filter((page) => page.group === "setup" && !page.desktopOnly && !phoneTabs.includes(page)).map((page) =>
+          <NavLink key={page.path} to={page.path}>{page.label}</NavLink>)}</nav>
         <div className="mfoot"><button type="button" onClick={signOut}>Sign out {name}</button>
-          {" · "}<button type="button" onClick={() => setChangingPassword(true)}>Change password</button>
-          {isAdmin && <> · <DangerZone compact /></>}</div>
+          {" · "}<button type="button" onClick={() => setChangingPassword(true)}>Change password</button></div>
       </main>
-      <nav className="tabs" aria-label="Main" style={{ gridTemplateColumns: `repeat(${pages.filter((page) => !page.desktopOnly).length},1fr)` }}>
-        {pages.filter((page) => !page.desktopOnly).map((page) => <NavLink key={page.path} to={page.path} end={page.path === "/"}
-          className={({ isActive }) => isActive ? "on" : ""}>
+      <nav className="tabs" aria-label="Main" style={{ gridTemplateColumns: `repeat(${phoneTabs.length},1fr)` }}>
+        {phoneTabs.map((page) => <NavLink key={page.path} to={page.path} end={page.path === "/"}
+          className={({ isActive }) => isActive || current?.path === page.path ? "on" : ""}>
           <span>{page.mark}</span>{page.label}
         </NavLink>)}
       </nav>

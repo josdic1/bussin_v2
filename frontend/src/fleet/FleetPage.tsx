@@ -136,7 +136,7 @@ export function FleetPage() {
 
   if (mode === "desktop") {
     return <>
-      <Head eyebrow="Resources" title="Fleet" sub="Buses, current work, assigned staff and GPS freshness." actions={<>
+      <Head eyebrow="Setup" title="Buses" actions={<>
         <button type="button" className="btn" onClick={() => setOverlay({ type: "routes" })}>Routes</button>
         {isAdmin && <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "addbus" })}>Add bus</button>}
       </>} />
@@ -172,7 +172,7 @@ export function FleetPage() {
   }
 
   return <>
-    <Head eyebrow="Resources" title="Fleet" sub={<>{all.length} buses &middot; {count("IN SERVICE")} in service</>}
+    <Head eyebrow="Setup" title="Buses" sub={<>{all.length} buses &middot; {count("IN SERVICE")} in service</>}
       actions={isAdmin ? <Plus label="Add bus" onClick={() => setOverlay({ type: "addbus" })} /> : undefined} />
     {status}
     {attention.length > 0 && <div className="alertbar"><div><b>{attention.length} NEED ATTENTION</b>

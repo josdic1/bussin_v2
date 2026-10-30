@@ -88,7 +88,7 @@ export function ReportsPage() {
 
   return <div className="rp">
     <div className="no-print">
-      <Head eyebrow="Records" title="Reports" sub="Pick a report and a period. The preview is exactly what prints." />
+      <Head eyebrow="History" title="Reports" />
       <div className="rp-modes" role="tablist" aria-label="Report mode">
         <button type="button" role="tab" aria-selected={mode === "analyze"} className={mode === "analyze" ? "on" : ""} onClick={() => pickMode("analyze")}>Analyze</button>
         <button type="button" role="tab" aria-selected={mode === "visualize"} className={mode === "visualize" ? "on" : ""} onClick={() => pickMode("visualize")}>Visualize</button>
