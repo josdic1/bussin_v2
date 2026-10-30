@@ -18,7 +18,7 @@ import "./timetable.css";
  * Dispatch like any trip, and can be changed or cancelled on its own.
  */
 
-type Data = { schedules: TripSchedule[]; buses: Bus[]; routes: Route[]; staff: TripStaff[]; drivers: TripDriver[] };
+export type Data = { schedules: TripSchedule[]; buses: Bus[]; routes: Route[]; staff: TripStaff[]; drivers: TripDriver[] };
 
 /** "08:00" -> "8:00 AM". */
 function clockLabel(hhmm: string) {
@@ -102,17 +102,21 @@ export function TimetablePage() {
   </div>;
 }
 
-function ScheduleForm({ data, schedule, onDone }: { data: Data; schedule: TripSchedule | null; onDone: (note: string) => void }) {
+/** preset: a new repeating trip started from somewhere else (a line), with its route and the other run's details filled in. */
+export function ScheduleForm({ data, schedule, preset, onDone }: {
+  data: Data; schedule: TripSchedule | null; preset?: Partial<TripSchedule>; onDone: (note: string) => void;
+}) {
   const today = localDate(new Date());
-  const [routeId, setRouteId] = useState(schedule?.routeId ?? "");
-  const [busId, setBusId] = useState(schedule?.busId ?? "");
-  const [weekdays, setWeekdays] = useState<number[]>(schedule?.weekdays ?? [1, 2, 3, 4, 5]);
+  const from = schedule ?? preset ?? null;
+  const [routeId, setRouteId] = useState(from?.routeId ?? "");
+  const [busId, setBusId] = useState(from?.busId ?? "");
+  const [weekdays, setWeekdays] = useState<number[]>(from?.weekdays ?? [1, 2, 3, 4, 5]);
   const [departTime, setDepartTime] = useState(schedule?.departTime ?? "");
-  const [startsOn, setStartsOn] = useState(schedule?.startsOn ?? today);
-  const [endsOn, setEndsOn] = useState(schedule?.endsOn ?? shiftDay(today, 55));
-  const [leadId, setLeadId] = useState(schedule?.lead?.id ?? "");
-  const [counselorIds, setCounselorIds] = useState<string[]>(schedule?.counselors.map((c) => c.id) ?? []);
-  const [driverId, setDriverId] = useState(schedule?.driver?.id ?? "");
+  const [startsOn, setStartsOn] = useState(from?.startsOn ?? today);
+  const [endsOn, setEndsOn] = useState(from?.endsOn ?? shiftDay(today, 55));
+  const [leadId, setLeadId] = useState(from?.lead?.id ?? "");
+  const [counselorIds, setCounselorIds] = useState<string[]>(from?.counselors?.map((c) => c.id) ?? []);
+  const [driverId, setDriverId] = useState(from?.driver?.id ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [stopping, setStopping] = useState(false);

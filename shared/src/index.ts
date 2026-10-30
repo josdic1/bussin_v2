@@ -1288,3 +1288,65 @@ export const pushSubscribeInputSchema = z.object({
   keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) })
 });
 export const pushUnsubscribeInputSchema = z.strictObject({ endpoint: z.string().max(1000) });
+
+// ---------------------------------------------------------------------------
+// Lines: a route family seen as one thing. Its morning route, its afternoon route,
+// the repeating trips that run them, and the kids on it. Most camp lines are shuttles:
+// one place to get on, one place to get off.
+// ---------------------------------------------------------------------------
+
+export const LINE_COLORS = ["#d9622b", "#2f6fd0", "#11704a", "#8442a1", "#b8860b", "#148783", "#c14345", "#4b5563"] as const;
+
+const lineColorSchema = z.string().regex(/^#[0-9a-f]{6}$/, "Pick a color.");
+
+export const lineDirectionSchema = z.strictObject({
+  routeId: z.string().uuid(),
+  routeName: z.string(),
+  active: z.boolean(),
+  stops: z.array(z.strictObject({ id: z.string().uuid(), label: z.string() })),
+  schedules: z.array(tripScheduleSchema)
+});
+export type LineDirection = z.infer<typeof lineDirectionSchema>;
+
+export const lineSchema = z.strictObject({
+  id: z.string().uuid(),
+  name: z.string(),
+  color: lineColorSchema,
+  am: lineDirectionSchema.nullable(),
+  pm: lineDirectionSchema.nullable(),
+  kids: z.number().int().nonnegative(),
+  partWeek: z.number().int().nonnegative()
+});
+export type Line = z.infer<typeof lineSchema>;
+export const linesResponseSchema = z.strictObject({ lines: z.array(lineSchema) });
+
+const placeInputSchema = z.strictObject({
+  label: z.string().trim().min(1, "Name both places.").max(120),
+  latitude: coordinateSchema.shape.latitude,
+  longitude: coordinateSchema.shape.longitude
+});
+
+/** A new shuttle line: two places, one bus, a morning and an afternoon time, the days and the crew. */
+export const lineCreateInputSchema = z.strictObject({
+  name: z.string().trim().min(1, "Give the line a name.").max(60),
+  color: lineColorSchema,
+  from: placeInputSchema,
+  to: placeInputSchema,
+  busId: z.string().uuid("Pick a bus."),
+  morningTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+  afternoonTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+  weekdays: z.array(z.number().int().min(1).max(7)).min(1, "Pick at least one day.").max(7),
+  startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the first day."),
+  endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the last day."),
+  crew: assignTripCrewSchema
+}).refine((input) => input.morningTime || input.afternoonTime, { message: "Give a morning time, an afternoon time, or both." })
+  .refine((input) => input.endsOn >= input.startsOn, { message: "The last day must be on or after the first day." })
+  .refine((input) => input.from.label.toLowerCase() !== input.to.label.toLowerCase(), { message: "The two places need different names." });
+export type LineCreateInput = z.infer<typeof lineCreateInputSchema>;
+
+export const lineColorInputSchema = z.strictObject({ color: lineColorSchema });
+
+/** Places already on a route, to pick from instead of typing coordinates again. */
+export const knownPlacesResponseSchema = z.strictObject({
+  places: z.array(z.strictObject({ label: z.string(), latitude: z.number(), longitude: z.number() }))
+});

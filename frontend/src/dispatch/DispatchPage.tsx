@@ -81,7 +81,7 @@ export function PlanTripForm({ buses, routes, day, onPlanned }: {
     </div>
     <ErrorNote text={error} />
     <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Planning…" : "Plan trip"}</button>
-    <p className="hint">Runs every week? Add it once in <Link to="/timetable">Timetable</Link> instead.</p>
+    <p className="hint">Runs every week? Add it once in <Link to="/lines">Lines</Link> instead.</p>
   </form>;
 }
 

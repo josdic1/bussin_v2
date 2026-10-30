@@ -19,6 +19,7 @@ import { alertRoutes } from "./alerts/routes.js";
 import { scheduleRoutes } from "./schedules/routes.js";
 import { startScheduleBuilder } from "./schedules/build.js";
 import { pushRoutes } from "./push/routes.js";
+import { lineRoutes } from "./lines/routes.js";
 import { startPushAlerts } from "./push/watch.js";
 import { dataImportRoutes } from "./data/import.js";
 import { tableCsvRoutes } from "./data/tableCsv.js";
@@ -81,6 +82,7 @@ app.use("/api/drivers", driverRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/schedules", scheduleRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/lines", lineRoutes);
 
 app.get("/health", (_request, response) => {
   response.json({ status: "running" });

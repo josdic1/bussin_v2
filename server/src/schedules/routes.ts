@@ -22,7 +22,7 @@ type Row = {
   counselors: { id: string; displayName: string }[] | null; stoppedAt: Date | null; upcoming: number; nextDepartureAt: Date | null;
 };
 
-async function readSchedules(db: Pick<PoolClient, "query">, id?: string) {
+export async function readSchedules(db: Pick<PoolClient, "query">, id?: string) {
   const result = await db.query<Row>(
     `SELECT s.id, cur.id AS "routeId", cur.name AS "routeName", cur.service_period AS "servicePeriod",
             (cur.active AND cur.superseded_at IS NULL) AS "routeUsable",
