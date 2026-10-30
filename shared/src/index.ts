@@ -1350,3 +1350,44 @@ export const lineColorInputSchema = z.strictObject({ color: lineColorSchema });
 export const knownPlacesResponseSchema = z.strictObject({
   places: z.array(z.strictObject({ label: z.string(), latitude: z.number(), longitude: z.number() }))
 });
+
+// ---------------------------------------------------------------------------
+// Typed times: "634am", "6:34", "634p", "6p", "1830", "noon". Returns "HH:MM" (24 h) or null.
+// No am/pm: 1 to 5 means afternoon, 6 to 11 morning, 12 noon, 0 and 13 to 23 are 24-hour.
+// That matches a camp day; the screen always shows what it understood.
+// ---------------------------------------------------------------------------
+
+export function parseTypedTime(text: string): string | null {
+  const value = text.trim().toLowerCase().replace(/\./g, "").replace(/\s+/g, "");
+  if (!value) return null;
+  if (value === "noon") return "12:00";
+  if (value === "midnight") return "00:00";
+  const match = value.match(/^(\d{1,4})(?::(\d{2}))?(am|a|pm|p)?$/);
+  if (!match) return null;
+  let digits = match[1]!;
+  let minutes = match[2];
+  if (minutes === undefined) {
+    if (digits.length <= 2) minutes = "00";
+    else { minutes = digits.slice(-2); digits = digits.slice(0, -2); }
+  } else if (digits.length > 2) return null;
+  let hour = Number(digits);
+  const minute = Number(minutes);
+  if (minute > 59) return null;
+  const suffix = match[3];
+  if (suffix) {
+    if (hour < 1 || hour > 12) return null;
+    const pm = suffix.startsWith("p");
+    hour = pm ? (hour === 12 ? 12 : hour + 12) : (hour === 12 ? 0 : hour);
+  } else {
+    if (hour > 23) return null;
+    // A leading zero ("0130") means the 24-hour clock was meant: leave it in the morning.
+    if (hour >= 1 && hour <= 5 && !match[1]!.startsWith("0")) hour += 12;
+  }
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/** "06:34" -> "6:34 AM" */
+export function timeLabel(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number) as [number, number];
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}

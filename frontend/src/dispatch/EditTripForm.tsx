@@ -2,11 +2,14 @@ import { useState, type FormEvent } from "react";
 import { updatePlannedTripSchema, type BoardTrip, type Bus, type Route } from "@bussin/shared";
 import { message, send } from "../ops/api";
 import { ErrorNote } from "../ops/ui";
+import { routeWithPeriod } from "../ops/format";
+import { TimeField } from "../ops/TimeField";
 
+/** "2026-07-14T08:05" in the browser's own clock, minutes only. */
 function localDeparture(value: string) {
   const date = new Date(value);
   const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return shifted.toISOString().slice(0, 19);
+  return shifted.toISOString().slice(0, 16);
 }
 
 export function EditTripForm({ trip, buses, routes, onSaved, onClose }: {
@@ -17,7 +20,9 @@ export function EditTripForm({ trip, buses, routes, onSaved, onClose }: {
   const [original] = useState(() => ({ routeId: trip.routeId, busId: trip.busId, departureAt: trip.departureAt }));
   const [routeId, setRouteId] = useState(original.routeId);
   const [busId, setBusId] = useState(original.busId);
-  const [departure, setDeparture] = useState(() => localDeparture(original.departureAt));
+  const [day, setDay] = useState(() => localDeparture(original.departureAt).slice(0, 10));
+  const [clock, setClock] = useState(() => localDeparture(original.departureAt).slice(11, 16));
+  const departure = day && clock ? `${day}T${clock}` : "";
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const availableBuses = buses.filter((bus) => bus.active || bus.id === original.busId);
@@ -51,12 +56,14 @@ export function EditTripForm({ trip, buses, routes, onSaved, onClose }: {
     <div className="ctl-row"><label htmlFor={`edit-route-${trip.id}`}>Route</label>
       <select id={`edit-route-${trip.id}`} value={routeId} disabled={saving} onChange={(event) => setRouteId(event.target.value)}>
         {!availableRoutes.some((route) => route.id === original.routeId) && <option value={original.routeId}>{trip.routeName} · {trip.servicePeriod}</option>}
-        {availableRoutes.map((route) => <option key={route.id} value={route.id}>{route.name} · {route.servicePeriod}</option>)}
+        {availableRoutes.map((route) => <option key={route.id} value={route.id}>{routeWithPeriod(route.name, route.servicePeriod)}</option>)}
       </select></div>
-    <div className="ctl-row"><label htmlFor={`edit-departure-${trip.id}`}>Departure</label>
-      <input id={`edit-departure-${trip.id}`} type="datetime-local" step="1" required value={departure}
-        disabled={saving} onChange={(event) => setDeparture(event.target.value)} /></div>
-    <p className="hint">Changing the route replaces its stops and expected riders. Trips with recorded rider checks keep their route.</p>
+    <div className="rf2">
+      <div className="ctl-row"><label htmlFor={`edit-day-${trip.id}`}>Day</label>
+        <input id={`edit-day-${trip.id}`} type="date" required value={day} disabled={saving} onChange={(event) => setDay(event.target.value)} /></div>
+      <div className="ctl-row"><label htmlFor={`edit-time-${trip.id}`}>Leaves at</label>
+        <TimeField id={`edit-time-${trip.id}`} value={clock} disabled={saving} onChange={setClock} /></div>
+    </div>
     <ErrorNote text={error} />
     <div className="acts">
       <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>

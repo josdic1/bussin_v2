@@ -5,6 +5,7 @@ import {
   type Bus, type Route, type TripDriver, type TripSchedule, type TripStaff
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
+import { TimeField } from "../ops/TimeField";
 import { dateLabel, localDate, routeWithPeriod, shiftDay, time } from "../ops/format";
 import { busColors, busNumber } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
@@ -183,7 +184,7 @@ export function ScheduleForm({ data, schedule, preset, onDone }: {
             {buses.map((bus) => <option key={bus.id} value={bus.id}>{bus.label}</option>)}
           </select></div>
         <div className="ctl-row"><label htmlFor="tt-time">Leaves at</label>
-          <input id="tt-time" type="time" value={departTime} onChange={(event) => setDepartTime(event.target.value)} /></div>
+          <TimeField id="tt-time" value={departTime} onChange={setDepartTime} /></div>
       </div>
       <div className="ctl-row"><label htmlFor="tt-route">Route</label>
         <select id="tt-route" value={routeId} onChange={(event) => setRouteId(event.target.value)}>

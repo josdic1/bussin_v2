@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type 
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { createPlannedTripSchema, riderCoverageSchema, type BoardTrip, type Bus, type RiderCoverage, type Route } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
+import { TimeField } from "../ops/TimeField";
 import { dateLabel, dayName, localDate, MIN, plural, routeWithPeriod, time } from "../ops/format";
 import { busColors, fleetRows, gpsFresh, timing, type BusRow } from "../ops/fleetModel";
 import { Overlay, useOps } from "../ops/OpsShell";
@@ -90,7 +91,7 @@ export function PlanTripForm({ buses, routes, onPlanned }: {
       <div className="ctl-row"><label htmlFor="plan-date">Day</label>
         <input id="plan-date" type="date" value={date} min={today} onChange={(event) => setDate(event.target.value)} /></div>
       <div className="ctl-row"><label htmlFor="plan-time">Leaves at</label>
-        <input id="plan-time" type="time" value={clock} onChange={(event) => setClock(event.target.value)} /></div>
+        <TimeField id="plan-time" value={clock} onChange={setClock} /></div>
     </div>
     <ErrorNote text={error} />
     <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? "Adding…" : "Add trip"}</button>

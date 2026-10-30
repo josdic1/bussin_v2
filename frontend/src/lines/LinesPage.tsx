@@ -6,6 +6,7 @@ import {
   type Line, type LineDirection, type TripSchedule
 } from "@bussin/shared";
 import { getJson, message, send } from "../ops/api";
+import { TimeField } from "../ops/TimeField";
 import { dateLabel, localDate, shiftDay } from "../ops/format";
 import { Overlay, useOps } from "../ops/OpsShell";
 import { ErrorNote, Head, NoMatch } from "../ops/ui";
@@ -302,9 +303,9 @@ function NewLineForm({ data, places, used, onDone }: { data: Data; places: Place
     <p className="hint">The afternoon runs the other way by itself. Need stops in between? Add them later in Edit stops.</p>
     <div className="rf2">
       <div className="ctl-row"><label htmlFor="ln-am">Morning leaves</label>
-        <input id="ln-am" type="time" value={morningTime} onChange={(event) => setMorningTime(event.target.value)} /></div>
+        <TimeField id="ln-am" value={morningTime} onChange={setMorningTime} placeholder="e.g. 8am" /></div>
       <div className="ctl-row"><label htmlFor="ln-pm">Afternoon leaves</label>
-        <input id="ln-pm" type="time" value={afternoonTime} onChange={(event) => setAfternoonTime(event.target.value)} /></div>
+        <TimeField id="ln-pm" value={afternoonTime} onChange={setAfternoonTime} placeholder="e.g. 3:30p" /></div>
     </div>
     <div className="ctl-row"><label htmlFor="ln-bus">Bus</label>
       <select id="ln-bus" value={busId} onChange={(event) => setBusId(event.target.value)}>

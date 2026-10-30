@@ -14,7 +14,7 @@
     "db:bootstrap": "node --env-file-if-exists=.env --import tsx src/auth/bootstrap.ts",
     "db:seed-demo": "node --env-file-if-exists=.env --import tsx src/db/seed-demo.ts",
     "tenant:init": "node --env-file-if-exists=.env --import tsx src/db/claim-tenant.ts",
-    "test": "node --env-file-if-exists=.env --import tsx --test --test-concurrency=1 src/journey.test.ts src/productTruth.test.ts src/rideCheck.test.ts src/http.test.ts src/reset.test.ts src/tripEdit.test.ts src/crew.test.ts src/device.test.ts src/routeName.test.ts src/crewCheck.test.ts src/arrivalGuard.test.ts src/finishGate.test.ts src/tripAlerts.test.ts src/schedules.test.ts src/rideDays.test.ts src/pushAlerts.test.ts"
+    "test": "node --env-file-if-exists=.env --import tsx --test --test-concurrency=1 src/journey.test.ts src/productTruth.test.ts src/rideCheck.test.ts src/http.test.ts src/reset.test.ts src/tripEdit.test.ts src/crew.test.ts src/device.test.ts src/routeName.test.ts src/crewCheck.test.ts src/arrivalGuard.test.ts src/finishGate.test.ts src/tripAlerts.test.ts src/schedules.test.ts src/rideDays.test.ts src/pushAlerts.test.ts src/typedTime.test.ts"
   },
   "dependencies": {
     "@bussin/shared": "^0.1.0",

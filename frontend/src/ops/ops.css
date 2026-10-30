@@ -759,3 +759,9 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .daypick button{height:36px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px;font-weight:800;color:var(--ink);cursor:pointer}
 .ops .daypick button.on{background:var(--green);border-color:var(--green);color:#fff}
 .ops .daypick button:disabled{cursor:default}
+/* Typed time box: what it understood shows beside it */
+.ops .timef{display:flex;align-items:center;gap:10px}
+.ops .timef input{flex:1;min-width:0}
+.ops .timef small{flex:none;font-size:12.5px;font-weight:800;color:var(--ok);white-space:nowrap}
+.ops .timef small.bad{color:var(--bad)}
+.ops .timef small:empty{display:none}
