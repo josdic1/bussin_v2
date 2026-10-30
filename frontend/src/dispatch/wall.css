@@ -1,0 +1,32 @@
+/* Full-screen live view. Sits over everything, readable from across the room. */
+.ops .wall{position:fixed;inset:0;z-index:400;display:flex;flex-direction:column;background:#f4f5f0;color:var(--ink)}
+.ops .wall-top{display:flex;align-items:center;gap:24px;padding:16px 24px;border-bottom:1px solid var(--line);background:#fff}
+.ops .wall-top small{font-size:12px;font-weight:850;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.ops .wall-top h1{margin:2px 0 0;font-size:34px;line-height:1.05;font-weight:900;letter-spacing:-.02em}
+.ops .wall-top h1.bad{color:var(--bad)}
+.ops .wall-meta{display:flex;flex-direction:column;margin-left:auto;text-align:right}
+.ops .wall-meta b{font-size:28px;font-weight:900;font-variant-numeric:tabular-nums}
+.ops .wall-meta span{font-size:14px;color:var(--muted)}
+.ops .wall-close{flex:none;padding:10px 16px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit;font-size:14px;font-weight:850;cursor:pointer}
+.ops .wall-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 380px}
+.ops .wall-map{position:relative;min-height:0}
+.ops .wall-map > *{height:100%}
+.ops .wall-empty{position:absolute;inset:auto 0 24px 0;margin:0 auto;width:max-content;padding:10px 16px;border-radius:10px;background:rgba(255,255,255,.95);font-weight:800;color:var(--muted);height:auto}
+.ops .wall-list{overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;border-left:1px solid var(--line);background:#fafbf8}
+.ops .wall-bus{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;width:100%;padding:14px;border:1px solid var(--line);border-left:6px solid var(--c);border-radius:14px;background:#fff;font:inherit;color:var(--ink);text-align:left;cursor:pointer}
+.ops .wall-bus.bad{border-color:var(--badline);border-left-color:var(--bad);background:var(--badbg)}
+.ops .wall-num{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--c);color:#fff;font-size:18px;font-weight:900}
+.ops .wall-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ops .wall-row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ops .wall-row b{font-size:15px}
+.ops .wall-row em{font-style:normal;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:850;background:var(--line2);color:var(--muted);white-space:nowrap}
+.ops .wall-row em.ok{background:var(--okbg);color:var(--ok)}
+.ops .wall-row em.bad{background:var(--bad);color:#fff}
+.ops .wall-row em.warn{background:var(--warnbg);color:var(--warn)}
+.ops .wall-text strong{font-size:20px;line-height:1.15;font-weight:850}
+.ops .wall-text small{font-size:13.5px;color:var(--muted)}
+.ops .wall-bar{display:block;height:6px;margin-top:6px;border-radius:99px;background:var(--line2);overflow:hidden}
+.ops .wall-bar i{display:block;height:100%;background:var(--c)}
+.ops .wall-kids{font-weight:750;color:var(--ink)!important}
+.ops .wall-none{color:var(--muted)}
+@media (max-width:900px){.ops .wall-body{grid-template-columns:1fr;grid-template-rows:1fr auto}.ops .wall-list{max-height:40vh;border-left:0;border-top:1px solid var(--line)}.ops .wall-top h1{font-size:24px}.ops .wall-meta{display:none}}

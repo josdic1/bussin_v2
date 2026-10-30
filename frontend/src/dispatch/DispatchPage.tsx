@@ -17,6 +17,8 @@ import { useAttentionSignal } from "./attentionSignal";
 import { useTripAlerts } from "./useTripAlerts";
 import "./now.css";
 import { DemoDeleteRide } from "../demo/DemoDeleteRide";
+import { useAuth } from "../auth/AuthProvider";
+import { LiveWall } from "./LiveWall";
 
 /*
  * Dispatch = right now. One card per bus, every bus once.
@@ -264,6 +266,8 @@ export function DispatchPage() {
   const tripAlerts = useTripAlerts(true);
   const [params, setParams] = useSearchParams();
   const [overlay, setOverlay] = useState<"plan" | "trip" | null>(null);
+  const [wall, setWall] = useState(false);
+  const { tenant } = useAuth();
   const [coverage, setCoverage] = useState<RiderCoverage | null>(null);
 
   // Kids with no AM or PM route never show up on a bus, so check the roster directly.
@@ -416,7 +420,14 @@ export function DispatchPage() {
       <Suspense fallback={<div className="mapfill" />}>
         <DispatchMap trips={running} colorForBus={colorOf} selectedTripId={null} onSelect={openTrip} now={now} fixedAll />
       </Suspense>
+      <button type="button" className="nb-wall-btn" onClick={() => setWall(true)}>Full screen</button>
     </section>}
+    {wall && <LiveWall camp={tenant?.name ?? "Bussin"} headline={headline} sub={sub} now={now} colorOf={colorOf}
+      buses={shown.filter((card) => card.trip && (card.trip.status === "active" || card.trip.status === "planned")).map((card) => ({
+        trip: card.trip!, num: card.row.num, label: card.row.bus.label, color: card.row.color, tone: card.tone, tag: card.tag,
+        big: card.big, small: card.small, progress: card.progress, kids: kids(card.trip!.id)
+      }))}
+      onOpen={(id) => { setWall(false); openTrip(id); }} onClose={() => setWall(false)} />}
 
     {finished > 0 && <p className="nb-idle"><Link to="/transit">Earlier trips today</Link></p>}
     {overlayView}

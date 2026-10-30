@@ -54,13 +54,15 @@
 .ops .nb-idle{margin:0;font-size:13px;color:var(--muted)}
 .ops .nb-idle a{color:var(--green);font-weight:800}
 
-.ops .nb-map{position:relative;height:260px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--sage)}
+.ops .nb-map{position:relative;height:440px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--sage)}
 .ops .nb-map > *{height:100%}
+.ops .nb-map > .nb-wall-btn{position:absolute;top:12px;right:12px;z-index:3;height:auto;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.96);font:inherit;font-size:13px;font-weight:850;color:var(--ink);box-shadow:0 4px 14px -6px rgba(0,0,0,.25);cursor:pointer}
+.ops .nb-map > .nb-wall-btn:hover{background:#fff}
 
 @media (max-width:700px){
   .ops .nb-head h1{font-size:30px}
   .ops .nb-grid{grid-template-columns:1fr}
-  .ops .nb-map{height:220px}
+  .ops .nb-map{height:300px}
 }
 .ops .nb-miss{font-style:normal;color:var(--bad);font-weight:850}
 .ops .em-banner .em-kids{margin-top:8px;font-size:13.5px;line-height:1.45;color:#fff}

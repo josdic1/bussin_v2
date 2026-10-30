@@ -782,3 +782,12 @@ details.ops-log .gl{border:0;border-top:1px solid var(--line2);border-radius:0}
 .ops .d-calls{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .ops .trk-steps{margin:10px auto 6px;padding-left:20px;max-width:340px;text-align:left;font-size:14px;line-height:1.6}
 .ops .trk-code small{display:block;color:var(--muted);font-size:12.5px}
+/* Bus on the map: a round badge in the bus's color with its number. A soft pulse while GPS is live. */
+.ops .map-pin{display:grid;place-items:center;width:34px;height:34px;padding:0;border:3px solid #fff;border-radius:50%;background:var(--c);color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.28);transition:opacity .2s}
+.ops .map-pin b{font-size:14px;font-weight:900;line-height:1}
+.ops .map-pin.live::after{content:"";position:absolute;inset:-9px;border-radius:50%;border:3px solid var(--c);opacity:0;animation:map-pulse 2.4s ease-out infinite;pointer-events:none}
+@keyframes map-pulse{0%{transform:scale(.6);opacity:.55}100%{transform:scale(1.35);opacity:0}}
+.ops .map-pin.stale{background:#8a959e;box-shadow:0 0 0 3px var(--bad),0 2px 8px rgba(0,0,0,.28)}
+.ops .map-pin.dim{opacity:.5}
+.ops .map-pin span{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);white-space:nowrap;padding:3px 8px;border-radius:6px;background:rgba(23,33,27,.88);color:#fff;font-size:11.5px;font-weight:750;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.ops .map-pin.live::after{animation:none}}

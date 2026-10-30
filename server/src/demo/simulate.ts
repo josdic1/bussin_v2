@@ -183,7 +183,11 @@ async function kidsAtStops(plan: Plan) {
     `SELECT DISTINCT trip_stop_id AS "stopId" FROM trip_events WHERE trip_id = $1 AND event_type = 'arrived_stop'`, [plan.tripId]);
   const last = plan.stops.length - 1;
   // Work through stops in order, so a stop whose arrival was missed still gets its kids on and off.
-  const reached = Math.max(-1, ...arrived.rows.map((row) => plan.stops.findIndex((stop) => stop.id === row.stopId)));
+  // A stop counts as reached when the app saw the bus arrive, or once the bus has pulled away from it.
+  const now = Date.now();
+  let pulledAway = -1;
+  for (let i = 0; i < plan.stops.length - 1; i++) if (plan.leave[i]! > 0 && plan.leave[i]! < now) pulledAway = i;
+  const reached = Math.max(pulledAway, ...arrived.rows.map((row) => plan.stops.findIndex((stop) => stop.id === row.stopId)));
   for (let index = 0; index <= reached; index++) {
     const stopId = plan.stops[index]!.id;
     if (plan.seen.has(stopId)) continue;

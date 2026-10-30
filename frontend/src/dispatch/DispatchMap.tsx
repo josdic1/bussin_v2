@@ -23,6 +23,8 @@ export type MapProps = {
   now: number;
   /** Always frame every bus shown; no "All buses / Selected bus" switch. The selected bus is only highlighted. */
   fixedAll?: boolean;
+  /** A short line under each bus marker ("Stopped at Oak St"); used by the full-screen view. */
+  labels?: Record<string, string>;
 };
 
 type LngLat = [number, number];
@@ -73,7 +75,7 @@ export function DispatchMap(props: MapProps) {
 
 type Live = { marker: Marker; element: HTMLButtonElement; from: LngLat; to: LngLat; start: number };
 
-function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, fixedAll }: MapProps & { version: number }) {
+function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, fixedAll, labels }: MapProps & { version: number }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const buses = useRef(new Map<string, Live>());
@@ -106,6 +108,12 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, f
           ...(planned ? { "line-dasharray": [0.4, 2.4] } : {})
         }
       });
+      // A white edge under every line so routes read clearly over the street map.
+      instance.addLayer({
+        id: "routes-casing", type: "line", source: "routes",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#ffffff", "line-width": ["+", ["get", "width"], 4], "line-opacity": ["*", ["get", "opacity"], 0.95] }
+      });
       line("routes-running", false);
       line("routes-planned", true);
       instance.addLayer({
@@ -114,7 +122,7 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, f
           "circle-radius": ["get", "radius"],
           "circle-color": ["case", ["get", "done"], ["get", "color"], "#ffffff"],
           "circle-stroke-color": ["get", "color"],
-          "circle-stroke-width": 3,
+          "circle-stroke-width": 2.5,
           "circle-opacity": ["get", "opacity"],
           "circle-stroke-opacity": ["get", "opacity"]
         }
@@ -152,7 +160,7 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, f
         type: "Feature",
         properties: {
           tripId: trip.id, color: colorForBus(trip.busId), planned: trip.status === "planned",
-          width: trip.id === selectedTripId ? 7 : 4.5, opacity: dim(trip) ? 0.3 : 0.9
+          width: trip.id === selectedTripId ? 7 : 5, opacity: dim(trip) ? 0.3 : 0.95
         },
         geometry: { type: "LineString", coordinates: linePath(trip) }
       }))
@@ -163,7 +171,7 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, f
         type: "Feature" as const,
         properties: {
           tripId: trip.id, color: colorForBus(trip.busId), done: isDone(trip, index),
-          radius: trip.id === selectedTripId ? 6 : 4.5, opacity: dim(trip) ? 0.35 : 1
+          radius: (index === 0 || index === trip.stops.length - 1 ? 6 : 4) + (trip.id === selectedTripId ? 1.5 : 0), opacity: dim(trip) ? 0.35 : 1
         },
         geometry: { type: "Point" as const, coordinates: [stop.longitude, stop.latitude] }
       })))
@@ -180,7 +188,7 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, f
       }
       if (!bounds.isEmpty()) {
         const first = !lastBoundsKey.current;
-        instance.fitBounds(bounds, { padding: 56, maxZoom: 14.5, duration: first ? 0 : 600 });
+        instance.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: first ? 0 : 600 });
         lastBoundsKey.current = key;
       }
     }
@@ -225,9 +233,23 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, f
         bus.start = startAt;
       }
       const dim = !!selectedTripId && trip.id !== selectedTripId;
-      bus.element.className = `map-bus${gpsFresh(trip, now) ? "" : " stale"}${dim ? " dim" : ""}`;
+      const fresh = gpsFresh(trip, now);
+      // Toggle our classes only: the map library keeps its own positioning classes on this element.
+      bus.element.classList.add("map-pin");
+      bus.element.classList.toggle("live", fresh);
+      bus.element.classList.toggle("stale", !fresh);
+      bus.element.classList.toggle("dim", dim);
       bus.element.style.setProperty("--c", colorForBus(trip.busId));
-      bus.element.textContent = `Bus ${busNumber(trip.busLabel)}`;
+      const label = labels?.[trip.id];
+      bus.element.innerHTML = "";
+      const num = document.createElement("b");
+      num.textContent = busNumber(trip.busLabel);
+      bus.element.append(num);
+      if (label) {
+        const tag = document.createElement("span");
+        tag.textContent = label;
+        bus.element.append(tag);
+      }
       bus.element.setAttribute("aria-label", `${trip.busLabel} location. Select trip.`);
       bus.marker.getElement().style.zIndex = dim ? "1" : "2";
     }
@@ -246,7 +268,7 @@ function LiveMap({ trips, colorForBus, selectedTripId, onSelect, now, version, f
       if (moving) frame.current = requestAnimationFrame(step);
     };
     frame.current = requestAnimationFrame(step);
-  }, [trips, colorForBus, selectedTripId, ready, now]);
+  }, [trips, colorForBus, selectedTripId, ready, now, labels]);
 
   return <div className="mapfill">
     <div className="map-live" ref={container} aria-label="Routes, stops and buses" />
