@@ -61,6 +61,9 @@ function along(leg: Point[], k: number): Point {
 }
 
 export async function fillHistory(client: PoolClient, span: HistorySpan) {
+  // Take turns with the regular trip scheduler, which uses this same lock.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('bussin_trip_schedules'))");
+
   // Backdated GPS would be refused by the live-sample guard; switched off for this transaction only.
   await client.query("ALTER TABLE trip_location_samples DISABLE TRIGGER accept_trip_location_sample");
 

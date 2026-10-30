@@ -3,6 +3,7 @@ import { pool } from "../db/pool.js";
 import { applyJourneyFromGps } from "../staff/journey.js";
 import { applyTripAction } from "../trips/actions.js";
 import { demoActive } from "./mode.js";
+import { resetDemo } from "./reset.js";
 
 /*
  * The robot driver, demo only. When it's on, every bus whose run is due leaves on time,
@@ -31,7 +32,7 @@ const TICK_MS = 4_000;            // a fix every 4 seconds: enough for stop dete
 const DWELL_MS = 28_000;          // time parked at each stop, in real seconds, whatever the speed
 const BUS_MPS = 11;               // about 25 mph
 
-let speed = 0;                    // 0 = off
+let speed = 10;                   // 0 = off. The demo starts driving by itself.
 const plans = new Map<string, Plan>();
 let timer: NodeJS.Timeout | null = null;
 let ticking = false;
@@ -39,7 +40,10 @@ let ticking = false;
 /** True while the demo robot is driving this trip. Always false on the real app. */
 export function robotDrives(tripId: string) { return speed > 0 && !!plans.get(tripId) && !plans.get(tripId)!.finished; }
 
-export function simulatorState() { return { speed, buses: [...plans.values()].filter((plan) => !plan.finished).length }; }
+let nextRun: { period: "AM" | "PM"; at: number } | null = null;
+export function simulatorState() {
+  return { speed, buses: [...plans.values()].filter((plan) => !plan.finished).length, nextRun: nextRun ? { period: nextRun.period, at: new Date(nextRun.at).toISOString() } : null };
+}
 
 export function setSimulator(next: number) {
   speed = next;
@@ -178,6 +182,38 @@ async function tick() {
     if (plan.seen.has(plan.stops[last]!.id) && now > plan.leave[last]!) await finish(plan);
   }
   for (const [id, plan] of plans) if (plan.finished) plans.delete(id);
+  await keepRunsComing();
+}
+
+/**
+ * Always something to watch: when nothing is running or about to leave, the next run
+ * (morning, then afternoon, then morning again) leaves a minute later.
+ */
+async function keepRunsComing() {
+  const busy = await pool.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM trips
+      WHERE status = 'active' OR (status = 'planned' AND departure_at BETWEEN now() - interval '5 minutes' AND now() + interval '15 minutes')`);
+  if (busy.rows[0]!.n > 0) { nextRun = null; return; }
+  const camp = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM trip_schedules WHERE stopped_at IS NULL`);
+  if (!camp.rows[0]!.n) return;
+  const now = Date.now();
+  if (!nextRun) {
+    const last = await pool.query<{ period: "AM" | "PM" }>(
+      `SELECT r.service_period AS period FROM trips t JOIN routes r ON r.id = t.route_id
+        WHERE t.status = 'completed' ORDER BY t.ended_at DESC NULLS LAST LIMIT 1`);
+    nextRun = { period: last.rows[0]?.period === "AM" ? "PM" : "AM", at: now + 45_000 };
+    return;
+  }
+  if (now < nextRun.at) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await resetDemo(client, nextRun.period, 0.5);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Demo could not start the next run", error);
+  } finally { client.release(); nextRun = null; }
 }
 
 /** When the app records an arrival, the kids for that stop get on (or off). */

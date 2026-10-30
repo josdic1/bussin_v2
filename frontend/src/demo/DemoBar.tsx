@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
-import { clearDemo, drive, resetDemo, signInAs, useDemo, type Keep, type Who } from "./useDemo";
+import { clearDemo, drive, loadDemo, refreshDemo, resetDemo, signInAs, useDemo, type DemoInfo, type Keep, type Who } from "./useDemo";
 import "./demo.css";
 
 /*
- * The DEMO button on every screen of the demo copy: switch person, start the run over,
- * fill in past days, wipe parts of the camp, or build a different camp. Never on the real app.
+ * The DEMO button. Up front: who you are, who to switch to, and what the buses are doing.
+ * Everything else (speed, wipe, different camp) waits in a closed "Admin tools" section.
+ * Never shown on the real app.
  */
 
 const KEEP_LABELS: [keyof Keep, string, string][] = [
@@ -16,39 +17,62 @@ const KEEP_LABELS: [keyof Keep, string, string][] = [
   ["messages", "Messages", "Messages to families, alerts from buses"]
 ];
 
-/** What a choice really keeps: trips need the setup, team and kids; messages need trips and kids. */
 function effective(keep: Keep): Keep {
   const history = keep.history && keep.setup && keep.team && keep.kids;
   return { ...keep, history, messages: keep.messages && history && keep.kids };
 }
 
+/** One plain sentence about what the demo buses are doing right now. */
+function happening(info: Extract<DemoInfo, { demo: true }>, now: number) {
+  const d = info.driving;
+  if (!d.speed) return "The robot driver is off. Buses only move if someone really drives one.";
+  if (d.buses) return `${d.buses} ${d.buses === 1 ? "bus is" : "buses are"} driving their routes right now. Watch them on Today.`;
+  if (d.nextRun) {
+    const secs = Math.max(0, Math.round((Date.parse(d.nextRun.at) - now) / 1000));
+    return `The ${d.nextRun.period === "AM" ? "morning" : "afternoon"} run leaves in about ${secs < 60 ? `${secs} seconds` : `${Math.round(secs / 60)} min`}.`;
+  }
+  return "The next run is about to leave.";
+}
+
 export function DemoBar() {
-  const info = useDemo();
+  const first = useDemo();
+  const [info, setInfo] = useState<DemoInfo | null>(null);
   const { member } = useAuth();
   const [open, setOpen] = useState(false);
+  const [tools, setTools] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [note, setNote] = useState("");
   const [wiping, setWiping] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [speed, setSpeed] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [keep, setKeep] = useState<Keep>({ setup: true, team: true, kids: true, history: true, messages: true });
-  // Before a camp exists the welcome page is the whole demo; only a signed-in admin needs the button then.
-  if (!info?.demo || (!info.ready && !member)) return null;
+  const current = info ?? first;
+
+  // While the panel is open, keep its one line about the buses fresh.
+  useEffect(() => {
+    if (!open) return;
+    const tick = () => { setNow(Date.now()); void refreshDemo().then(setInfo); };
+    tick();
+    const timer = window.setInterval(tick, 5_000);
+    return () => window.clearInterval(timer);
+  }, [open]);
+
+  if (!current?.demo || (!current.ready && !member)) return null;
 
   async function run(task: () => Promise<void>) {
-    setBusy(true); setError(""); setNote("");
+    setBusy(true); setError("");
     try { await task(); } catch (cause) { setError(cause instanceof Error ? cause.message : "That didn't work."); setBusy(false); }
   }
   const people: [Who, string][] = [["office", "Office"], ["counselor", "Counselor"], ["parent", "Parent"]];
   const real = effective(keep);
   const gone = KEEP_LABELS.filter(([key]) => !real[key]).map(([, label]) => label.toLowerCase());
+  const you = member?.roles.includes("admin") ? "office" : member?.roles.includes("staff") ? "counselor" : member?.roles.includes("family") ? "parent" : null;
 
   return <div className={`demo-bar${open ? " open" : ""}`}>
     {open && <div className="demo-panel" role="dialog" aria-label="Demo controls">
-      <p className="demo-tag">DEMO · {info.camp.toUpperCase()}</p>
+      <p className="demo-tag">DEMO · {current.camp.toUpperCase()}</p>
 
-      {!info.ready ? <>
+      {!current.ready ? <>
         <h3>No camp yet</h3>
         <button type="button" className="demo-wide" disabled={busy}
           onClick={() => void run(() => clearDemo({ setup: false, team: false, kids: false, history: false, messages: false }))}>Build a camp</button>
@@ -72,27 +96,29 @@ export function DemoBar() {
         {!real.setup && gone.length > 0 && <p className="demo-note">Without the camp setup, the demo goes back to the welcome page to build a new camp.</p>}
         <button type="button" className="demo-link" onClick={() => { setWiping(false); setConfirming(false); }}>Back</button>
       </> : <>
-        <h3>Switch to</h3>
-        <div className="demo-row">{people.map(([who, label]) => <button key={who} type="button" disabled={busy || !info.people[who]}
-          onClick={() => void run(() => signInAs(who))}>{label}<small>{info.people[who] ?? "None"}</small></button>)}</div>
-        <h3>Drive the buses</h3>
-        <div className="demo-row demo-speed" role="radiogroup" aria-label="Robot driver">{([[0, "Off"], [1, "Real speed"], [5, "5x"], [15, "15x"]] as [0 | 1 | 5 | 15, string][]).map(([value, label]) =>
-          <button key={value} type="button" role="radio" aria-checked={(speed ?? info.driving.speed) === value} className={(speed ?? info.driving.speed) === value ? "on" : ""}
-            disabled={busy} onClick={() => void run(async () => { const state = await drive(value); setSpeed(state.speed); setBusy(false); })}>{label}</button>)}</div>
-        <p className="demo-note">{(speed ?? info.driving.speed) ? "Buses leave when their run is due and drive the route by themselves. To really drive one, tap Start on the counselor screen first." : "Off: buses only move when someone drives with the counselor screen open."}</p>
-        <h3>Start over</h3>
-        <div className="demo-row">
-          <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("AM"))}>Morning run<small>Leaves in 3 min</small></button>
-          <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("PM"))}>Afternoon run<small>Leaves in 3 min</small></button>
-        </div>
-        <h3>Wipe</h3>
-        <div className="demo-row">
-          <button type="button" disabled={busy} onClick={() => { setKeep({ setup: true, team: true, kids: true, history: true, messages: true }); setWiping(true); }}>Choose what to keep<small>The rest is wiped</small></button>
-          <button type="button" disabled={busy} onClick={() => { setKeep({ setup: false, team: false, kids: false, history: false, messages: false }); setWiping(true); }}>
-            Different camp<small>Back to the welcome page</small></button>
-        </div>
-        {note && <p className="demo-note" role="status">{note}</p>}
-        <p className="demo-note">Start over replaces today&rsquo;s and upcoming rides. Past days stay.</p>
+        <p className="demo-now">{happening(current, now)}</p>
+        <h3>See it as</h3>
+        <div className="demo-row">{people.map(([who, label]) => <button key={who} type="button" className={you === who ? "on" : ""}
+          disabled={busy || !current.people[who] || you === who}
+          onClick={() => void run(() => signInAs(who))}>{label}<small>{you === who ? "You are here" : current.people[who] ?? "None"}</small></button>)}</div>
+
+        <button type="button" className="demo-link" aria-expanded={tools} onClick={() => setTools(!tools)}>{tools ? "Hide admin tools" : "Admin tools"}</button>
+        {tools && <div className="demo-tools">
+          <h3>Robot driver</h3>
+          <div className="demo-row demo-speed">{([[0, "Off"], [1, "Real speed"], [10, "Fast"]] as [0 | 1 | 10, string][]).map(([value, label]) =>
+            <button key={value} type="button" className={current.driving.speed === value || (value === 10 && current.driving.speed > 1) ? "on" : ""} disabled={busy}
+              onClick={() => void run(async () => { await drive(value); setInfo(await loadDemo()); setBusy(false); })}>{label}</button>)}</div>
+          <h3>Send buses out now</h3>
+          <div className="demo-row">
+            <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("AM"))}>Morning run</button>
+            <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("PM"))}>Afternoon run</button>
+          </div>
+          <h3>Wipe</h3>
+          <div className="demo-row">
+            <button type="button" disabled={busy} onClick={() => { setKeep({ setup: true, team: true, kids: true, history: true, messages: true }); setWiping(true); }}>Choose what to keep</button>
+            <button type="button" disabled={busy} onClick={() => { setKeep({ setup: false, team: false, kids: false, history: false, messages: false }); setWiping(true); }}>Different camp</button>
+          </div>
+        </div>}
       </>}
       {error && <p className="demo-error" role="alert">{error}</p>}
     </div>}

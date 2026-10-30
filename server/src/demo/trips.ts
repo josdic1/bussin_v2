@@ -11,6 +11,9 @@ export const TRIP_TABLES = [
 
 export async function deleteTrips(client: PoolClient, ids: string[]) {
   if (!ids.length) return 0;
+  // Take turns with the regular trip scheduler, which uses this same lock.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('bussin_trip_schedules'))");
+
   for (const table of TRIP_TABLES) await client.query(`ALTER TABLE ${table} DISABLE TRIGGER USER`);
   try {
     await client.query(`DELETE FROM family_message_recipients WHERE message_id IN (SELECT id FROM family_messages WHERE trip_id = ANY($1::uuid[]))`, [ids]);

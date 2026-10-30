@@ -199,7 +199,7 @@ demoRoutes.delete("/trips/:id", requireSameOrigin, async (request, response) => 
 
 /** The robot driver: 0 turns it off; 1, 5 or 15 is how many times real speed the buses drive. */
 demoRoutes.post("/drive", requireSameOrigin, (request, response) => {
-  const input = z.strictObject({ speed: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(15)]) }).safeParse(request.body);
+  const input = z.strictObject({ speed: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(10), z.literal(15)]) }).safeParse(request.body);
   if (!input.success) { response.status(400).json({ error: "Pick off, real speed, 5x or 15x." }); return; }
   setSimulator(input.data.speed);
   response.json(simulatorState());

@@ -58,6 +58,10 @@
 .demo-panel .demo-danger{border-color:#ad4138;background:#ad4138;color:#fff}
 .demo-link{margin-top:8px;padding:4px 0;border:0;background:none;color:#5f6b63;font:inherit;font-size:13px;font-weight:700;text-decoration:underline;cursor:pointer}
 .demo-panel{max-height:calc(100vh - 140px);overflow-y:auto}
-.demo-speed{grid-template-columns:repeat(4,minmax(0,1fr))}
+.demo-speed{grid-template-columns:repeat(3,minmax(0,1fr))}
 .demo-speed button{align-items:center;text-align:center;padding:9px 4px}
 .demo-speed button.on{border-color:#17382c;background:#17382c;color:#fff}
+.demo-now{margin:4px 0 2px;padding:10px 12px;border-radius:10px;background:#f3f6f1;font-size:14px;font-weight:700;line-height:1.35;color:#17382c}
+.demo-row button.on{border-color:#17382c;background:#17382c;color:#fff}
+.demo-row button.on small{color:#d6f25a}
+.demo-tools{margin-top:4px;padding-top:4px;border-top:1px solid #eef0ea}

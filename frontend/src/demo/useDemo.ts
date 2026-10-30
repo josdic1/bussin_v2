@@ -10,7 +10,7 @@ export type DemoInfo = { demo: false } | {
   camp: string;
   size: { buses: number; kids: number };
   /** The robot driver: speed 0 is off. */
-  driving: { speed: number; buses: number };
+  driving: { speed: number; buses: number; nextRun: { period: "AM" | "PM"; at: string } | null };
   people: { office: string | null; counselor: string | null; parent: string | null };
 };
 
@@ -67,7 +67,7 @@ export async function clearDemo(keep: Keep) {
   location.assign("/");
 }
 
-export async function drive(speed: 0 | 1 | 5 | 15) {
+export async function drive(speed: 0 | 1 | 10) {
   const state = await post("/api/demo/drive", { speed }) as { speed: number; buses: number };
   refreshDemo();
   return state;

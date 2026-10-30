@@ -212,6 +212,8 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
   const [changingPassword, setChangingPassword] = useState(false);
   const { trip, now, pending } = t;
   const lead = trip?.crewRole === "lead";
+  // GPS is doing the stop work (this phone or the bus phone), so stop taps are only backups.
+  const gpsOn = !!trip && (trip.busPhoneLive || t.wantsGps);
   const ride = check.trip && trip && check.trip.id === trip.id ? check.trip : null;
   // Buzz the phone when a kid gets left behind (vibration is Android only; the red banner shows everywhere).
   const leftCount = ride ? ride.riders.filter((rider) => missed(ride, rider)).length : 0;
@@ -275,7 +277,7 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
           : <button type="button" className="cr-main" disabled={pending} onClick={() => void t.act("complete")}>{pending ? "Finishing…" : "Finish trip"}</button>
         : next && <div className="cr-next">
           <span>{next.arrivedAt ? "At stop" : "Next stop"} · {t.nextIndex + 1} of {trip.stops.length}</span><b>{next.label}</b>
-          <small>{trip.busPhoneLive || t.wantsGps ? "Arrive and depart record themselves from GPS." : ""}</small>
+          <small>{gpsOn ? "Bussin marks arrivals and departures from GPS. Nothing to tap." : ""}</small>
           {/* Backup if GPS can't tell: tap it yourself. GPS gets a say first (see the prompt below). */}
           {t.farPrompt?.stopId === next.id && !next.arrivedAt
             ? <div className="cr-far"><p>{t.farPrompt.message}</p>
@@ -285,9 +287,15 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
               ? <>{t.confirming === "undo"
                 ? <><button type="button" className="cr-btn plain" onClick={() => t.setConfirming(null)}>Keep it</button>
                   <button type="button" className="cr-btn warn" disabled={pending} onClick={() => void t.act("undo_arrival", next.id)}>Undo arrival</button></>
-                : <><button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("depart", next.id)}>Leaving now</button>
-                  <button type="button" className="cr-link" onClick={() => t.setConfirming("undo")}>Not here yet? Undo</button></>}</>
-              : <button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("arrive", next.id)}>Arrived</button>}</div>}
+                : gpsOn
+                  // GPS does this by itself; the taps are small backups, not chores.
+                  ? <><button type="button" className="cr-link" disabled={pending} onClick={() => void t.act("depart", next.id)}>GPS missed it? Mark left</button>
+                    <button type="button" className="cr-link" onClick={() => t.setConfirming("undo")}>Not here yet? Undo</button></>
+                  : <><button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("depart", next.id)}>Leaving now</button>
+                    <button type="button" className="cr-link" onClick={() => t.setConfirming("undo")}>Not here yet? Undo</button></>}</>
+              : gpsOn
+                ? <button type="button" className="cr-link" disabled={pending} onClick={() => void t.act("arrive", next.id)}>GPS missed it? Mark arrived</button>
+                : <button type="button" className="cr-btn plain" disabled={pending} onClick={() => void t.act("arrive", next.id)}>Arrived</button>}</div>}
         </div>}
     </>;
   }

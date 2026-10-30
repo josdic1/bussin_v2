@@ -9,7 +9,10 @@ import { deleteTrips } from "./trips.js";
 // (or afternoon) run gets that run leaving a few minutes from now, crew and kids included,
 // so a demo can start any time of day. The plan itself (lines, buses, kids, team) is never touched.
 
-export async function resetDemo(client: PoolClient, period: "AM" | "PM") {
+export async function resetDemo(client: PoolClient, period: "AM" | "PM", leadMinutes = 1) {
+  // Take turns with the regular trip scheduler, which uses this same lock.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('bussin_trip_schedules'))");
+
   const upcoming = await client.query<{ id: string }>(
     `SELECT id FROM trips WHERE departure_at >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')`);
   await deleteTrips(client, upcoming.rows.map((row) => row.id));
@@ -31,7 +34,7 @@ export async function resetDemo(client: PoolClient, period: "AM" | "PM") {
     await client.query("SAVEPOINT demo_trip");
     const created = await createTrip(client, {
       routeId: route.rows[0].id, busId: schedule.busId,
-      departure: new Date(Date.now() + (3 + index) * 60_000),
+      departure: new Date(Date.now() + (leadMinutes + index * 0.25) * 60_000),
       schedule: { id: schedule.id, day: today }
     });
     if (!created.ok) { await client.query("ROLLBACK TO SAVEPOINT demo_trip"); continue; }

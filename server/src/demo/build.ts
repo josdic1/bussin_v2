@@ -30,6 +30,9 @@ const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toLoc
 const hhmm = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
 export async function buildCamp(client: PoolClient, size: CampSize) {
+  // Take turns with the regular trip scheduler, which uses this same lock.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('bussin_trip_schedules'))");
+
   const buses = Math.max(1, Math.min(TOWNS.length, Math.round(size.buses)));
   const kids = Math.max(buses, Math.min(600, Math.round(size.kids)));
   await resetAllButAdmins(client);

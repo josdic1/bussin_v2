@@ -81,15 +81,15 @@ const MenuIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7
 const AddIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M12 8.5v7M8.5 12h7" /></svg>;
 
 type Step = { text: ReactNode; icon?: ReactNode };
-type Plan = { steps: Step[]; arrow: "bottom" | "top-right" | "bottom-right" | null; title: string };
+type Plan = { steps: Step[]; arrow: "bottom" | "bottom-left" | "top-right" | "bottom-right" | null; title: string };
 
 function planFor(kind: Platform): Plan {
   switch (kind) {
     case "ios-safari": return {
-      title: "3 taps on your iPhone", arrow: "bottom", steps: [
-        { icon: <ShareIcon />, text: <>Tap the <b>Share</b> button at the bottom of the screen. <small>Don&rsquo;t see it? Tap <b>•••</b> first, then <b>Share</b>.</small></> },
-        { icon: <AddIcon />, text: <>Scroll down and tap <b>Add to Home Screen</b>.</> },
-        { text: <>Tap <b>Add</b> in the top right corner.</> }
+      title: "3 taps on your iPhone", arrow: "bottom-left", steps: [
+        { icon: <MenuIcon />, text: <>Tap <b>&#8801;</b> at the bottom, left of the web address. <small>Older iPhones: tap <b>Share</b> instead.</small></> },
+        { icon: <ShareIcon />, text: <>Tap <b>Share</b>, then <b>Add to Home Screen</b>. <small>Scroll down if you don&rsquo;t see it.</small></> },
+        { icon: <AddIcon />, text: <>Tap <b>Add</b>.</> }
       ]
     };
     case "ios-chrome": return {
