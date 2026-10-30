@@ -47,6 +47,10 @@ export async function resetDemo(period: "AM" | "PM") {
   location.reload();
 }
 
-export async function buildCamp(input: { campName: string; buses: number; kids: number }) {
-  return post("/api/demo/build", input) as Promise<{ buses: number; kids: number; families: number; staff: number; runs: number }>;
+export type HistorySpan = "day" | "week" | "month" | "season";
+export async function buildCamp(input: { campName: string; buses: number; kids: number; history: HistorySpan | "none" }) {
+  return post("/api/demo/build", input) as Promise<{ buses: number; kids: number; families: number; staff: number; runs: number; history: number }>;
+}
+export async function fillHistory(span: HistorySpan) {
+  return post("/api/demo/history", { span }) as Promise<{ trips: number; cancelled: number; days: number }>;
 }

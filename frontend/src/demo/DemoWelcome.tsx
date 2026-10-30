@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { buildCamp } from "./useDemo";
+import { buildCamp, type HistorySpan } from "./useDemo";
 import "./demo.css";
 
 /*
@@ -8,17 +8,21 @@ import "./demo.css";
  */
 
 const STANDARD = { campName: "Camp Bussin", buses: 5, kids: 120 };
+const PAST: [HistorySpan | "none", string, string][] = [
+  ["none", "Just today", "Fresh start"], ["week", "A week", "Recommended"], ["month", "A month", "About 20 seconds"], ["season", "A whole season", "Up to a minute"]
+];
 
 export function DemoWelcome() {
   const [campName, setCampName] = useState("");
   const [buses, setBuses] = useState("");
   const [kids, setKids] = useState("");
   const [busy, setBusy] = useState<"standard" | "mine" | null>(null);
+  const [history, setHistory] = useState<HistorySpan | "none">("week");
   const [error, setError] = useState("");
 
   async function build(kind: "standard" | "mine", input: { campName: string; buses: number; kids: number }) {
     setBusy(kind); setError("");
-    try { await buildCamp(input); location.assign("/"); }
+    try { await buildCamp({ ...input, history }); location.assign("/"); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "That didn't work. Try again."); setBusy(null); }
   }
   function mine(event: FormEvent) {
@@ -39,6 +43,13 @@ export function DemoWelcome() {
         Only the people are made up.</p>
 
       <section className="demo-choice">
+        <div><h2>How much has already happened?</h2><p>Past days fill History and Reports with finished trips, GPS trails and kid check-ins.</p></div>
+        <div className="demo-past" role="radiogroup" aria-label="How much history">{PAST.map(([value, label, sub]) =>
+          <button key={value} type="button" role="radio" aria-checked={history === value} className={history === value ? "on" : ""}
+            disabled={!!busy} onClick={() => setHistory(value)}><b>{label}</b><small>{sub}</small></button>)}</div>
+      </section>
+
+      <section className="demo-choice">
         <div><h2>Standard camp</h2><p>5 buses · 120 kids · 10 counselors · 5 lines</p></div>
         <button type="button" className="demo-go" disabled={!!busy} onClick={() => void build("standard", STANDARD)}>
           {busy === "standard" ? "Building…" : "Use this camp"}</button>
@@ -55,7 +66,7 @@ export function DemoWelcome() {
       </form>
 
       {error && <p className="demo-error" role="alert">{error}</p>}
-      <p className="demo-fine">Takes about 10 seconds. You can start over or build a different camp any time from the DEMO button.</p>
+      <p className="demo-fine">{busy ? "Building your camp. Keep this page open." : "Takes a few seconds, longer with more history."} You can start over or build a different camp any time from the DEMO button.</p>
     </div>
   </main>;
 }

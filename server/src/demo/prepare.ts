@@ -1,6 +1,7 @@
 import { hashPassword } from "../auth/sessions.js";
 import { pool } from "../db/pool.js";
 import { DEMO_REQUESTED, isDemoTenant } from "./mode.js";
+import { refreshRouteGeometry } from "../routes/save.js";
 
 /**
  * First start of a brand-new demo server: the database is empty, so claim it as the demo
@@ -30,4 +31,14 @@ export async function prepareDemoDatabase() {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
   } finally { client.release(); }
+}
+
+/** Draw the road shape for any route that doesn't have one yet (for example, built before the map key was set). */
+export async function fillRouteShapes() {
+  if (!process.env.MAPBOX_ACCESS_TOKEN) return;
+  const missing = await pool.query<{ id: string }>(
+    `SELECT r.id FROM routes r WHERE r.superseded_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM route_geometries g WHERE g.route_id = r.id)`);
+  for (const row of missing.rows) refreshRouteGeometry(row.id);
+  if (missing.rowCount) console.log(`Drawing road shapes for ${missing.rowCount} routes.`);
 }

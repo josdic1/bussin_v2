@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { resetDemo, signInAs, useDemo, type Who } from "./useDemo";
+import { fillHistory, resetDemo, signInAs, useDemo, type HistorySpan, type Who } from "./useDemo";
 import "./demo.css";
 
 /** A small DEMO button on every screen of the demo copy: switch person, or start the run over. */
@@ -8,6 +8,7 @@ export function DemoBar() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
   if (!info?.demo || !info.ready) return null;
 
   async function run(task: () => Promise<void>) {
@@ -27,6 +28,14 @@ export function DemoBar() {
         <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("AM"))}>Morning run<small>Buses leave in 3 min</small></button>
         <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("PM"))}>Afternoon run<small>Buses leave in 3 min</small></button>
       </div>
+      <h3>Fill in the past</h3>
+      <div className="demo-row">{([["day", "A day"], ["week", "A week"], ["month", "A month"], ["season", "Season"]] as [HistorySpan, string][]).map(([span, label]) =>
+        <button key={span} type="button" disabled={busy} onClick={() => void run(async () => {
+          const result = await fillHistory(span);
+          setNote(result.trips ? `Added ${result.trips} past trips.` : "Those days are already filled in.");
+          setBusy(false);
+        })}>{label}</button>)}</div>
+      {note && <p className="demo-note" role="status">{note}</p>}
       <p className="demo-note">Start over clears every trip, check and message for everyone using the demo.</p>
       {error && <p className="demo-error" role="alert">{error}</p>}
     </div>}

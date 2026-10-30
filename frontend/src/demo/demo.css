@@ -38,3 +38,8 @@
 .demo-go{min-height:52px;border:0;border-radius:12px;background:#17382c;color:#fff;font:inherit;font-size:17px;font-weight:850;cursor:pointer}
 .demo-go:disabled{opacity:.6;cursor:default}
 .demo-fine{margin:0;font-size:13.5px;color:#5f6b63}
+.demo-past{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.demo-past button{display:flex;flex-direction:column;gap:2px;padding:12px;border:1.5px solid #dfe3dc;border-radius:12px;background:#fff;color:#17211b;font:inherit;text-align:left;cursor:pointer}
+.demo-past button b{font-size:16px}
+.demo-past button small{font-size:12.5px;color:#5f6b63}
+.demo-past button.on{border-color:#17382c;box-shadow:inset 0 0 0 1px #17382c;background:#f3f6f1}

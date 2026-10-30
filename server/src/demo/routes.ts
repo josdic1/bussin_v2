@@ -8,6 +8,7 @@ import { readTenant } from "../db/tenant.js";
 import { demoActive } from "./mode.js";
 import { resetDemo } from "./reset.js";
 import { buildCamp } from "./build.js";
+import { fillHistory } from "./history.js";
 import { refreshRouteGeometry } from "../routes/save.js";
 
 // Demo copy only: one-tap sign-in as the office, a parent or a counselor, and Reset.
@@ -124,16 +125,34 @@ demoRoutes.post("/build", requireSameOrigin, async (request, response) => {
   const input = z.strictObject({
     campName: z.string().trim().min(1, "Give the camp a name.").max(60),
     buses: z.number().int().min(1, "At least 1 bus.").max(16, "Up to 16 buses in the demo."),
-    kids: z.number().int().min(1, "At least 1 kid.").max(600, "Up to 600 kids in the demo.")
+    kids: z.number().int().min(1, "At least 1 kid.").max(600, "Up to 600 kids in the demo."),
+    history: z.enum(["none", "day", "week", "month", "season"]).default("week")
   }).safeParse(request.body);
   if (!input.success) { response.status(400).json({ error: input.error.issues[0]?.message ?? "Check the numbers." }); return; }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const built = await buildCamp(client, input.data);
+    const past = input.data.history === "none" ? { trips: 0 } : await fillHistory(client, input.data.history);
     await client.query("COMMIT");
     for (const id of built.routeIds) refreshRouteGeometry(id);
-    response.json({ buses: built.buses, kids: built.kids, families: built.families, staff: built.staff, runs: built.runs });
+    response.json({ buses: built.buses, kids: built.kids, families: built.families, staff: built.staff, runs: built.runs, history: past.trips });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+});
+
+/** Fill in past days (only days that don't have their trips yet). */
+demoRoutes.post("/history", requireSameOrigin, async (request, response) => {
+  const input = z.strictObject({ span: z.enum(["day", "week", "month", "season"]) }).safeParse(request.body);
+  if (!input.success) { response.status(400).json({ error: "Pick a day, a week, a month or the season." }); return; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fillHistory(client, input.data.span);
+    await client.query("COMMIT");
+    response.json(result);
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
