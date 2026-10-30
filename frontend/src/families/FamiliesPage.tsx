@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router";
 import {
-  guardianInputSchema, guardiansResponseSchema, riderInputSchema, rosterResponseSchema, routesResponseSchema,
+  guardianInputSchema, guardiansResponseSchema, linesResponseSchema, riderInputSchema, rosterResponseSchema, routesResponseSchema,
   type Guardian, type Rider, type Route,
   WEEKDAY_NAMES, weekdaysLabel,
 } from "@bussin/shared";
@@ -9,7 +9,8 @@ import { getJson, message, send } from "../ops/api";
 import { contactProblem, tidyEmail, tidyPhone } from "../ops/contact";
 import { PALETTE, plural } from "../ops/format";
 import { Overlay, useOps } from "../ops/OpsShell";
-import { Avatar, ErrorNote, Head, JumpRail, NoMatch, Plus, Search, Seg, Tile } from "../ops/ui";
+import "./kids.css";
+import { Avatar, ErrorNote, Head, JumpRail, NoMatch, Plus, Search, Seg } from "../ops/ui";
 
 type AccountStatus = Guardian["accountStatus"];
 type OverlayState =
@@ -323,6 +324,7 @@ export function FamiliesPage() {
   const [riders, setRiders] = useState<Rider[]>([]);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
+  const [lineColors, setLineColors] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -341,8 +343,10 @@ export function FamiliesPage() {
     Promise.all([
       getJson("/api/families/roster", rosterResponseSchema, controller.signal),
       getJson("/api/families/guardians", guardiansResponseSchema, controller.signal),
-      getJson("/api/routes", routesResponseSchema, controller.signal)
-    ]).then(([roster, contacts, routeData]) => {
+      getJson("/api/routes", routesResponseSchema, controller.signal),
+      getJson("/api/lines", linesResponseSchema, controller.signal).catch(() => ({ lines: [] }))
+    ]).then(([roster, contacts, routeData, lineData]) => {
+      setLineColors(new Map(lineData.lines.map((line) => [line.name, line.color])));
       setRiders(roster.riders);
       setGuardians(contacts.guardians);
       setRoutes(routeData.routes);
@@ -356,12 +360,16 @@ export function FamiliesPage() {
   const families = useMemo(() => [...new Set(routes.map((route) => route.routeFamilyName))].sort(), [routes]);
   const familyOf = (routeId: string, routeName: string) =>
     routes.find((route) => route.id === routeId)?.routeFamilyName ?? routeName.replace(/\s*(AM|PM)$/i, "");
+  const lineColor = (name: string) => lineColors.get(name) ?? PALETTE[Math.max(0, families.indexOf(name)) % PALETTE.length];
   const riderColor = (rider: Rider) => {
     const assignment = rider.am ?? rider.pm;
-    if (!assignment) return "#a9b3ab";
-    const index = families.indexOf(familyOf(assignment.routeId, assignment.routeName));
-    return index < 0 ? "#a9b3ab" : PALETTE[index % PALETTE.length];
+    return assignment ? lineColor(familyOf(assignment.routeId, assignment.routeName)) : "#a9b3ab";
   };
+  // One tile per line that has kids: how many ride it, and how many only part of the week.
+  const lineTiles = families.map((name) => {
+    const kids = riders.filter((rider) => [rider.am, rider.pm].some((a) => a && familyOf(a.routeId, a.routeName) === name));
+    return { name, kids: kids.length, partWeek: kids.filter((rider) => rider.rideDays).length, color: lineColor(name) };
+  }).filter((tile) => tile.kids > 0);
   const kidsOf = (guardianId: string) => riders.filter((rider) => rider.guardians.some((guardian) => guardian.id === guardianId));
 
   const needle = query.trim().toLowerCase();
@@ -375,7 +383,8 @@ export function FamiliesPage() {
   const pending = guardians.filter((guardian) => guardian.accountStatus === "pending").length;
   const noRoute = riders.filter(hasNoRoute).length;
   const attentionTotal = noRoute + pending;
-  const attentionSub = `${noRoute} ${plural(noRoute, "rider", "riders")} with no route · ${pending} ${plural(pending, "account", "accounts")} awaiting setup`;
+  const attentionSub = [noRoute ? `${plural(noRoute, "kid", "kids")} with no bus` : "", pending ? `${plural(pending, "parent login", "parent logins")} not set up` : ""]
+    .filter(Boolean).join(" · ");
   const sortedGuardians = [...guardians].sort((a, b) => a.name.localeCompare(b.name));
   // Jump rail: the first row for each starting letter (riders by last name, guardians by name).
   const letterOf = (text: string) => (text.trim()[0] ?? "#").toUpperCase();
@@ -427,7 +436,7 @@ export function FamiliesPage() {
   </div>;
 
   const assignLine = (assignment: Rider["am"], period: string) => <div><b>{period}</b>{assignment
-    ? <><span className="rdot" style={{ "--c": PALETTE[families.indexOf(familyOf(assignment.routeId, assignment.routeName)) % PALETTE.length] ?? "#a9b3ab" } as CSSProperties} />{assignment.stopLabel}</>
+    ? <><span className="rdot" style={{ "--c": lineColor(familyOf(assignment.routeId, assignment.routeName)) } as CSSProperties} />{assignment.stopLabel}</>
     : <span className="dim">Not assigned</span>}</div>;
 
   const riderDetail = (rider: Rider) => <>
@@ -484,19 +493,21 @@ export function FamiliesPage() {
         <button type="button" className="btn" onClick={() => setOverlay({ type: "guardianForm", id: null })}>Add guardian</button>
         <button type="button" className="btn btn-primary" onClick={() => setOverlay({ type: "riderForm", id: null })}>Add rider</button></>} />
       {status}
-      <div className="tiles">
-        <Tile label="Riders listed" value={riders.length} sub="Riders in the roster" />
-        <Tile label="Guardians listed" value={guardians.length} sub="Unique roster contacts" />
-        <Tile label="Needs attention" value={attentionTotal} sub={attentionSub} className={`${attentionTotal ? "bad" : "good"}${attention ? " on" : ""}`}
-          pressed={attention} onClick={() => { setAttention(!attention); setView("riders"); }} />
-      </div>
+      {(lineTiles.length > 0 || attentionTotal > 0) && <div className="kid-tiles">
+        {attentionTotal > 0 && <button type="button" className={`kid-tile bad${attention ? " on" : ""}`} aria-pressed={attention}
+          onClick={() => { setAttention(!attention); setView("riders"); }}>
+          <b>{attentionTotal}</b><span>{attentionSub}</span></button>}
+        {lineTiles.map((tile) => <button key={tile.name} type="button" className={`kid-tile${family === tile.name ? " on" : ""}`} aria-pressed={family === tile.name}
+          style={{ "--c": tile.color } as CSSProperties} onClick={() => { setFamily(family === tile.name ? "" : tile.name); setView("riders"); }}>
+          <i /><em>{tile.name}</em><b>{tile.kids}</b><span>{plural(tile.kids, "kid", "kids")}{tile.partWeek ? ` · ${tile.partWeek} part of the week` : ""}</span></button>)}
+      </div>}
       <div className="tabs2" role="tablist">{([["riders", "Rider roster"], ["guardians", "Guardians"]] as const).map(([key, label]) =>
         <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? "on" : ""} onClick={() => setView(key)}>{label}</button>)}</div>
       {view === "riders" ? <>
         <div className="filters" style={{ marginTop: 16 }}>
           <Search label="Find a rider or guardian" value={query} onChange={setQuery} placeholder="Search names or route" />
-          <label>Route<select value={family} onChange={(event) => setFamily(event.target.value)}>
-            <option value="">All routes</option>{families.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+          <label>Line<select value={family} onChange={(event) => setFamily(event.target.value)}>
+            <option value="">All lines</option>{families.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
           <label className="ck"><input type="checkbox" checked={attention} onChange={(event) => setAttention(event.target.checked)} /> Needs attention only</label>
           <span className="cnt">{visible.length} of {riders.length} riders</span>
         </div>
@@ -512,7 +523,6 @@ export function FamiliesPage() {
               : <tr><td colSpan={4} className="nomatch">{emptyText}</td></tr>}</tbody></table></div>
           <aside className="rdetail">{selected ? riderDetail(selected) : <><span className="ov">DETAIL</span><h2 className="dt">Choose a rider</h2></>}</aside>
         </div></div>
-        <p className="hint" style={{ marginTop: 12 }}>Buses are assigned to trips, not permanently to children or routes.</p>
       </> : <>
         <div className="withrail" style={{ marginTop: 16 }}><JumpRail letters={[...guardianLetters.keys()]} idPrefix="guardian" label="Jump through guardians" />
         <div><table className="tbl sticky-head"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Children</th><th>Account</th><th>Action</th></tr></thead>
@@ -539,7 +549,11 @@ export function FamiliesPage() {
     {status}
     {view === "riders" ? <>
       <Search value={query} onChange={setQuery} placeholder="Search names or route" />
-      <div className="chips"><button type="button" className={`chip${attention ? " on" : ""}`} aria-pressed={attention} onClick={() => setAttention(!attention)}>NEEDS ATTENTION <b>{attentionTotal}</b></button></div>
+      <div className="chips">
+        {attentionTotal > 0 && <button type="button" className={`chip${attention ? " on" : ""}`} aria-pressed={attention} onClick={() => setAttention(!attention)}>NEEDS ATTENTION <b>{attentionTotal}</b></button>}
+        {lineTiles.map((tile) => <button key={tile.name} type="button" className={`chip${family === tile.name ? " on" : ""}`} aria-pressed={family === tile.name}
+          onClick={() => setFamily(family === tile.name ? "" : tile.name)}>{tile.name.toUpperCase()} <b>{tile.kids}</b></button>)}
+      </div>
       <div className="cards">{visible.length ? visible.map((rider) => <button key={rider.id} type="button" className="bc" style={{ "--c": riderColor(rider) } as CSSProperties}
         onClick={() => setOverlay({ type: "rider", id: rider.id })}>
         <div className="h"><strong>{rider.givenName} {rider.familyName}</strong><span className="tags"><CoverageTag rider={rider} /><Pill status={riderStatus(rider)} /></span></div>
