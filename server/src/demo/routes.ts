@@ -7,6 +7,8 @@ import { pool } from "../db/pool.js";
 import { readTenant } from "../db/tenant.js";
 import { demoActive } from "./mode.js";
 import { resetDemo } from "./reset.js";
+import { buildCamp } from "./build.js";
+import { refreshRouteGeometry } from "../routes/save.js";
 
 // Demo copy only: one-tap sign-in as the office, a parent or a counselor, and Reset.
 // On the real server demoActive() is false and every route here answers 404,
@@ -74,9 +76,14 @@ async function familyLogin(parent: Parent | null): Promise<string | null> {
 
 demoRoutes.get("/", async (_request, response) => {
   if (!demoActive()) { response.json({ demo: false }); return; }
-  const people = await cast();
+  const [people, counts, tenant] = await Promise.all([cast(), pool.query<{ buses: number; kids: number }>(
+    `SELECT (SELECT count(*) FROM buses)::int AS buses, (SELECT count(*) FROM riders)::int AS kids`), readTenant()]);
   response.json({
     demo: true,
+    // No buses yet means nobody has built a camp: show the welcome page.
+    ready: counts.rows[0]!.buses > 0,
+    camp: tenant.name,
+    size: counts.rows[0],
     people: Object.fromEntries(Object.entries(people).map(([who, person]) => [who, person?.name ?? null]))
   });
 });
@@ -106,6 +113,27 @@ demoRoutes.post("/reset", requireSameOrigin, async (request, response) => {
     const runs = await resetDemo(client, input.data.period);
     await client.query("COMMIT");
     response.json({ runs });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+});
+
+/** Build a camp of the size asked for. Replaces everything except the admin login. */
+demoRoutes.post("/build", requireSameOrigin, async (request, response) => {
+  const input = z.strictObject({
+    campName: z.string().trim().min(1, "Give the camp a name.").max(60),
+    buses: z.number().int().min(1, "At least 1 bus.").max(16, "Up to 16 buses in the demo."),
+    kids: z.number().int().min(1, "At least 1 kid.").max(600, "Up to 600 kids in the demo.")
+  }).safeParse(request.body);
+  if (!input.success) { response.status(400).json({ error: input.error.issues[0]?.message ?? "Check the numbers." }); return; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const built = await buildCamp(client, input.data);
+    await client.query("COMMIT");
+    for (const id of built.routeIds) refreshRouteGeometry(id);
+    response.json({ buses: built.buses, kids: built.kids, families: built.families, staff: built.staff, runs: built.runs });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;

@@ -22,6 +22,7 @@ import { pushRoutes } from "./push/routes.js";
 import { lineRoutes } from "./lines/routes.js";
 import { demoRoutes } from "./demo/routes.js";
 import { settleDemoMode } from "./demo/mode.js";
+import { prepareDemoDatabase } from "./demo/prepare.js";
 import { startPushAlerts } from "./push/watch.js";
 import { dataImportRoutes } from "./data/import.js";
 import { tableCsvRoutes } from "./data/tableCsv.js";
@@ -45,6 +46,7 @@ async function readFrontendBuild(): Promise<string | null> {
   }
 }
 
+await prepareDemoDatabase();
 const tenant = await readTenant();
 if (settleDemoMode(tenant.key)) console.log("Demo copy: one-tap sign-in and Reset are on.");
 

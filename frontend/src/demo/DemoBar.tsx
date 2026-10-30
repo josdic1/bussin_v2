@@ -8,7 +8,7 @@ export function DemoBar() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  if (!info?.demo) return null;
+  if (!info?.demo || !info.ready) return null;
 
   async function run(task: () => Promise<void>) {
     setBusy(true); setError("");

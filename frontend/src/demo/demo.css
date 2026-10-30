@@ -22,3 +22,19 @@
 .demo-row button:disabled{opacity:.5}
 .demo-row small{font-size:11.5px;font-weight:600;color:#5f6b63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .demo-note{margin:10px 0 0;font-size:12px;color:#5f6b63}
+/* Welcome page: the first screen of the demo. */
+.demo-welcome{min-height:100vh;background:#f7f7f2;color:#17211b;padding:32px 18px 60px;font-family:inherit}
+.demo-wl{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.demo-mark{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:#17382c;color:#d6f25a;font-size:26px;font-weight:900}
+.demo-wl h1{margin:0;font-size:38px;line-height:1.05;font-weight:900;letter-spacing:-.03em}
+.demo-lede{margin:0;font-size:17px;line-height:1.5;color:#3f4a43}
+.demo-choice{display:flex;flex-direction:column;gap:12px;padding:18px;border:1.5px solid #dfe3dc;border-radius:16px;background:#fff}
+.demo-choice h2{margin:0;font-size:20px;font-weight:850}
+.demo-choice p{margin:4px 0 0;font-size:15px;color:#5f6b63}
+.demo-mine label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:#5f6b63}
+.demo-mine input{width:100%;min-width:0;box-sizing:border-box;height:48px;padding:0 12px;border:1.5px solid #dfe3dc;border-radius:10px;font:inherit;font-size:17px;color:#17211b;letter-spacing:0;text-transform:none}
+.demo-mine input:focus{outline:2px solid #17382c;outline-offset:1px}
+.demo-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.demo-go{min-height:52px;border:0;border-radius:12px;background:#17382c;color:#fff;font:inherit;font-size:17px;font-weight:850;cursor:pointer}
+.demo-go:disabled{opacity:.6;cursor:default}
+.demo-fine{margin:0;font-size:13.5px;color:#5f6b63}

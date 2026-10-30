@@ -10,6 +10,7 @@ import { BusPage } from "./bus/BusPage";
 import { InstallFirst } from "./install/InstallGuide";
 import { DemoBar } from "./demo/DemoBar";
 import { DemoLogin } from "./demo/DemoLogin";
+import { DemoWelcome } from "./demo/DemoWelcome";
 import { useDemo } from "./demo/useDemo";
 const TeamPage = lazy(async () => ({ default: (await import("./team/TeamPage")).TeamPage }));
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
@@ -184,6 +185,7 @@ function ChangePassword() {
 function SignInFirst() {
   const demo = useDemo();
   if (demo === null) return <AuthScreen title="Opening Bussin" description="One moment…" />;
+  if (demo.demo && !demo.ready) return <DemoWelcome />;
   return demo.demo ? <Login /> : <InstallFirst who="anyone"><Login /></InstallFirst>;
 }
 

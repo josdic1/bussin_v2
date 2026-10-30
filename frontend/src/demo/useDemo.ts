@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 
 // Is this the demo copy? Asked once per page load. The real site always answers no.
 
-export type DemoInfo = { demo: false } | { demo: true; people: { office: string | null; counselor: string | null; parent: string | null } };
+export type DemoInfo = { demo: false } | {
+  demo: true;
+  /** False until someone builds a camp: then the welcome page shows instead of sign-in. */
+  ready: boolean;
+  camp: string;
+  size: { buses: number; kids: number };
+  people: { office: string | null; counselor: string | null; parent: string | null };
+};
 
 let cached: Promise<DemoInfo> | null = null;
 export function loadDemo(): Promise<DemoInfo> {
@@ -38,4 +45,8 @@ export async function resetDemo(period: "AM" | "PM") {
   await post("/api/demo/reset", { period });
   refreshDemo();
   location.reload();
+}
+
+export async function buildCamp(input: { campName: string; buses: number; kids: number }) {
+  return post("/api/demo/build", input) as Promise<{ buses: number; kids: number; families: number; staff: number; runs: number }>;
 }
