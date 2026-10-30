@@ -15,14 +15,14 @@ export function DemoLogin({ info }: { info: Extract<DemoInfo, { demo: true }> })
     setBusy(who); setError("");
     try { await signInAs(who); } catch (cause) { setError(cause instanceof Error ? cause.message : "That didn't work."); setBusy(null); }
   }
-  return <div className="dm-login">
-    <p className="dm-tag">DEMO · MADE-UP CAMP · NOTHING HERE IS REAL</p>
+  return <div className="demo-login">
+    <p className="demo-tag">DEMO · MADE-UP CAMP · NOTHING HERE IS REAL</p>
     <h2>See Bussin as</h2>
-    {options.map(([who, title, sub]) => <button key={who} type="button" className="dm-pick" disabled={!!busy || !info.people[who]} onClick={() => void go(who)}>
+    {options.map(([who, title, sub]) => <button key={who} type="button" className="demo-pick" disabled={!!busy || !info.people[who]} onClick={() => void go(who)}>
       <b>{title}</b><span>{info.people[who] ? `${info.people[who]} · ${sub}` : "Nobody set up for this yet"}</span>
       <i aria-hidden="true">{busy === who ? "…" : "›"}</i>
     </button>)}
-    {error && <p className="dm-error" role="alert">{error}</p>}
-    <p className="dm-tip">Tip: open the office on a laptop and a parent on your phone. Run the bus and watch both.</p>
+    {error && <p className="demo-error" role="alert">{error}</p>}
+    <p className="demo-tip">Tip: open the office on a laptop and a parent on your phone. Run the bus and watch both.</p>
   </div>;
 }

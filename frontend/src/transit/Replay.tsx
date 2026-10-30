@@ -59,7 +59,7 @@ export function Replay({ trip, color }: { trip: HistoryTrip; color: string }) {
       for (const [lng, lat] of coords) bounds.extend([lng!, lat!]);
       instance.fitBounds(bounds, { padding: 36, duration: 0, maxZoom: 16 });
       const dot = document.createElement("div");
-      dot.className = "rp-bus";
+      dot.className = "rpl-bus";
       dot.style.setProperty("--c", color);
       marker.current = new Marker({ element: dot }).setLngLat(coords[0] as [number, number]).addTo(instance);
       setReady(true);
@@ -105,21 +105,21 @@ export function Replay({ trip, color }: { trip: HistoryTrip; color: string }) {
   const ticks = trip.stops.filter((stop) => stop.arrivedAt).map((stop) => ({ stop, at: Date.parse(stop.arrivedAt!) }))
     .filter((tick) => tick.at >= first && tick.at <= last);
 
-  return <div className="rp">
-    <div ref={container} className="rp-map" />
-    <div className="rp-bar">
+  return <div className="rpl">
+    <div ref={container} className="rpl-map" />
+    <div className="rpl-bar">
       <button type="button" className="btn btn-primary sm" onClick={() => {
         if (index >= points.length - 1) setIndex(0);
         setPlaying(!playing);
       }}>{playing ? "Pause" : index >= points.length - 1 ? "Play again" : "Play"}</button>
-      <div className="rp-track">
+      <div className="rpl-track">
         <input type="range" min={0} max={points.length - 1} value={index} aria-label="Trip time"
           onChange={(event) => { setPlaying(false); setIndex(Number(event.target.value)); }} />
-        {ticks.map(({ stop, at }) => <button key={stop.id} type="button" className="rp-tick" title={`Arrived ${stop.label}`}
+        {ticks.map(({ stop, at }) => <button key={stop.id} type="button" className="rpl-tick" title={`Arrived ${stop.label}`}
           style={{ left: `${((at - first) / Math.max(1, last - first)) * 100}%` }}
           onClick={() => { setPlaying(false); setIndex(nearest(at)); }}>{stop.position}</button>)}
       </div>
-      <span className="rp-time"><b>{timeWithSeconds(new Date(point.at).toISOString())}</b>
+      <span className="rpl-time"><b>{timeWithSeconds(new Date(point.at).toISOString())}</b>
         {point.mph !== null && <small>{Math.round(point.mph)} mph</small>}</span>
     </div>
   </div>;

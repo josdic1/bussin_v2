@@ -16,20 +16,20 @@ export function DemoBar() {
   }
   const people: [Who, string][] = [["office", "Office"], ["counselor", "Counselor"], ["parent", "Parent"]];
 
-  return <div className={`dm-bar${open ? " open" : ""}`}>
-    {open && <div className="dm-panel" role="dialog" aria-label="Demo controls">
-      <p className="dm-tag">DEMO · MADE-UP CAMP</p>
+  return <div className={`demo-bar${open ? " open" : ""}`}>
+    {open && <div className="demo-panel" role="dialog" aria-label="Demo controls">
+      <p className="demo-tag">DEMO · MADE-UP CAMP</p>
       <h3>Switch to</h3>
-      <div className="dm-row">{people.map(([who, label]) => <button key={who} type="button" disabled={busy || !info.people[who]}
+      <div className="demo-row">{people.map(([who, label]) => <button key={who} type="button" disabled={busy || !info.people[who]}
         onClick={() => void run(() => signInAs(who))}>{label}<small>{info.people[who] ?? "None"}</small></button>)}</div>
       <h3>Start over</h3>
-      <div className="dm-row">
+      <div className="demo-row">
         <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("AM"))}>Morning run<small>Buses leave in 3 min</small></button>
         <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("PM"))}>Afternoon run<small>Buses leave in 3 min</small></button>
       </div>
-      <p className="dm-note">Start over clears every trip, check and message for everyone using the demo.</p>
-      {error && <p className="dm-error" role="alert">{error}</p>}
+      <p className="demo-note">Start over clears every trip, check and message for everyone using the demo.</p>
+      {error && <p className="demo-error" role="alert">{error}</p>}
     </div>}
-    <button type="button" className="dm-btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Close" : "DEMO"}</button>
+    <button type="button" className="demo-btn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Close" : "DEMO"}</button>
   </div>;
 }

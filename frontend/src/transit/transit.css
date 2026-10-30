@@ -128,13 +128,13 @@
 .ops .m .hb-col::before{content:attr(data-label);font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 
 /* Replay: the drive on a map, with a slider. */
-.ops .rp{margin-top:12px}
-.ops .rp-map{height:320px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.ops .rp-bus{width:18px;height:18px;border-radius:50%;background:var(--c,#17211b);border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.35)}
-.ops .rp-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;margin-top:10px}
-.ops .rp-track{position:relative;padding-bottom:18px}
-.ops .rp-track input{width:100%;accent-color:var(--green)}
-.ops .rp-tick{position:absolute;bottom:0;transform:translateX(-50%);width:18px;height:18px;border:0;border-radius:50%;background:var(--ink);color:#fff;font-size:10px;font-weight:900;padding:0;cursor:pointer}
-.ops .rp-time{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums}
-.ops .rp-time b{font-size:14px}
-.ops .rp-time small{font-size:12px;color:var(--muted)}
+.ops .rpl{margin-top:12px}
+.ops .rpl-map{height:320px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ops .rpl-bus{width:18px;height:18px;border-radius:50%;background:var(--c,#17211b);border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.35)}
+.ops .rpl-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;margin-top:10px}
+.ops .rpl-track{position:relative;padding-bottom:18px}
+.ops .rpl-track input{width:100%;accent-color:var(--green)}
+.ops .rpl-tick{position:absolute;bottom:0;transform:translateX(-50%);width:18px;height:18px;border:0;border-radius:50%;background:var(--ink);color:#fff;font-size:10px;font-weight:900;padding:0;cursor:pointer}
+.ops .rpl-time{display:flex;flex-direction:column;align-items:flex-end;font-variant-numeric:tabular-nums}
+.ops .rpl-time b{font-size:14px}
+.ops .rpl-time small{font-size:12px;color:var(--muted)}
