@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
-import { clearDemo, fillHistory, resetDemo, signInAs, useDemo, type HistorySpan, type Keep, type Who } from "./useDemo";
+import { clearDemo, drive, fillHistory, resetDemo, signInAs, useDemo, type HistorySpan, type Keep, type Who } from "./useDemo";
 import "./demo.css";
 
 /*
@@ -31,6 +31,7 @@ export function DemoBar() {
   const [note, setNote] = useState("");
   const [wiping, setWiping] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [speed, setSpeed] = useState<number | null>(null);
   const [keep, setKeep] = useState<Keep>({ setup: true, team: true, kids: true, history: true, messages: true });
   // Before a camp exists the welcome page is the whole demo; only a signed-in admin needs the button then.
   if (!info?.demo || (!info.ready && !member)) return null;
@@ -74,6 +75,11 @@ export function DemoBar() {
         <h3>Switch to</h3>
         <div className="demo-row">{people.map(([who, label]) => <button key={who} type="button" disabled={busy || !info.people[who]}
           onClick={() => void run(() => signInAs(who))}>{label}<small>{info.people[who] ?? "None"}</small></button>)}</div>
+        <h3>Drive the buses</h3>
+        <div className="demo-row demo-speed" role="radiogroup" aria-label="Robot driver">{([[0, "Off"], [1, "Real speed"], [5, "5x"], [15, "15x"]] as [0 | 1 | 5 | 15, string][]).map(([value, label]) =>
+          <button key={value} type="button" role="radio" aria-checked={(speed ?? info.driving.speed) === value} className={(speed ?? info.driving.speed) === value ? "on" : ""}
+            disabled={busy} onClick={() => void run(async () => { const state = await drive(value); setSpeed(state.speed); setBusy(false); })}>{label}</button>)}</div>
+        <p className="demo-note">{(speed ?? info.driving.speed) ? "Buses leave when their run is due and drive the route by themselves. To really drive one, tap Start on the counselor screen first." : "Off: buses only move when someone drives with the counselor screen open."}</p>
         <h3>Start over</h3>
         <div className="demo-row">
           <button type="button" disabled={busy} onClick={() => void run(() => resetDemo("AM"))}>Morning run<small>Leaves in 3 min</small></button>

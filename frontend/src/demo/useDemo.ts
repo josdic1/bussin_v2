@@ -8,6 +8,8 @@ export type DemoInfo = { demo: false } | {
   ready: boolean;
   camp: string;
   size: { buses: number; kids: number };
+  /** The robot driver: speed 0 is off. */
+  driving: { speed: number; buses: number };
   people: { office: string | null; counselor: string | null; parent: string | null };
 };
 
@@ -61,4 +63,10 @@ export async function clearDemo(keep: Keep) {
   await post("/api/demo/clear", keep);
   if (!keep.setup) await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
   location.assign("/");
+}
+
+export async function drive(speed: 0 | 1 | 5 | 15) {
+  const state = await post("/api/demo/drive", { speed }) as { speed: number; buses: number };
+  refreshDemo();
+  return state;
 }

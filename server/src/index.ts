@@ -23,6 +23,7 @@ import { lineRoutes } from "./lines/routes.js";
 import { demoRoutes } from "./demo/routes.js";
 import { settleDemoMode } from "./demo/mode.js";
 import { fillRouteShapes, prepareDemoDatabase } from "./demo/prepare.js";
+import { startSimulatorLoop } from "./demo/simulate.js";
 import { startPushAlerts } from "./push/watch.js";
 import { dataImportRoutes } from "./data/import.js";
 import { tableCsvRoutes } from "./data/tableCsv.js";
@@ -51,6 +52,7 @@ const tenant = await readTenant();
 if (settleDemoMode(tenant.key)) {
   console.log("Demo copy: one-tap sign-in and Reset are on.");
   void fillRouteShapes().catch((error) => console.error("Could not draw route shapes", error));
+  startSimulatorLoop();
 }
 
 const app = express();

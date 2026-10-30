@@ -10,6 +10,7 @@ import { resetDemo } from "./reset.js";
 import { buildCamp } from "./build.js";
 import { fillHistory } from "./history.js";
 import { clearDemo, deleteRide } from "./clear.js";
+import { setSimulator, simulatorState } from "./simulate.js";
 import { refreshRouteGeometry } from "../routes/save.js";
 
 // Demo copy only: one-tap sign-in as the office, a parent or a counselor, and Reset.
@@ -86,6 +87,7 @@ demoRoutes.get("/", async (_request, response) => {
     ready: counts.rows[0]!.buses > 0,
     camp: tenant.name,
     size: counts.rows[0],
+    driving: simulatorState(),
     people: Object.fromEntries(Object.entries(people).map(([who, person]) => [who, person?.name ?? null]))
   });
 });
@@ -193,4 +195,12 @@ demoRoutes.delete("/trips/:id", requireSameOrigin, async (request, response) => 
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
   } finally { client.release(); }
+});
+
+/** The robot driver: 0 turns it off; 1, 5 or 15 is how many times real speed the buses drive. */
+demoRoutes.post("/drive", requireSameOrigin, (request, response) => {
+  const input = z.strictObject({ speed: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(15)]) }).safeParse(request.body);
+  if (!input.success) { response.status(400).json({ error: "Pick off, real speed, 5x or 15x." }); return; }
+  setSimulator(input.data.speed);
+  response.json(simulatorState());
 });
