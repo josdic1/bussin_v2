@@ -12,6 +12,7 @@ import { Overlay, useOps } from "../ops/OpsShell";
 import { CrewPills, ErrorNote, Head, NoMatch, Seg } from "../ops/ui";
 import { useNow, usePolling } from "../ops/useBoard";
 import "./transit.css";
+import { DemoDeleteRide } from "../demo/DemoDeleteRide";
 
 // The map only loads when someone opens Replay.
 const Replay = lazy(() => import("./Replay").then((module) => ({ default: module.Replay })));
@@ -356,6 +357,7 @@ export function TransitPage() {
   const openTrip = views.find((trip) => trip.id === openId) ?? null;
   const overlay = openId && <Overlay onClose={() => setOpenId(null)}>
     {openTrip ? <TripDetailView trip={openTrip} tab={tab} setTab={setTab} /> : <NoMatch>Trip not found.</NoMatch>}
+    {openTrip && <DemoDeleteRide tripId={openTrip.id} onDeleted={() => { setTrips((list) => list.filter((trip) => trip.id !== openTrip.id)); setOpenId(null); }} />}
   </Overlay>;
   const open = (id: string) => { setTab(views.find((trip) => trip.id === id)?.status === "completed" ? "replay" : "events"); setOpenId(id); };
 

@@ -9,6 +9,7 @@ import { demoActive } from "./mode.js";
 import { resetDemo } from "./reset.js";
 import { buildCamp } from "./build.js";
 import { fillHistory } from "./history.js";
+import { clearDemo, deleteRide } from "./clear.js";
 import { refreshRouteGeometry } from "../routes/save.js";
 
 // Demo copy only: one-tap sign-in as the office, a parent or a counselor, and Reset.
@@ -153,6 +154,41 @@ demoRoutes.post("/history", requireSameOrigin, async (request, response) => {
     const result = await fillHistory(client, input.data.span);
     await client.query("COMMIT");
     response.json(result);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+});
+
+/** Custom reset: wipe what isn't ticked. The admin login always stays. */
+demoRoutes.post("/clear", requireSameOrigin, async (request, response) => {
+  const input = z.strictObject({
+    setup: z.boolean(), team: z.boolean(), kids: z.boolean(), history: z.boolean(), messages: z.boolean()
+  }).safeParse(request.body);
+  if (!input.success) { response.status(400).json({ error: "Choose what to keep." }); return; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await clearDemo(client, input.data);
+    await client.query("COMMIT");
+    response.json(result);
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+});
+
+/** Delete one ride, whatever state it's in. */
+demoRoutes.delete("/trips/:id", requireSameOrigin, async (request, response) => {
+  const id = z.string().uuid().safeParse(request.params.id);
+  if (!id.success) { response.status(400).json({ error: "Choose a ride." }); return; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const gone = await deleteRide(client, id.data);
+    await client.query("COMMIT");
+    if (!gone) { response.status(404).json({ error: "That ride is already gone." }); return; }
+    response.json({ deleted: true });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;

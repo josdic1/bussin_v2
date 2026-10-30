@@ -2,20 +2,18 @@ import type { PoolClient } from "pg";
 import { buildScheduledTrips, CURRENT_ROUTE } from "../schedules/build.js";
 import { createTrip } from "../trips/create.js";
 import { saveCrew } from "../dispatch/crew.js";
+import { deleteTrips } from "./trips.js";
 
-// Put the demo back to the start of a run: no trips have happened, no kids checked,
-// no messages. Then every bus that has a morning (or afternoon) run gets that run
-// leaving a few minutes from now, crew and kids included, so a demo can start any time
-// of day. The plan itself (lines, buses, kids, team) is never touched.
-
-const ACTIVITY = [
-  "push_sent", "trip_alerts", "family_message_recipients", "family_messages", "trip_sweeps", "trip_rider_events",
-  "trip_riders", "trip_current_locations", "trip_location_samples", "trip_events", "trip_driver_assignments",
-  "staff_assignments", "trip_stops", "trips", "staff_presence", "data_edits"
-];
+// Start a run over: today's and upcoming trips go (with their checks and messages); past
+// days stay, so History and Reports keep their season. Then every bus that has a morning
+// (or afternoon) run gets that run leaving a few minutes from now, crew and kids included,
+// so a demo can start any time of day. The plan itself (lines, buses, kids, team) is never touched.
 
 export async function resetDemo(client: PoolClient, period: "AM" | "PM") {
-  await client.query(`TRUNCATE ${ACTIVITY.join(", ")}`);
+  const upcoming = await client.query<{ id: string }>(
+    `SELECT id FROM trips WHERE departure_at >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')`);
+  await deleteTrips(client, upcoming.rows.map((row) => row.id));
+  await client.query(`DELETE FROM staff_presence`);
   const schedules = await client.query<{
     id: string; routeId: string; busId: string; leadId: string | null; counselorIds: string[]; driverId: string | null;
   }>(

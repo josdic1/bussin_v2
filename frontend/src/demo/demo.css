@@ -43,3 +43,18 @@
 .demo-past button b{font-size:16px}
 .demo-past button small{font-size:12.5px;color:#5f6b63}
 .demo-past button.on{border-color:#17382c;box-shadow:inset 0 0 0 1px #17382c;background:#f3f6f1}
+.demo-del{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:18px;padding-top:14px;border-top:1px dashed #e0b9a0;font-size:13.5px;color:#5f6b63}
+.demo-del button{padding:8px 12px;border:1px solid #dfe3dc;border-radius:9px;background:#fff;color:#17211b;font:inherit;font-size:13.5px;font-weight:800;cursor:pointer}
+.demo-del button small{margin-left:4px;font-size:10px;font-weight:900;letter-spacing:.08em;color:#a1561b}
+.demo-del .demo-del-yes{border-color:#ad4138;background:#ad4138;color:#fff}
+.demo-keep{display:flex;flex-direction:column;gap:6px}
+.demo-keep label{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;padding:8px 10px;border:1px solid #dfe3dc;border-radius:10px;cursor:pointer}
+.demo-keep label.forced{opacity:.6;cursor:default}
+.demo-keep input{width:18px;height:18px;accent-color:#17382c}
+.demo-keep span{display:flex;flex-direction:column}
+.demo-keep b{font-size:14px}
+.demo-keep small{font-size:11.5px;color:#5f6b63}
+.demo-wide{width:100%;margin-top:10px;padding:11px;border:1px solid #17382c;border-radius:10px;background:#17382c;color:#fff;font:inherit;font-size:14px;font-weight:850;cursor:pointer}
+.demo-panel .demo-danger{border-color:#ad4138;background:#ad4138;color:#fff}
+.demo-link{margin-top:8px;padding:4px 0;border:0;background:none;color:#5f6b63;font:inherit;font-size:13px;font-weight:700;text-decoration:underline;cursor:pointer}
+.demo-panel{max-height:calc(100vh - 140px);overflow-y:auto}

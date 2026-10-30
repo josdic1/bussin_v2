@@ -54,3 +54,11 @@ export async function buildCamp(input: { campName: string; buses: number; kids: 
 export async function fillHistory(span: HistorySpan) {
   return post("/api/demo/history", { span }) as Promise<{ trips: number; cancelled: number; days: number }>;
 }
+
+export type Keep = { setup: boolean; team: boolean; kids: boolean; history: boolean; messages: boolean };
+/** Wipe what isn't kept. Without the camp setup there is nothing to run, so sign out to the welcome page. */
+export async function clearDemo(keep: Keep) {
+  await post("/api/demo/clear", keep);
+  if (!keep.setup) await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+  location.assign("/");
+}

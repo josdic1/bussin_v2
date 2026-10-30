@@ -16,6 +16,7 @@ import { TripDetail } from "./TripDetail";
 import { useAttentionSignal } from "./attentionSignal";
 import { useTripAlerts } from "./useTripAlerts";
 import "./now.css";
+import { DemoDeleteRide } from "../demo/DemoDeleteRide";
 
 /*
  * Dispatch = right now. One card per bus, every bus once.
@@ -345,6 +346,8 @@ export function DispatchPage() {
       const ride = check.trips.find((trip) => trip.id === selected.trip.id);
       return ride ? <RideCheck trip={ride} now={now} color={colorOf(ride.busId)} onChanged={check.reload} toast={toast} /> : null;
     })()}
+    {overlay === "trip" && selected && <DemoDeleteRide tripId={selected.trip.id}
+      onDeleted={() => { setOverlay(null); toast("Ride deleted."); board.reload(); }} />}
   </Overlay>;
 
   return <div className="nb">
