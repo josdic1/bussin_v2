@@ -7,6 +7,7 @@ import { StaffTripPage } from "./staff/StaffTripPage";
 import { FamilyPortalPage } from "./families/FamilyPortalPage";
 import { OpsShell, useOps } from "./ops/OpsShell";
 import { BusPage } from "./bus/BusPage";
+import { InstallFirst } from "./install/InstallGuide";
 const TeamPage = lazy(async () => ({ default: (await import("./team/TeamPage")).TeamPage }));
 const FamiliesPage = lazy(async () => ({ default: (await import("./families/FamiliesPage")).FamiliesPage }));
 const DataPage = lazy(async () => ({ default: (await import("./data/DataPage")).DataPage }));
@@ -190,7 +191,7 @@ function AuthGate() {
     return <AuthScreen title="Opening Bussin" description="Checking your session…" />;
   }
 
-  if (member === null) return <Login />;
+  if (member === null) return <InstallFirst who="anyone"><Login /></InstallFirst>;
   if (member.passwordChangeRequired) return <ChangePassword />;
 
   if (member.roles.some((role) => role === "admin" || role === "dispatch")) {

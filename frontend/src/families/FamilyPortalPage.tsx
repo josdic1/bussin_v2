@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { familyMessagesResponseSchema, familyPortalResponseSchema, type FamilyMessage, type FamilyPortalRide } from "@bussin/shared";
 import { useAuth } from "../auth/AuthProvider";
 import { BusAlerts } from "./BusAlerts";
+import { InstallBanner } from "../install/InstallGuide";
 
 const clock = (value: string | number) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
@@ -346,6 +347,7 @@ export function FamilyPortalPage({ preview }: { preview?: { memberId: string } }
       <div className="wm">BUSSIN<span>Family · {tenant?.name ?? ""}</span></div>
       {!preview && <button type="button" onClick={() => void logout()}>Sign out</button>}
     </header>
+    {!preview && <InstallBanner who="parent" />}
     <h1 className="fh1">Your bus</h1>
     {error && <p className="ferror" role="alert">{error}</p>}
     {split.top.length > 0 && <section className="fmsgs" aria-label="Messages">

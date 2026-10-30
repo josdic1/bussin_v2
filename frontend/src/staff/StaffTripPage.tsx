@@ -7,6 +7,7 @@ import { bulkTargets, loadQueue, newId, resultOf, saveQueue, withQueue, type Que
 import { AlertSheet, CrewHelp, useCrewAlerts } from "./CrewAlerts";
 import type { TripAlertKind } from "@bussin/shared";
 import "./crew.css";
+import { InstallBanner } from "../install/InstallGuide";
 
 /*
  * The counselor phone. Everyone on the crew does Ride Check for their trip.
@@ -306,6 +307,7 @@ export function StaffTripPage({ preview }: { preview?: { memberId: string; name:
         <button type="button" onClick={() => void t.signOut()}>Sign out</button>
       </div>}
     </header>
+    {!preview && <InstallBanner who="counselor" />}
 
     {trip === undefined && <section className="cr-card"><p className="cr-muted">Checking with Dispatch…</p></section>}
     {trip === null && <section className="cr-card"><span className="cr-eyebrow">{t.justCompleted ? "Trip complete" : "No trip yet"}</span>

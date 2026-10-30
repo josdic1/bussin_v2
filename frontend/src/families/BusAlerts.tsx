@@ -111,7 +111,7 @@ export function BusAlerts({ preview }: { preview?: boolean }) {
     </> : state === "blocked" ? <div><b>Alerts are blocked on this phone</b>
       <small>Allow notifications for this site in your phone&rsquo;s settings, then reload.</small></div>
       : <div><b>Want bus alerts on your iPhone?</b>
-        <small>Tap the Share button, then &ldquo;Add to Home Screen&rdquo;. Open Bussin from the home screen and turn alerts on there.</small></div>}
+        <small>Add Bussin to your home screen first (the button at the top of this page), then turn alerts on there.</small></div>}
     {note && <p className="falerts-note" role="status">{note}</p>}
   </section>;
 }
