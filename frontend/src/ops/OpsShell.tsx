@@ -1,11 +1,14 @@
 import {
-  createContext, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode
+  createContext, lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode
 } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { ChangeMyPassword } from "../auth/ChangeMyPassword";
 import { useAuth } from "../auth/AuthProvider";
 import { initials } from "./format";
 import { loadWatch, saveWatch, ViewAsDock, ViewAsPicker, type Watch } from "./ViewAs";
+
+// The message form, loaded only when the floating button is pressed.
+const Compose = lazy(() => import("../messages/MessagesPage").then((module) => ({ default: module.Compose })));
 
 /** Desktop gets the sidebar and three-pane layouts; phones get stacked cards and bottom tabs. */
 export type ViewMode = "desktop" | "adv";
@@ -101,6 +104,13 @@ export function OpsShell() {
   </Overlay>;
   const viewAsButton = realAdmin && <button type="button" className={`va-btn${dispatchView || watch ? " on" : ""}`} onClick={() => setPicking(true)}>
     View as{dispatchView ? ": Dispatch" : watch ? `: ${watch.name}` : ""}</button>;
+  // Send families a message from any page. Hidden on Messages, which has the form already.
+  const [composing, setComposing] = useState(false);
+  const quickSend = isAdmin && here !== "/messages" && !(watch && !watchHidden && mode !== "desktop")
+    && <button type="button" className={`qsend${docked ? " docked" : ""}`} onClick={() => setComposing(true)}>Message families</button>;
+  const quickSheet = composing && <Overlay onClose={() => setComposing(false)}>
+    <Suspense fallback={<p className="hint">Loading…</p>}><Compose sheet onSent={() => setComposing(false)} /></Suspense>
+  </Overlay>;
   const tenantName = tenant?.name ?? "Bussin";
   const name = member?.display_name ?? "";
   const link = (page: Page) => <NavLink key={page.path} to={page.path} end={page.path === "/"}
@@ -163,6 +173,8 @@ export function OpsShell() {
       {body}
       {passwordSheet}
       {viewAsSheet}
+      {quickSend}
+      {quickSheet}
       {watch && realAdmin && <ViewAsDock watch={watch} desktop={mode === "desktop"} hidden={watchHidden} onHide={setWatchHidden}
         onChange={() => setPicking(true)} onClose={() => setWatch(null)} />}
       <div className={`toast${toastShown ? " show" : ""}`} role="status" aria-live="polite">{toastText}</div>

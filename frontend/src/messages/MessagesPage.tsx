@@ -10,7 +10,7 @@ import { useOps } from "../ops/OpsShell";
 import { Confirm, ErrorNote, Head, NoMatch, Seg } from "../ops/ui";
 import { usePolling } from "../ops/useBoard";
 
-const AUDIENCES: [MessageAudience, string][] = [["all", "Everyone"], ["route", "A route"], ["trip", "A trip"], ["rider", "One child"]];
+const AUDIENCES: [MessageAudience, string][] = [["all", "Everyone"], ["route", "A line"], ["trip", "A trip"], ["rider", "One child"]];
 
 const QUICK = [
   "The bus is running about 10 minutes late.",
@@ -49,7 +49,8 @@ function ReachLine({ reach, loading }: { reach: MessageReach | null; loading: bo
   </p>;
 }
 
-function Compose({ onSent }: { onSent: () => void }) {
+/** The message form. On the Messages page it is a panel; from the floating button it fills a sheet. */
+export function Compose({ onSent, sheet = false }: { onSent: () => void; sheet?: boolean }) {
   const { toast } = useOps();
   const [choice, setChoice] = useState<Choice>({ audience: "all", routeFamilyId: "", tripId: "", riderId: "" });
   const [body, setBody] = useState("");
@@ -61,6 +62,7 @@ function Compose({ onSent }: { onSent: () => void }) {
   const [reachLoading, setReachLoading] = useState(false);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -113,8 +115,9 @@ function Compose({ onSent }: { onSent: () => void }) {
     setError("");
     try {
       await send("POST", "/api/messages", { target, body: body.trim() }, "Could not send the message.");
-      toast(`Sent to ${reach?.guardians ?? ""} ${plural(reach?.guardians ?? 0, "guardian", "guardians")}.`);
+      toast(`Sent to ${reach?.guardians ?? ""} ${plural(reach?.guardians ?? 0, "parent", "parents")}.`);
       setBody("");
+      setConfirming(false);
       onSent();
     } catch (cause) {
       setError(message(cause, "Could not send the message."));
@@ -122,17 +125,19 @@ function Compose({ onSent }: { onSent: () => void }) {
   }
 
   const ready = !!target && !!body.trim() && !!reach?.guardians && !sending;
-  const pick = (next: Partial<Choice>) => { setChoice((current) => ({ ...current, ...next })); setError(""); };
+  const pick = (next: Partial<Choice>) => { setChoice((current) => ({ ...current, ...next })); setError(""); setConfirming(false); };
+  const families = reach?.guardians ?? 0;
 
-  return <section className="panel msg-compose">
-    <div className="panel-head"><h3>New message</h3></div>
+  return <section className={sheet ? "msg-compose msg-sheet" : "panel msg-compose"}>
+    {sheet ? <><p className="eyebrow">MESSAGE FAMILIES</p><h2 className="dt">Send a message</h2></>
+      : <div className="panel-head"><h3>New message</h3></div>}
     <div className="msg-body">
       <div className="msg-field"><b className="lt">Send to</b>
         <Seg label="Send to" value={choice.audience} onChange={(audience) => pick({ audience })} items={AUDIENCES} /></div>
 
-      {choice.audience === "route" && <label className="msg-field"><b className="lt">Route</b>
+      {choice.audience === "route" && <label className="msg-field"><b className="lt">Line</b>
         <select value={choice.routeFamilyId} onChange={(event) => pick({ routeFamilyId: event.target.value })}>
-          <option value="">Choose a route</option>
+          <option value="">Choose a line</option>
           {routes.map((route) => <option key={route.id} value={route.id}>{route.name} (AM and PM riders)</option>)}
         </select></label>}
 
@@ -159,24 +164,22 @@ function Compose({ onSent }: { onSent: () => void }) {
           </>}
       </div>}
 
+      <div className="msg-field"><b className="lt">Tap to start with</b>
+        <div className="msg-quick">{QUICK.map((text) => <button key={text} type="button" className={body === text ? "on" : ""}
+          onClick={() => { setBody(text); setConfirming(false); }}>{text}</button>)}</div></div>
+
       <label className="msg-field"><b className="lt">Message</b>
-        <textarea value={body} maxLength={MESSAGE_MAX_LENGTH} rows={5} placeholder="Type what families should know"
-          onChange={(event) => setBody(event.target.value)} /></label>
-      <div className="msg-row">
-        <select className="msg-starter" value="" aria-label="Use a starter message"
-          onChange={(event) => { if (event.target.value) setBody(event.target.value); }}>
-          <option value="">Use a starter…</option>
-          {QUICK.map((text) => <option key={text} value={text}>{text}</option>)}
-        </select>
-        <span className="msg-count">{body.length}/{MESSAGE_MAX_LENGTH}</span>
-      </div>
+        <textarea value={body} maxLength={MESSAGE_MAX_LENGTH} rows={sheet ? 4 : 5} placeholder="Type what families should know"
+          onChange={(event) => { setBody(event.target.value); setConfirming(false); }} /></label>
+      <div className="msg-row"><span /><span className="msg-count">{body.length}/{MESSAGE_MAX_LENGTH}</span></div>
       <ErrorNote text={error} />
-      <div className="msg-foot">
-        <ReachLine reach={reach} loading={reachLoading} />
-        <button type="button" className="btn btn-primary msg-send" disabled={!ready} onClick={() => void submit()}>
-          {sending ? "Sending…" : "Send"}
-        </button>
-      </div>
+      {confirming
+        ? <Confirm text={`Send to ${families} ${plural(families, "parent", "parents")}?`} yes={sending ? "Sending…" : "Send now"}
+          busy={sending} onYes={() => void submit()} onNo={() => setConfirming(false)} />
+        : <div className="msg-foot">
+          <ReachLine reach={reach} loading={reachLoading} />
+          <button type="button" className="btn btn-primary msg-send" disabled={!ready} onClick={() => setConfirming(true)}>Send</button>
+        </div>}
     </div>
   </section>;
 }
